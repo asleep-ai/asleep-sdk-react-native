@@ -26,7 +26,7 @@
     "url": "https://github.com/asleep-ai/asleep-sdk-react-native/issues"
   },
   "author": "Qube <qube@asleep.ai> (https://github.com/Sun-Woo-Kim)",
-  "license": "MIT",
+  "license": "SEE LICENSE IN <filename>",
   "homepage": "https://github.com/asleep-ai/asleep-sdk-react-native#readme",
   "devDependencies": {
     "@types/react": "^18.0.25",
