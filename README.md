@@ -1,3 +1,7 @@
+# ⚠️ Experimental Version - Not Recommended for Production Use
+
+# This is an experimental version of the SDK and is not recommended for production use. Please be aware that it may contain bugs and breaking changes.
+
 # react-native-asleep
 
 Asleep SDK for React Native
@@ -25,11 +29,8 @@ npm install react-native-asleep
 
 Run `npx pod-install` after installing the npm package.
 
-
 ### Configure for Android
-
-
 
 # Contributing
 
-Contributions are very welcome! Please refer to guidelines described in the [contributing guide]( https://github.com/expo/expo#contributing).
+Contributions are very welcome! Please refer to guidelines described in the [contributing guide](https://github.com/expo/expo#contributing).
