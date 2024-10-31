@@ -1,0 +1,77 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+
+group = 'ai.asleep.reactnative'
+version = '2.4.3'
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+// If you want to use the managed Android SDK versions from expo-modules-core, set this to true.
+// The Android SDK versions will be bumped from time to time in SDK releases and may introduce breaking changes in your module code.
+// Most of the time, you may like to manage the Android SDK versions yourself.
+def useManagedAndroidSdkVersions = false
+if (useManagedAndroidSdkVersions) {
+  useDefaultAndroidSdkVersions()
+} else {
+  buildscript {
+    // Simple helper that allows the root project to override versions declared by this library.
+    ext.safeExtGet = { prop, fallback ->
+      rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+    }
+  }
+  project.android {
+    compileSdkVersion safeExtGet("compileSdkVersion", 34)
+    defaultConfig {
+      minSdkVersion safeExtGet("minSdkVersion", 24)
+      targetSdkVersion safeExtGet("targetSdkVersion", 34)
+    }
+  }
+}
+
+android {
+  namespace "ai.asleep.reactnative"
+  defaultConfig {
+    versionCode 1
+    versionName "2.4.3"
+  }
+  lintOptions {
+    abortOnError false
+  }
+  sourceSets {
+    main {
+      aidl.srcDirs = ['src/main/aidl']
+    }
+  }
+  buildFeatures {
+    aidl true
+  }
+}
+
+repositories {
+  flatDir {
+    dirs 'libs'
+  }
+}
+
+dependencies {
+  implementation fileTree(dir: 'libs', include: ['*.aar'])
+  compileOnly(name: 'AsleepSDK', ext: 'aar')
+  implementation 'com.facebook.react:react-native:+'
+  implementation 'com.google.code.gson:gson:2.8.9'
+  implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.0"
+  implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.4.0"
+  implementation "androidx.lifecycle:lifecycle-service:2.7.0"
+  implementation "androidx.lifecycle:lifecycle-common-java8:2.7.0"
+}
