@@ -3,8 +3,8 @@ import {
   AsleepEventType,
   AsleepReport,
   AsleepSession,
-} from "./src/Asleep.types";
-import AsleepModule from "./src/AsleepModule";
+} from "./Asleep.types";
+import AsleepModule from "./AsleepModule";
 import { EventEmitter } from "expo-modules-core";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Platform } from "react-native";
@@ -349,4 +349,4 @@ export type {
   AsleepStat,
   AsleepSession,
   AsleepEventType,
-} from "./src/Asleep.types";
+} from "./Asleep.types";
