@@ -7,7 +7,7 @@ import {
   StyleSheet,
   SafeAreaView,
 } from "react-native";
-import Asleep from "react-native-asleep";
+import { useAsleep, Asleep } from "react-native-asleep";
 
 const API_KEY = process.env.EXPO_PUBLIC_API_KEY || "";
 
@@ -15,13 +15,24 @@ const SHOW_DEBUG_LOG = true;
 
 const App = () => {
   const [logs, setLogs] = useState<string[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
+
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const {
+    userId,
+    startTracking,
+    stopTracking,
+    initAsleepConfig,
+    setCustomNotification,
+    getReport,
+    getReportList,
+    ...asleepMethods
+  } = useAsleep();
 
   useEffect(() => {
     const onUserJoined = (data: any) => {
       addLog(`User joined: ${data.userId}`);
-      setUserId(data.userId);
+      // setUserId(data.userId);
     };
     const onUserJoinFailed = (error: any) =>
       addLog(`User join failed: ${error.error}`);
@@ -44,55 +55,55 @@ const App = () => {
       }
     };
 
-    const userJoinedListener = Asleep.addEventListener(
-      "onUserJoined",
-      onUserJoined
-    );
-    const userJoinFailedListener = Asleep.addEventListener(
-      "onUserJoinFailed",
-      onUserJoinFailed
-    );
-    const userDeletedListener = Asleep.addEventListener(
-      "onUserDeleted",
-      onUserDeleted
-    );
-    const trackingCreatedListener = Asleep.addEventListener(
-      "onTrackingCreated",
-      onTrackingCreated
-    );
-    const trackingUploadedListener = Asleep.addEventListener(
-      "onTrackingUploaded",
-      onTrackingUploaded
-    );
-    const trackingClosedListener = Asleep.addEventListener(
-      "onTrackingClosed",
-      onTrackingClosed
-    );
-    const trackingFailedListener = Asleep.addEventListener(
-      "onTrackingFailed",
-      onTrackingFailed
-    );
-    const trackingInterruptedListener = Asleep.addEventListener(
-      "onTrackingInterrupted",
-      onTrackingInterrupted
-    );
-    const trackingResumedListener = Asleep.addEventListener(
-      "onTrackingResumed",
-      onTrackingResumed
-    );
-    const micPermissionDeniedListener = Asleep.addEventListener(
-      "onMicPermissionDenied",
-      onMicPermissionDenied
-    );
+    // const userJoinedListener = Asleep.addEventListener(
+    //   "onUserJoined",
+    //   onUserJoined
+    // );
+    // const userJoinFailedListener = Asleep.addEventListener(
+    //   "onUserJoinFailed",
+    //   onUserJoinFailed
+    // );
+    // const userDeletedListener = Asleep.addEventListener(
+    //   "onUserDeleted",
+    //   onUserDeleted
+    // );
+    // const trackingCreatedListener = Asleep.addEventListener(
+    //   "onTrackingCreated",
+    //   onTrackingCreated
+    // );
+    // const trackingUploadedListener = Asleep.addEventListener(
+    //   "onTrackingUploaded",
+    //   onTrackingUploaded
+    // );
+    // const trackingClosedListener = Asleep.addEventListener(
+    //   "onTrackingClosed",
+    //   onTrackingClosed
+    // );
+    // const trackingFailedListener = Asleep.addEventListener(
+    //   "onTrackingFailed",
+    //   onTrackingFailed
+    // );
+    // const trackingInterruptedListener = Asleep.addEventListener(
+    //   "onTrackingInterrupted",
+    //   onTrackingInterrupted
+    // );
+    // const trackingResumedListener = Asleep.addEventListener(
+    //   "onTrackingResumed",
+    //   onTrackingResumed
+    // );
+    // const micPermissionDeniedListener = Asleep.addEventListener(
+    //   "onMicPermissionDenied",
+    //   onMicPermissionDenied
+    // );
 
-    const debugLogListener = Asleep.addEventListener("onDebugLog", onDebugLog);
+    // const debugLogListener = Asleep.addEventListener("onDebugLog", onDebugLog);
 
     const initSDK = async () => {
       try {
-        await Asleep.initAsleepConfig({
+        const didInitSDK = await initAsleepConfig({
           apiKey: API_KEY,
         });
-        addLog("SDK initialized");
+        addLog(`SDK initialized: ${didInitSDK}`);
       } catch (error: any) {
         addLog(`Initialization error: ${error.message}`);
       }
@@ -101,17 +112,17 @@ const App = () => {
     initSDK();
 
     return () => {
-      userJoinedListener.remove();
-      userJoinFailedListener.remove();
-      userDeletedListener.remove();
-      trackingCreatedListener.remove();
-      trackingUploadedListener.remove();
-      trackingClosedListener.remove();
-      trackingFailedListener.remove();
-      trackingInterruptedListener.remove();
-      trackingResumedListener.remove();
-      micPermissionDeniedListener.remove();
-      debugLogListener.remove();
+      // userJoinedListener.remove();
+      // userJoinFailedListener.remove();
+      // userDeletedListener.remove();
+      // trackingCreatedListener.remove();
+      // trackingUploadedListener.remove();
+      // trackingClosedListener.remove();
+      // trackingFailedListener.remove();
+      // trackingInterruptedListener.remove();
+      // trackingResumedListener.remove();
+      // micPermissionDeniedListener.remove();
+      // debugLogListener.remove();
     };
   }, []);
 
@@ -123,25 +134,25 @@ const App = () => {
     ]);
   };
 
-  const startTracking = async () => {
+  const _startTracking = async () => {
     try {
-      await Asleep.startTracking();
+      await startTracking();
       addLog("Tracking started");
     } catch (error: any) {
       addLog(`Start error: ${error.message}`);
     }
   };
 
-  const stopTracking = async () => {
+  const _stopTracking = async () => {
     try {
-      await Asleep.stopTracking();
+      await stopTracking();
       addLog("Tracking stopped");
     } catch (error: any) {
       addLog(`Stop error: ${error.message}`);
     }
   };
 
-  const getReport = async () => {
+  const _getReport = async () => {
     if (!sessionId) {
       addLog("Session ID is not set.");
       return;
@@ -156,7 +167,7 @@ const App = () => {
     }
   };
 
-  const getReportList = async () => {
+  const _getReportList = async () => {
     try {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
@@ -190,8 +201,8 @@ const App = () => {
           <View style={{ height: 100 }} />
         </ScrollView>
         <View style={styles.buttonContainer}>
-          <Button title="Start Tracking" onPress={startTracking} />
-          <Button title="Stop Tracking" onPress={stopTracking} />
+          <Button title="Start Tracking" onPress={_startTracking} />
+          <Button title="Stop Tracking" onPress={_stopTracking} />
         </View>
 
         <View style={styles.buttonContainer}>

@@ -58,6 +58,12 @@ android {
   buildFeatures {
     aidl true
   }
+  configurations.all {
+    resolutionStrategy {
+      force 'androidx.core:core:1.13.1'
+      force 'androidx.media:media:1.4.3'
+    }
+  }
 }
 
 repositories {
@@ -67,8 +73,14 @@ repositories {
 }
 
 dependencies {
-  implementation 'ai.asleep:asleepsdk:2.4.3'
-  implementation 'com.facebook.react:react-native:+'
+  implementation('ai.asleep:asleepsdk:2.4.3') {
+    exclude group: 'com.android.support'
+  }
+  
+  implementation('com.facebook.react:react-native:+') {
+    exclude group: 'com.android.support'
+  }
+  
   implementation 'com.google.code.gson:gson:2.8.9'
   implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.0"
   implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.4.0"
