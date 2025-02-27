@@ -4,7 +4,6 @@ import ai.asleep.asleepsdk.Asleep
 import ai.asleep.asleepsdk.data.AsleepConfig
 import ai.asleep.asleepsdk.data.Report
 import ai.asleep.asleepsdk.data.SleepSession
-import ai.asleep.reactnative.service.AsleepService
 import ai.asleep.asleepsdk.tracking.Reports
 import ai.asleep.asleepsdk.tracking.SleepTrackingManager
 import com.google.gson.Gson
@@ -37,10 +36,6 @@ import android.app.Application
 import kotlinx.coroutines.*
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
-import ai.asleep.reactnative.IAsleepService
-import ai.asleep.reactnative.IListener
-import ai.asleep.reactnative.data.ErrorCode
-import ai.asleep.reactnative.utils.PreferenceHelper
 import android.os.DeadObjectException
 import android.util.Log
 
@@ -56,9 +51,11 @@ class AsleepModule : Module() {
     val sequence: LiveData<Int?> get() = _sequence
 
     private var _reportManager: Reports? = null
-
-    private var asleepService: IAsleepService? = null
-    private var isBound = false
+    
+    // Added variables to replace PreferenceHelper
+    private var isTracking = false
+    private var savedApiKey: String? = null
+    private var savedUserId: String? = null
 
     val trackingState: LiveData<TrackingState> get() = _trackingState
     private var _trackingState = MutableLiveData(TrackingState.STATE_TRACKING_STOPPED)
@@ -67,124 +64,30 @@ class AsleepModule : Module() {
     companion object {
         public const val MICROPHONE_PERMISSION_REQUEST_CODE = 1001
     }
-
-
-    private val listener = object : IListener.Stub() {
-        override fun onUserIdReceived(userId: String) {
-            sendEvent("onDebugLog", mapOf("message" to "onUserIdReceived: $userId"))
-            sendEvent("onUserJoined", mapOf("userId" to userId))
-        }
-
-        override fun onSessionIdReceived(sessionId: String) {
-            sendEvent("onDebugLog", mapOf("message" to "onSessionIdReceived: $sessionId"))
-            sendEvent("onTrackingClosed", mapOf("sessionId" to sessionId))
-            _sessionId.postValue(sessionId)
-            _trackingState.postValue(TrackingState.STATE_TRACKING_STARTED)
-
-        }
-
-        override fun onSequenceReceived(sequence: Int) {
-            sendEvent("onDebugLog", mapOf("message" to "onSequenceReceived: $sequence"))
-            sendEvent("onTrackingUploaded", mapOf("sequence" to sequence))
-            _sequence.postValue(sequence)
-        }
-
-        override fun onErrorCodeReceived(errorCode: ErrorCode) {
-            sendEvent("onDebugLog", mapOf("message" to "onErrorCodeReceived: ${errorCode.code}"))
-            sendEvent("onTrackingFailed", mapOf("errorCode" to errorCode.code))
-        }
-
-        override fun onStopTrackingReceived(sessionId: String) {
-            sendEvent("onDebugLog", mapOf("message" to "onStopTrackingReceived: $sessionId"))
-            sendEvent("onTrackingClosed", mapOf("sessionId" to sessionId))
-            _sessionId.postValue(sessionId)
-            _trackingState.postValue(TrackingState.STATE_TRACKING_STOPPED)
-        }
-    }
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            try {
-                asleepService = IAsleepService.Stub.asInterface(service)
-                asleepService?.registerListener(listener)
-                isBound = true
-            } catch (e: Exception) {
-                Log.e("AsleepModule", "Service connection failed", e)
-            }
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            try {
-                if (isBound) {
-                    asleepService?.unregisterListener(listener)
-                    asleepService = null
-                    isBound = false
-
-                    appContext.currentActivity?.let { activity ->
-                        if (!activity.isFinishing) {
-                            sendEvent("onServiceDisconnected", mapOf("message" to "Service disconnected"))
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("AsleepModule", "Service disconnection error", e)
-            }
-        }
-    }
-
-
-    fun bindService() {
-        try {
-            if (!isBound) {
-                val intent = Intent(appContext.reactContext, AsleepService::class.java)
-                appContext.reactContext?.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-            }
-        } catch (e: Exception) {
-            Log.e("AsleepModule", "bindService failed", e)
-        }
-    }
-
-    fun unbindService() {
-        try {
-            if (isBound) {
-                appContext.reactContext?.unbindService(connection)
-                asleepService = null
-                isBound = false
-            }
-        } catch (e: Exception) {
-            Log.e("AsleepModule", "unbindService failed", e)
-        }
-    }
+ 
 
     override fun definition() = ModuleDefinition {
         Name("Asleep")
 
-        Events("onTrackingCreated", "onTrackingUploaded", "onTrackingClosed", "onTrackingFailed", "onUserJoined", "onUserJoinFailed", "onDebugLog")
+        Events("onTrackingCreated", "onTrackingUploaded", "onTrackingClosed", "onTrackingFailed", 
+               "onUserJoined", "onUserJoinFailed", "onDebugLog", "onTrackingStarted", 
+               "onTrackingProgress", "onTrackingFinished")
 
         AsyncFunction("initAsleepConfig") { apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise ->
             try {
                 val context = appContext.reactContext!!.applicationContext as Application
-                val isTracking = PreferenceHelper.isTracking(context)
-                val savedApiKey = PreferenceHelper.getApiKey(context)
-                val savedUserId = PreferenceHelper.getUserId(context)
                 
-                 
                 if (isTracking && savedApiKey == apiKey && savedUserId == userId) {
-                     
-                    if (AsleepService.isAsleepServiceRunning(context)) {
-                         
-                        bindService()
-                        promise.resolve("Service reconnected")
-                        sendEvent("onDebugLog", mapOf("message" to "Service reconnected"))
-                        return@AsyncFunction
-                    }
+                    promise.resolve("Service reconnected")
+                    sendEvent("onDebugLog", mapOf("message" to "Service reconnected"))
+                    return@AsyncFunction
                 }
 
-                 
-                PreferenceHelper.putApiKey(context, apiKey)
+                // Store API key in memory instead of preferences
+                savedApiKey = apiKey
 
                 Asleep.initAsleepConfig(
-                    context = appContext.reactContext!!.applicationContext as Application,
+                    context = context,
                     apiKey = apiKey,
                     userId = userId,
                     baseUrl = baseUrl,
@@ -193,11 +96,14 @@ class AsleepModule : Module() {
                     object : Asleep.AsleepConfigListener {
                         override fun onSuccess(userId: String?, asleepConfig: AsleepConfig?) {
                             if (userId != null) {
-                                PreferenceHelper.putUserId(appContext.reactContext!!.applicationContext as Application, userId)
+                                sendEvent("onDebugLog", mapOf("message" to "UserId is not null"))
+                                // Store userId in memory instead of preferences
+                                savedUserId = userId
                             }
                             _asleepConfig = asleepConfig
 
                             if (_asleepConfig != null) { 
+                                sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not null"))
                                 _reportManager = Asleep.createReports(_asleepConfig)
                             } else {
                                 sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is null"))
@@ -205,12 +111,13 @@ class AsleepModule : Module() {
                                 return
                             }
 
-                            bindService()
+                            sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not null"))
 
                             promise.resolve("Initialization successful")
                             try {
                                 sendEvent("onDebugLog", mapOf("message" to "Initialization successful"))
                             } catch (e: Exception) {
+                                sendEvent("onDebugLog", mapOf("message" to "Error sending debug log: ${e.message}"))
                                 println("Error sending debug log: ${e.message}")
                             }
                         }
@@ -229,46 +136,85 @@ class AsleepModule : Module() {
         }
         
         AsyncFunction("startTracking") { promise: Promise ->
-            val activity = appContext.currentActivity
-            val context = appContext.reactContext!!.applicationContext as Application
-            PreferenceHelper.putIsTracking(context, true)
-            if (activity != null) {
-                val intent = Intent(activity, AsleepService::class.java)
-                intent.action = AsleepService.ACTION_START_TRACKING
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    activity.startForegroundService(intent)
+            try {
+                val audioPermission = ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.RECORD_AUDIO)
+                val fgsPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.FOREGROUND_SERVICE_MICROPHONE)
                 } else {
-                    activity.startService(intent)
+                    sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
+                    PackageManager.PERMISSION_GRANTED
                 }
-                promise.resolve("Tracking started")
-            } else {
-                promise.reject("ACTIVITY_NOT_FOUND", "Activity not found", null)
+                if (audioPermission != PackageManager.PERMISSION_GRANTED || fgsPermission != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(
+                        appContext.currentActivity!!,
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
+                            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.FOREGROUND_SERVICE_MICROPHONE)
+                        } else {
+                            sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
+                            arrayOf(Manifest.permission.RECORD_AUDIO)
+                        },
+                        MICROPHONE_PERMISSION_REQUEST_CODE
+                    )
+                }
+
+
+
+                
+                val context = appContext.reactContext!!.applicationContext as Application
+                sendEvent("onDebugLog", mapOf("message" to "Starting tracking"))
+                if (_asleepConfig == null) {
+                    sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not initialized"))
+                    promise.reject("UNINITIALIZED_CONFIG", "AsleepConfig is not initialized", null)
+                    return@AsyncFunction
+                } else {
+                    sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is initialized"))
+                }
+
+                sendEvent("onDebugLog", mapOf("message" to "Starting tracking!"))
+                
+                Asleep.beginSleepTracking(
+                    asleepConfig = _asleepConfig!!,
+                    asleepTrackingListener = object : Asleep.AsleepTrackingListener {
+                        override fun onFail(errorCode: Int, detail: String) {
+                            sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
+                            promise.reject("TRACKING_FAILED", "Sleep tracking failed: $errorCode - $detail", null)
+                        }
+                        
+                        override fun onFinish(sessionId: String?) {
+                            isTracking = false
+                            sendEvent("onTrackingFinished", mapOf("sessionId" to (sessionId ?: "")))
+                            sendEvent("onDebugLog", mapOf("message" to "Sleep tracking finished: $sessionId"))
+                        }
+                        
+                        override fun onPerform(sequence: Int) {
+                            sendEvent("onTrackingProgress", mapOf("sequence" to sequence))
+                        }
+                        
+                        override fun onStart(sessionId: String) {
+                            isTracking = true
+                            sendEvent("onTrackingStarted", mapOf("sessionId" to sessionId))
+                            sendEvent("onDebugLog", mapOf("message" to "Sleep tracking started: $sessionId"))
+                            promise.resolve(mapOf("sessionId" to sessionId))
+                        }
+                    }
+                )
+
+                sendEvent("onDebugLog", mapOf("message" to "Tracking started"))
+            } catch (e: Exception) {
+                sendEvent("onDebugLog", mapOf("message" to "Failed to start tracking: ${e.message}"))
+                promise.reject("UNEXPECTED_ERROR", "Failed to start tracking: ${e.message}", e)
             }
         }
 
         Function("isTracking") {
-            val context = appContext.reactContext!!.applicationContext as Application
-            return@Function PreferenceHelper.isTracking(context)
+            return@Function isTracking
         }
 
         AsyncFunction("stopTracking") { promise: Promise ->
-            val activity = appContext.currentActivity
-            val context = appContext.reactContext!!.applicationContext as Application
-            PreferenceHelper.putIsTracking(context, false)
-            if (activity != null) {
-                val intent = Intent(activity, AsleepService::class.java)
-                intent.action = AsleepService.ACTION_STOP_TRACKING
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    activity.startForegroundService(intent)
-                } else {
-                    activity.startService(intent)
-                }
-                promise.resolve("Tracking stopped")
-            } else {
-                promise.reject("ACTIVITY_NOT_FOUND", "Activity not found", null)
-            }
-
+            Asleep.endSleepTracking()
+            isTracking = false
+            promise.resolve("Tracking stopped")
         }
 
         AsyncFunction("getReport") { sessionId: String, promise: Promise ->
@@ -352,18 +298,6 @@ class AsleepModule : Module() {
                 }
             }
         }
-
-        AsyncFunction("setCustomNotification") { title: String, text: String, promise: Promise ->
-            try {
-                val context = appContext.reactContext!!.applicationContext as Application
-                PreferenceHelper.putNotificationTitle(context, title)
-                PreferenceHelper.putNotificationText(context, text)
-                promise.resolve(null)
-            } catch (e: Exception) {
-                promise.reject("NOTIFICATION_ERROR", "Failed to set custom notification: ${e.message}", e)
-            }
-        }
-
     }
 
     private fun <T> T.serializeToMap(): Map<String, Any> {
