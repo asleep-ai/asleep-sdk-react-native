@@ -19,7 +19,6 @@ public class AsleepModule: Module {
         Events("onUserJoined")  
         Events("onUserJoinFailed") 
         Events("onUserDeleted")
-        Events("onAnalysing")
         
         Events("onDebugLog")
 
@@ -135,10 +134,6 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
 
     public func didClose(sessionId: String) {
         sendEvent("onTrackingClosed", ["sessionId": sessionId])
-    }
-
-    public func analysing(session: Asleep.Model.Session) {
-        sendEvent("onAnalysing", ["session": session])
     }
 
     public func didInterrupt() {

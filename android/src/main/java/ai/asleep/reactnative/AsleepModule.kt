@@ -70,8 +70,8 @@ class AsleepModule : Module() {
         Name("Asleep")
 
         Events("onTrackingCreated", "onTrackingUploaded", "onTrackingClosed", "onTrackingFailed", 
-               "onUserJoined", "onUserJoinFailed", "onDebugLog", "onTrackingStarted", 
-               "onTrackingProgress", "onTrackingFinished")
+               "onTrackingInterrupted", "onTrackingResumed", "onMicPermissionDenied",
+               "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog")
 
         AsyncFunction("initAsleepConfig") { apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise ->
             try {
@@ -183,17 +183,18 @@ class AsleepModule : Module() {
                         
                         override fun onFinish(sessionId: String?) {
                             isTracking = false
-                            sendEvent("onTrackingFinished", mapOf("sessionId" to (sessionId ?: "")))
+                            sendEvent("onTrackingClosed", mapOf("sessionId" to (sessionId ?: "")))
                             sendEvent("onDebugLog", mapOf("message" to "Sleep tracking finished: $sessionId"))
                         }
                         
                         override fun onPerform(sequence: Int) {
-                            sendEvent("onTrackingProgress", mapOf("sequence" to sequence))
+                            sendEvent("onTrackingUploaded", mapOf("sequence" to sequence))
+                            sendEvent("onDebugLog", mapOf("message" to "Sleep tracking performing: $sequence"))
                         }
                         
                         override fun onStart(sessionId: String) {
                             isTracking = true
-                            sendEvent("onTrackingStarted", mapOf("sessionId" to sessionId))
+                            sendEvent("onTrackingCreated", mapOf("sessionId" to sessionId))
                             sendEvent("onDebugLog", mapOf("message" to "Sleep tracking started: $sessionId"))
                             promise.resolve(mapOf("sessionId" to sessionId))
                         }
