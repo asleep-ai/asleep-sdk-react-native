@@ -19,7 +19,6 @@ public class AsleepModule: Module {
         Events("onUserJoined")  
         Events("onUserJoinFailed") 
         Events("onUserDeleted")
-        Events("onAnalysing")
         
         Events("onDebugLog")
 
@@ -137,10 +136,6 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
         sendEvent("onTrackingClosed", ["sessionId": sessionId])
     }
 
-    public func analysing(session: Asleep.Model.Session) {
-        sendEvent("onAnalysing", ["session": session])
-    }
-
     public func didInterrupt() {
         sendEvent("onTrackingInterrupted", [:])
     }
@@ -151,6 +146,10 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
 
     public func micPermissionWasDenied() {
         sendEvent("onMicPermissionDenied", [:])
+    }
+    
+    public func analysing(session: Asleep.Model.Session) {
+        sendEvent("onDebugLog", ["message": "Analysing session: \(session)"])
     }
 }
 
