@@ -1,3 +1,6 @@
+import { EventEmitter } from "expo-modules-core";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, Platform } from "react-native";
 import {
   AsleepConfig,
   AsleepEventType,
@@ -5,9 +8,6 @@ import {
   AsleepSession,
 } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
-import { EventEmitter } from "expo-modules-core";
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Platform } from "react-native";
 
 const emitter = new EventEmitter(AsleepModule);
 
@@ -37,10 +37,11 @@ class Asleep {
       Alert.alert("Microphone permission denied");
       throw new Error("Microphone permission denied");
     }
+
     return AsleepModule.startTracking();
   };
 
-  stopTracking = (): Promise<string> => {
+  stopTracking = async (): Promise<string> => {
     return AsleepModule.stopTracking();
   };
 
@@ -113,6 +114,7 @@ class Asleep {
 
 export const useAsleep = () => {
   const [didClose, setDidClose] = useState(false);
+  const [isTracking, setIsTracking] = useState(asleep.isTracking());
 
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -133,6 +135,8 @@ export const useAsleep = () => {
     try {
       console.log("[useAsleep] startTracking");
       setDidClose(false);
+      setIsTracking(true);
+      console.log("[useAsleep] startTracking isTracking: ", isTracking);
       await asleep.startTracking();
     } catch (err: any) {
       console.error("startTracking error:", err);
@@ -143,21 +147,19 @@ export const useAsleep = () => {
   const stopTracking = useCallback(async () => {
     try {
       console.log("[useAsleep] stopTracking");
-      await asleep.stopTracking();
+      const sessionId = await asleep.stopTracking();
       setDidClose(true);
+      setSessionId(sessionId);
+      setIsTracking(false);
     } catch (err: any) {
       console.error("stopTracking error:", err);
       setError(err.message);
     }
   }, []);
 
-  const isTrackingService = useCallback(() => {
-    return asleep.isTracking();
-  }, []);
-
   const getReport = async (sessionId: string): Promise<AsleepReport | null> => {
     try {
-      console.log("[useAsleep] getReport");
+      console.log("[useAsleep] getReport sessionId: ", sessionId);
       const report = await asleep.getReport(sessionId);
       return report;
     } catch (err: any) {
@@ -240,8 +242,14 @@ export const useAsleep = () => {
       setUserId(null);
       addLog(`[onUserDeleted] userId: ${data.userId}`);
     };
-    const onTrackingCreated = () => {
-      addLog(`[onTrackingCreated]`);
+    const onTrackingCreated = (data: any) => {
+      setIsTracking(true);
+      if (data && data.sessionId) {
+        setSessionId(data.sessionId);
+      }
+      addLog(
+        `[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""}`
+      );
     };
     const onTrackingUploaded = (data: any) => {
       addLog(`[onTrackingUploaded] sequence: ${data.sequence}`);
@@ -249,17 +257,21 @@ export const useAsleep = () => {
     const onTrackingClosed = (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
       setDidClose(true);
+      setIsTracking(false);
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     };
     const onTrackingFailed = (error: any) => {
       const errorString = JSON.stringify(error);
       setError(errorString);
+      setIsTracking(false);
       addLog(`[onTrackingFailed] error: ${errorString}`);
     };
     const onTrackingInterrupted = () => {
+      setIsTracking(false);
       addLog(`[onTrackingInterrupted]`);
     };
     const onTrackingResumed = () => {
+      setIsTracking(true);
       addLog(`[onTrackingResumed]`);
     };
     const onMicPermissionDenied = () => {
@@ -336,7 +348,7 @@ export const useAsleep = () => {
     stopTracking,
     getReport,
     getReportList,
-    isTrackingService,
+    isTracking,
   };
 };
 
@@ -345,8 +357,8 @@ export default asleep;
 
 export type {
   AsleepConfig,
-  AsleepReport,
-  AsleepStat,
-  AsleepSession,
   AsleepEventType,
+  AsleepReport,
+  AsleepSession,
+  AsleepStat,
 } from "./Asleep.types";

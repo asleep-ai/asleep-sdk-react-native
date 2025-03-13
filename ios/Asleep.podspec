@@ -10,7 +10,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
-  s.dependency 'AsleepSDK', '2.4.7'
+  s.dependency 'AsleepSDK', '3.1.1'
 
 
   # Swift/Objective-C compatibility

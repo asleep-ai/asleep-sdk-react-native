@@ -1,8 +1,8 @@
 PODS:
   - Asleep (1.0.0):
-    - AsleepSDK (= 2.4.7)
+    - AsleepSDK (= 3.1.1)
     - ExpoModulesCore
-  - AsleepSDK (2.4.7)
+  - AsleepSDK (3.1.1)
   - boost (1.83.0)
   - DoubleConversion (1.1.6)
   - EXConstants (16.0.2):
@@ -1405,8 +1405,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  Asleep: 88123f47288ee06e95e0f73526d9db19b7b76c19
-  AsleepSDK: b92debf2dc6d6c1e7878798bf78a802a29993c47
+  Asleep: 36dbc355479f73971cb3d26e9185263dd8f571cb
+  AsleepSDK: 4311e95e3adbf1a9b6c36312d21bbd56e2b69df1
   boost: d3f49c53809116a5d38da093a8aa78bf551aed09
   DoubleConversion: 76ab83afb40bddeeee456813d9c04f67f78771b5
   EXConstants: 409690fbfd5afea964e5e9d6c4eb2c2b59222c59

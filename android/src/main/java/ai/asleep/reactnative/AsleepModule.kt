@@ -78,7 +78,7 @@ class AsleepModule : Module() {
                 val context = appContext.reactContext!!.applicationContext as Application
                 
                 if (isTracking && savedApiKey == apiKey && savedUserId == userId) {
-                    promise.resolve("Service reconnected")
+                    promise.resolve(mapOf("userId" to (savedUserId ?: "")))
                     sendEvent("onDebugLog", mapOf("message" to "Service reconnected"))
                     return@AsyncFunction
                 }
@@ -99,6 +99,7 @@ class AsleepModule : Module() {
                                 sendEvent("onDebugLog", mapOf("message" to "UserId is not null"))
                                 // Store userId in memory instead of preferences
                                 savedUserId = userId
+                                sendEvent("onUserJoined", mapOf("userId" to userId))
                             }
                             _asleepConfig = asleepConfig
 
@@ -113,9 +114,10 @@ class AsleepModule : Module() {
 
                             sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not null"))
 
-                            promise.resolve("Initialization successful")
+                            // Return userId in the response instead of just a success message
+                            promise.resolve(mapOf("userId" to (userId ?: "")))
                             try {
-                                sendEvent("onDebugLog", mapOf("message" to "Initialization successful"))
+                                sendEvent("onDebugLog", mapOf("message" to "Initialization successful with userId: $userId"))
                             } catch (e: Exception) {
                                 sendEvent("onDebugLog", mapOf("message" to "Error sending debug log: ${e.message}"))
                                 println("Error sending debug log: ${e.message}")
@@ -124,6 +126,7 @@ class AsleepModule : Module() {
 
                         override fun onFail(errorCode: Int, detail: String) {
                             sendEvent("onDebugLog", mapOf("message" to "Initialization failed: $errorCode - $detail"))
+                            sendEvent("onUserJoinFailed", mapOf("errorCode" to errorCode, "detail" to detail))
                             promise.reject("INITIALIZATION_FAILED", "Initialization failed: $errorCode - $detail", null)
                         }
                     }

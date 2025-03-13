@@ -147,6 +147,10 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     public func micPermissionWasDenied() {
         sendEvent("onMicPermissionDenied", [:])
     }
+    
+    public func analysing(session: Asleep.Model.Session) {
+        sendEvent("onDebugLog", ["message": "Analysing session: \(session)"])
+    }
 }
 
 extension AsleepModule: AsleepDebugLoggerDelegate {

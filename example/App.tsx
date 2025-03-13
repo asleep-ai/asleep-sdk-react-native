@@ -1,11 +1,12 @@
+import moment from "moment";
 import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
   Button,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
+  Text,
+  View,
 } from "react-native";
 import asleep, { useAsleep } from "react-native-asleep";
 
@@ -23,10 +24,9 @@ const App = () => {
     startTracking,
     stopTracking,
     initAsleepConfig,
-    setCustomNotification,
     getReport,
     getReportList,
-    ...asleepMethods
+    isTracking,
   } = useAsleep();
 
   useEffect(() => {
@@ -152,45 +152,15 @@ const App = () => {
     }
   };
 
-  const _getReport = async () => {
-    if (!sessionId) {
-      addLog("Session ID is not set.");
-      return;
-    }
-
-    try {
-      console.log("sessionId", sessionId);
-      const report = await asleep.getReport(sessionId);
-      addLog(`Report retrieved: ${JSON.stringify(report)}`);
-    } catch (error: any) {
-      addLog(`Report error: ${error.message}`);
-    }
-  };
-
-  const _getReportList = async () => {
-    try {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      // "YYYY-MM-DD"
-      const yesterdayString = yesterday.toISOString().split("T")[0];
-      const today = new Date();
-      const todayString = today.toISOString().split("T")[0];
-      const reportList = await asleep.getReportList(
-        yesterdayString,
-        todayString
-      );
-      addLog(`Report list retrieved: ${JSON.stringify(reportList)}`);
-    } catch (error: any) {
-      addLog(`Report list error: ${error.message}`);
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.container}>
         <View>
           <Text>User ID: {userId}</Text>
           <Text>Session ID: {sessionId}</Text>
+          <Text>
+            Tracking Status: {isTracking ? "Tracking" : "Not Tracking"}
+          </Text>
         </View>
         <ScrollView style={styles.logContainer}>
           {logs.map((log, index) => (
@@ -206,8 +176,26 @@ const App = () => {
         </View>
 
         <View style={styles.buttonContainer}>
-          <Button title="Get Report" onPress={getReport} />
-          <Button title="Get Report List" onPress={getReportList} />
+          <Button
+            title="Get Report"
+            onPress={() => {
+              if (!sessionId) {
+                addLog("No session ID");
+                return;
+              }
+              getReport(sessionId);
+            }}
+          />
+          <Button
+            title="Get Report List"
+            onPress={() => {
+              const today = moment();
+              const fromDate = today.subtract(1, "month").format("YYYY-MM-DD");
+              const toDate = today.format("YYYY-MM-DD");
+
+              getReportList(fromDate, toDate);
+            }}
+          />
         </View>
       </View>
     </SafeAreaView>
