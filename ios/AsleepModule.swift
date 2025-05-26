@@ -125,6 +125,15 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     }
 
     public func didCreate() {
+        let maxRetries = 5
+        let retryInterval: UInt32 = 1
+        for _ in 0..<maxRetries {
+            sleep(retryInterval)
+            if let sessionId = trackingManager?.getTrackingStatus().sessionId{
+                sendEvent("onTrackingCreated", ["sessionId": sessionId])
+                return
+            }
+        }
         sendEvent("onTrackingCreated", [:])
     }
 

@@ -37,7 +37,14 @@ const App = () => {
     const onUserJoinFailed = (error: any) =>
       addLog(`User join failed: ${error.error}`);
     const onUserDeleted = (data: any) => addLog(`User deleted: ${data.userId}`);
-    const onTrackingCreated = () => addLog("Tracking created");
+    const onTrackingCreated = (data: any) => {
+      if (data && data.sessionId) {
+        addLog(`Tracking created with session ID: ${data.sessionId}`);
+        setSessionId(data.sessionId);
+      } else {
+        addLog("Tracking created");
+      }
+    };
     const onTrackingUploaded = (data: any) =>
       addLog(`Tracking uploaded: ${data.sequence}`);
     const onTrackingClosed = (data: { sessionId: string }) => {

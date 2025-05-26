@@ -73,7 +73,7 @@ export type AsleepSession = {
 };
 
 export type AsleepEventType = {
-  onTrackingCreated: undefined;
+  onTrackingCreated: { sessionId?: string };
   onTrackingUploaded: { sequence: number };
   onTrackingClosed: { sessionId: string };
   onTrackingFailed: undefined;
