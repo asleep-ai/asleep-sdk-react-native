@@ -1,8 +1,9 @@
 import { EventEmitter } from "expo-modules-core";
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Platform } from "react-native";
 import {
   AsleepConfig,
+  AsleepSetupConfig,
   AsleepEventType,
   AsleepReport,
   AsleepSession,
@@ -16,6 +17,21 @@ class Asleep {
   private listeners: {
     [K in keyof AsleepEventType]?: ((data: AsleepEventType[K]) => void)[];
   } = {};
+
+  setup = async (config: AsleepSetupConfig): Promise<void> => {
+    try {
+      await AsleepModule.setup(
+        config.apiKey,
+        config.baseUrl,
+        config.callbackUrl,
+        config.service,
+        config.enableODA
+      );
+    } catch (error) {
+      console.error("setup error:", error);
+      throw error;
+    }
+  };
 
   initAsleepConfig = async (config: AsleepConfig): Promise<void> => {
     try {
@@ -121,6 +137,7 @@ export const useAsleep = () => {
     userId,
     sessionId,
     log,
+    setup,
     initAsleepConfig,
     startTracking,
     stopTracking,
@@ -143,6 +160,7 @@ export const useAsleep = () => {
     log,
     enableLog,
     setCustomNotification,
+    setup,
     initAsleepConfig,
     startTracking,
     stopTracking,
@@ -155,6 +173,8 @@ export const useAsleep = () => {
 export const asleepStore = useAsleepStore;
 
 export const AsleepSDK = {
+  setup: (config: AsleepSetupConfig) => useAsleepStore.getState().setup(config),
+
   initAsleepConfig: (config: AsleepConfig) =>
     useAsleepStore.getState().initAsleepConfig(config),
 
@@ -189,6 +209,7 @@ export default asleep;
 
 export type {
   AsleepConfig,
+  AsleepSetupConfig,
   AsleepEventType,
   AsleepReport,
   AsleepSession,

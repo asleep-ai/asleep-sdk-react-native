@@ -5,6 +5,14 @@ export type AsleepConfig = {
   callbackUrl?: string;
 };
 
+export type AsleepSetupConfig = {
+  apiKey: string;
+  baseUrl?: string;
+  callbackUrl?: string;
+  service?: string;
+  enableODA?: boolean;
+};
+
 export type AsleepReport = {
   timezone: string;
   session: {
@@ -73,7 +81,7 @@ export type AsleepSession = {
 };
 
 export type AsleepEventType = {
-  onTrackingCreated: undefined;
+  onTrackingCreated: { sessionId?: string };
   onTrackingUploaded: { sequence: number };
   onTrackingClosed: { sessionId: string };
   onTrackingFailed: undefined;
@@ -84,4 +92,7 @@ export type AsleepEventType = {
   onUserJoinFailed: undefined;
   onUserDeleted: undefined;
   onDebugLog: { message: string };
+  onSetupDidComplete: undefined;
+  onSetupDidFail: { error: string };
+  onSetupInProgress: { progress: number };
 };

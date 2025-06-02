@@ -7,29 +7,29 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		01F852D49D58DD43FE3E1DF2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = FB44D909C79FF98CDC2CE82E /* PrivacyInfo.xcprivacy */; };
+		096AFB44F00EB6B43F50AC4A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = DEE61ABFEAC4B4CA4DB6A400 /* PrivacyInfo.xcprivacy */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		2AAF2A41364D082875EF6864 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 145E07ED7D831FB5AE443C09 /* ExpoModulesProvider.swift */; };
+		34A175DAD19A387E94A88DA3 /* libPods-reactnativeasleepexample.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 0AD9D7CAA2577303BBC8CDA9 /* libPods-reactnativeasleepexample.a */; };
+		3E28836D9152D1D084366E22 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02AE49C9E7352D80D586AD3D /* ExpoModulesProvider.swift */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		B6ADECE614DD90FD2D7304B8 /* libPods-reactnativeasleepexample.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 508C745FD9661FACDF1CEFA1 /* libPods-reactnativeasleepexample.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0146C549329EEEE8CC274A2D /* Pods-reactnativeasleepexample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-reactnativeasleepexample.debug.xcconfig"; path = "Target Support Files/Pods-reactnativeasleepexample/Pods-reactnativeasleepexample.debug.xcconfig"; sourceTree = "<group>"; };
+		02AE49C9E7352D80D586AD3D /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-reactnativeasleepexample/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		0AD9D7CAA2577303BBC8CDA9 /* libPods-reactnativeasleepexample.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-reactnativeasleepexample.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07F961A680F5B00A75B9A /* reactnativeasleepexample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = reactnativeasleepexample.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = reactnativeasleepexample/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = reactnativeasleepexample/Info.plist; sourceTree = "<group>"; };
-		145E07ED7D831FB5AE443C09 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-reactnativeasleepexample/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		508C745FD9661FACDF1CEFA1 /* libPods-reactnativeasleepexample.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-reactnativeasleepexample.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		82E4E4DCBBD1BCA89370BF64 /* Pods-reactnativeasleepexample.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-reactnativeasleepexample.release.xcconfig"; path = "Target Support Files/Pods-reactnativeasleepexample/Pods-reactnativeasleepexample.release.xcconfig"; sourceTree = "<group>"; };
+		2ADAE40C3B5FB684E0875305 /* Pods-reactnativeasleepexample.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-reactnativeasleepexample.release.xcconfig"; path = "Target Support Files/Pods-reactnativeasleepexample/Pods-reactnativeasleepexample.release.xcconfig"; sourceTree = "<group>"; };
+		5F2264ECBEAA426DB15BEC7B /* Pods-reactnativeasleepexample.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-reactnativeasleepexample.debug.xcconfig"; path = "Target Support Files/Pods-reactnativeasleepexample/Pods-reactnativeasleepexample.debug.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = reactnativeasleepexample/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		DEE61ABFEAC4B4CA4DB6A400 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = reactnativeasleepexample/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = reactnativeasleepexample/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* reactnativeasleepexample-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "reactnativeasleepexample-Bridging-Header.h"; path = "reactnativeasleepexample/reactnativeasleepexample-Bridging-Header.h"; sourceTree = "<group>"; };
-		FB44D909C79FF98CDC2CE82E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = reactnativeasleepexample/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -37,7 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B6ADECE614DD90FD2D7304B8 /* libPods-reactnativeasleepexample.a in Frameworks */,
+				34A175DAD19A387E94A88DA3 /* libPods-reactnativeasleepexample.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -53,7 +53,7 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				FB44D909C79FF98CDC2CE82E /* PrivacyInfo.xcprivacy */,
+				DEE61ABFEAC4B4CA4DB6A400 /* PrivacyInfo.xcprivacy */,
 			);
 			name = reactnativeasleepexample;
 			sourceTree = "<group>";
@@ -62,9 +62,27 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				508C745FD9661FACDF1CEFA1 /* libPods-reactnativeasleepexample.a */,
+				0AD9D7CAA2577303BBC8CDA9 /* libPods-reactnativeasleepexample.a */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		502510239B6BC7C4976D07B4 /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				C3AAF2150659A588D5CAC53A /* reactnativeasleepexample */,
+			);
+			name = ExpoModulesProviders;
+			sourceTree = "<group>";
+		};
+		549F754A89644A9A8D69D7F0 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				5F2264ECBEAA426DB15BEC7B /* Pods-reactnativeasleepexample.debug.xcconfig */,
+				2ADAE40C3B5FB684E0875305 /* Pods-reactnativeasleepexample.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -81,8 +99,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				CCC55B2958CC40D12A5DECF5 /* Pods */,
-				9B83BCA215D1D9B9E783476A /* ExpoModulesProviders */,
+				549F754A89644A9A8D69D7F0 /* Pods */,
+				502510239B6BC7C4976D07B4 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -97,14 +115,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		9B83BCA215D1D9B9E783476A /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				FD7AA543BFB1F60F9EEF14D1 /* reactnativeasleepexample */,
-			);
-			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -114,20 +124,10 @@
 			path = reactnativeasleepexample/Supporting;
 			sourceTree = "<group>";
 		};
-		CCC55B2958CC40D12A5DECF5 /* Pods */ = {
+		C3AAF2150659A588D5CAC53A /* reactnativeasleepexample */ = {
 			isa = PBXGroup;
 			children = (
-				0146C549329EEEE8CC274A2D /* Pods-reactnativeasleepexample.debug.xcconfig */,
-				82E4E4DCBBD1BCA89370BF64 /* Pods-reactnativeasleepexample.release.xcconfig */,
-			);
-			name = Pods;
-			path = Pods;
-			sourceTree = "<group>";
-		};
-		FD7AA543BFB1F60F9EEF14D1 /* reactnativeasleepexample */ = {
-			isa = PBXGroup;
-			children = (
-				145E07ED7D831FB5AE443C09 /* ExpoModulesProvider.swift */,
+				02AE49C9E7352D80D586AD3D /* ExpoModulesProvider.swift */,
 			);
 			name = reactnativeasleepexample;
 			sourceTree = "<group>";
@@ -140,13 +140,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "reactnativeasleepexample" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				46D75E5440674BF40B36E609 /* [Expo] Configure project */,
+				7C62B690BFE8D709FE9EEC8A /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				C69D94F5D04FEF4D6DBD63D9 /* [CP] Embed Pods Frameworks */,
+				BEF9F5808FE2A1D56978537C /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -196,7 +196,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				01F852D49D58DD43FE3E1DF2 /* PrivacyInfo.xcprivacy in Resources */,
+				096AFB44F00EB6B43F50AC4A /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -240,7 +240,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		46D75E5440674BF40B36E609 /* [Expo] Configure project */ = {
+		7C62B690BFE8D709FE9EEC8A /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -291,7 +291,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-reactnativeasleepexample/Pods-reactnativeasleepexample-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		C69D94F5D04FEF4D6DBD63D9 /* [CP] Embed Pods Frameworks */ = {
+		BEF9F5808FE2A1D56978537C /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -319,7 +319,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				2AAF2A41364D082875EF6864 /* ExpoModulesProvider.swift in Sources */,
+				3E28836D9152D1D084366E22 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -328,7 +328,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 0146C549329EEEE8CC274A2D /* Pods-reactnativeasleepexample.debug.xcconfig */;
+			baseConfigurationReference = 5F2264ECBEAA426DB15BEC7B /* Pods-reactnativeasleepexample.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -364,7 +364,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 82E4E4DCBBD1BCA89370BF64 /* Pods-reactnativeasleepexample.release.xcconfig */;
+			baseConfigurationReference = 2ADAE40C3B5FB684E0875305 /* Pods-reactnativeasleepexample.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;

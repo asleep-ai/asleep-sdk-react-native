@@ -4,6 +4,7 @@ import { EventEmitter } from "expo-modules-core";
 import { Alert, Platform } from "react-native";
 import {
   AsleepConfig,
+  AsleepSetupConfig,
   AsleepEventType,
   AsleepReport,
   AsleepSession,
@@ -22,6 +23,7 @@ export interface AsleepState {
   log: string;
 
   // actions
+  setup: (config: AsleepSetupConfig) => Promise<void>;
   initAsleepConfig: (config: AsleepConfig) => Promise<void>;
   startTracking: () => Promise<void>;
   stopTracking: () => Promise<void>;
@@ -69,6 +71,27 @@ export const useAsleepStore = create<AsleepState>()(
     log: "",
 
     // actions
+    setup: async (config: AsleepSetupConfig) => {
+      try {
+        const { addLog } = get();
+        addLog("[setup] Start");
+
+        await AsleepModule.setup(
+          config.apiKey,
+          config.baseUrl,
+          config.callbackUrl,
+          config.service,
+          config.enableODA
+        );
+
+        addLog("[setup] Success");
+      } catch (error: any) {
+        console.error("setup error:", error);
+        set({ error: error.message });
+        throw error;
+      }
+    },
+
     initAsleepConfig: async (config: AsleepConfig) => {
       try {
         const { addLog } = get();
@@ -282,6 +305,17 @@ export const initializeAsleepListeners = () => {
     },
     onDebugLog: (data: any) => {
       addLog(`[onDebugLog] message: ${data.message}`);
+    },
+    onSetupDidComplete: () => {
+      addLog(`[onSetupDidComplete]`);
+    },
+    onSetupDidFail: (data: any) => {
+      const errorString = JSON.stringify(data);
+      setError(errorString);
+      addLog(`[onSetupDidFail] error: ${errorString}`);
+    },
+    onSetupInProgress: (data: any) => {
+      addLog(`[onSetupInProgress] progress: ${data.progress}%`);
     },
   };
 
