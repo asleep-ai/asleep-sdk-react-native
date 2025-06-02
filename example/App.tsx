@@ -21,6 +21,7 @@ const App = () => {
 
   const {
     userId,
+    setup,
     startTracking,
     stopTracking,
     initAsleepConfig,
@@ -37,7 +38,14 @@ const App = () => {
     const onUserJoinFailed = (error: any) =>
       addLog(`User join failed: ${error.error}`);
     const onUserDeleted = (data: any) => addLog(`User deleted: ${data.userId}`);
-    const onTrackingCreated = () => addLog("Tracking created");
+    const onTrackingCreated = (data: any) => {
+      if (data && data.sessionId) {
+        addLog(`Tracking created with session ID: ${data.sessionId}`);
+        setSessionId(data.sessionId);
+      } else {
+        addLog("Tracking created");
+      }
+    };
     const onTrackingUploaded = (data: any) =>
       addLog(`Tracking uploaded: ${data.sequence}`);
     const onTrackingClosed = (data: { sessionId: string }) => {
@@ -54,6 +62,9 @@ const App = () => {
         addLog(`Debug log: ${data.message}`);
       }
     };
+    const onSetupDidComplete = () => addLog("Setup completed");
+    const onSetupDidFail = (data: any) => addLog(`Setup failed: ${data.error}`);
+    const onSetupInProgress = (data: any) => addLog(`Setup progress: ${data.progress}%`);
 
     const userJoinedListener = asleep.addEventListener(
       "onUserJoined",
@@ -97,13 +108,25 @@ const App = () => {
     );
 
     const debugLogListener = asleep.addEventListener("onDebugLog", onDebugLog);
+    const setupDidCompleteListener = asleep.addEventListener("onSetupDidComplete", onSetupDidComplete);
+    const setupDidFailListener = asleep.addEventListener("onSetupDidFail", onSetupDidFail);
+    const setupInProgressListener = asleep.addEventListener("onSetupInProgress", onSetupInProgress);
 
     const initSDK = async () => {
       try {
-        const didInitSDK = await initAsleepConfig({
+        // Optional: Use setup for ODA
+        await setup({
+          apiKey: API_KEY,
+          enableODA: true,
+          service: "Test App"
+        });
+        addLog("Setup initiated");
+
+        // Regular initialization (same as before)
+        await initAsleepConfig({
           apiKey: API_KEY,
         });
-        addLog(`SDK initialized: ${didInitSDK}`);
+        addLog("SDK initialized");
       } catch (error: any) {
         addLog(`Initialization error: ${error.message}`);
       }
@@ -123,6 +146,9 @@ const App = () => {
       trackingResumedListener.remove();
       micPermissionDeniedListener.remove();
       debugLogListener.remove();
+      setupDidCompleteListener.remove();
+      setupDidFailListener.remove();
+      setupInProgressListener.remove();
     };
   }, []);
 

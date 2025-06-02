@@ -71,7 +71,44 @@ class AsleepModule : Module() {
 
         Events("onTrackingCreated", "onTrackingUploaded", "onTrackingClosed", "onTrackingFailed", 
                "onTrackingInterrupted", "onTrackingResumed", "onMicPermissionDenied",
-               "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog")
+               "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog",
+               "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress")
+
+        AsyncFunction("setup") { apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, promise: Promise ->
+            try {
+                val context = appContext.reactContext!!.applicationContext as Application
+                
+                Asleep.setup(
+                    context = context,
+                    apiKey = apiKey,
+                    baseUrl = baseUrl,
+                    callbackUrl = callbackUrl,
+                    service = service ?: "SleepTracking",
+                    enableODA = enableODA,
+                    asleepSetupListener = object : Asleep.AsleepSetupListener {
+                        override fun onComplete() {
+                            sendEvent("onSetupDidComplete", emptyMap<String, Any>())
+                            sendEvent("onDebugLog", mapOf("message" to "Setup completed"))
+                            promise.resolve("Setup completed")
+                        }
+                        
+                        override fun onProgress(progress: Int) {
+                            sendEvent("onSetupInProgress", mapOf("progress" to progress))
+                            sendEvent("onDebugLog", mapOf("message" to "Setup progress: $progress%"))
+                        }
+                        
+                        override fun onFail(errorCode: Int, detail: String) {
+                            sendEvent("onSetupDidFail", mapOf("error" to detail))
+                            sendEvent("onDebugLog", mapOf("message" to "Setup failed: $errorCode - $detail"))
+                            promise.reject("SETUP_FAILED", "Setup failed: $errorCode - $detail", null)
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                sendEvent("onDebugLog", mapOf("message" to "Setup failed: ${e.message}"))
+                promise.reject("UNEXPECTED_ERROR", "Setup failed: ${e.message}", e)
+            }
+        }
 
         AsyncFunction("initAsleepConfig") { apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise ->
             try {
