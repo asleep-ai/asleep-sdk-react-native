@@ -7,8 +7,10 @@ import {
   StyleSheet,
   Text,
   View,
+  Modal,
+  TouchableOpacity,
 } from "react-native";
-import asleep, { useAsleep } from "react-native-asleep";
+import { useAsleep } from "../src";
 
 const API_KEY = process.env.EXPO_PUBLIC_API_KEY || "";
 
@@ -16,111 +18,31 @@ const SHOW_DEBUG_LOG = true;
 
 const App = () => {
   const [logs, setLogs] = useState<string[]>([]);
-
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalContent, setModalContent] = useState<any>(null);
+  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [originalReportList, setOriginalReportList] = useState<any[]>([]);
 
   const {
     userId,
-    setup,
+    sessionId,
+    error,
+    log,
+    isTracking,
+    initAsleepConfig,
     startTracking,
     stopTracking,
-    initAsleepConfig,
     getReport,
     getReportList,
-    isTracking,
+    enableLog,
   } = useAsleep();
 
   useEffect(() => {
-    const onUserJoined = (data: any) => {
-      addLog(`User joined: ${data.userId}`);
-      // setUserId(data.userId);
-    };
-    const onUserJoinFailed = (error: any) =>
-      addLog(`User join failed: ${error.error}`);
-    const onUserDeleted = (data: any) => addLog(`User deleted: ${data.userId}`);
-    const onTrackingCreated = (data: any) => {
-      if (data && data.sessionId) {
-        addLog(`Tracking created with session ID: ${data.sessionId}`);
-        setSessionId(data.sessionId);
-      } else {
-        addLog("Tracking created");
-      }
-    };
-    const onTrackingUploaded = (data: any) =>
-      addLog(`Tracking uploaded: ${data.sequence}`);
-    const onTrackingClosed = (data: { sessionId: string }) => {
-      addLog(`Tracking closed: ${data.sessionId}`);
-      setSessionId(data.sessionId);
-    };
-    const onTrackingFailed = (error: any) =>
-      addLog(`Tracking failed: ${error.error}`);
-    const onTrackingInterrupted = () => addLog("Tracking interrupted");
-    const onTrackingResumed = () => addLog("Tracking resumed");
-    const onMicPermissionDenied = () => addLog("Microphone permission denied");
-    const onDebugLog = (data: any) => {
-      if (SHOW_DEBUG_LOG) {
-        addLog(`Debug log: ${data.message}`);
-      }
-    };
-    const onSetupDidComplete = () => addLog("Setup completed");
-    const onSetupDidFail = (data: any) => addLog(`Setup failed: ${data.error}`);
-    const onSetupInProgress = (data: any) => addLog(`Setup progress: ${data.progress}%`);
-
-    const userJoinedListener = asleep.addEventListener(
-      "onUserJoined",
-      onUserJoined
-    );
-    const userJoinFailedListener = asleep.addEventListener(
-      "onUserJoinFailed",
-      onUserJoinFailed
-    );
-    const userDeletedListener = asleep.addEventListener(
-      "onUserDeleted",
-      onUserDeleted
-    );
-    const trackingCreatedListener = asleep.addEventListener(
-      "onTrackingCreated",
-      onTrackingCreated
-    );
-    const trackingUploadedListener = asleep.addEventListener(
-      "onTrackingUploaded",
-      onTrackingUploaded
-    );
-    const trackingClosedListener = asleep.addEventListener(
-      "onTrackingClosed",
-      onTrackingClosed
-    );
-    const trackingFailedListener = asleep.addEventListener(
-      "onTrackingFailed",
-      onTrackingFailed
-    );
-    const trackingInterruptedListener = asleep.addEventListener(
-      "onTrackingInterrupted",
-      onTrackingInterrupted
-    );
-    const trackingResumedListener = asleep.addEventListener(
-      "onTrackingResumed",
-      onTrackingResumed
-    );
-    const micPermissionDeniedListener = asleep.addEventListener(
-      "onMicPermissionDenied",
-      onMicPermissionDenied
-    );
-
-    const debugLogListener = asleep.addEventListener("onDebugLog", onDebugLog);
-    const setupDidCompleteListener = asleep.addEventListener("onSetupDidComplete", onSetupDidComplete);
-    const setupDidFailListener = asleep.addEventListener("onSetupDidFail", onSetupDidFail);
-    const setupInProgressListener = asleep.addEventListener("onSetupInProgress", onSetupInProgress);
-
     const initSDK = async () => {
       try {
-        // Optional: Use setup for ODA
-        await setup({
-          apiKey: API_KEY,
-          enableODA: true,
-          service: "Test App"
-        });
-        addLog("Setup initiated");
+        // Enable debug logging
+        enableLog(SHOW_DEBUG_LOG);
 
         // Regular initialization (same as before)
         await initAsleepConfig({
@@ -133,24 +55,21 @@ const App = () => {
     };
 
     initSDK();
-
-    return () => {
-      userJoinedListener.remove();
-      userJoinFailedListener.remove();
-      userDeletedListener.remove();
-      trackingCreatedListener.remove();
-      trackingUploadedListener.remove();
-      trackingClosedListener.remove();
-      trackingFailedListener.remove();
-      trackingInterruptedListener.remove();
-      trackingResumedListener.remove();
-      micPermissionDeniedListener.remove();
-      debugLogListener.remove();
-      setupDidCompleteListener.remove();
-      setupDidFailListener.remove();
-      setupInProgressListener.remove();
-    };
   }, []);
+
+  // useAsleep hook
+  useEffect(() => {
+    if (log) {
+      setLogs((prevLogs) => [...prevLogs, log]);
+    }
+  }, [log]);
+
+  // error
+  useEffect(() => {
+    if (error) {
+      addLog(`Error: ${error}`);
+    }
+  }, [error]);
 
   const addLog = (message: string) => {
     console.log("message", message);
@@ -158,6 +77,31 @@ const App = () => {
       ...prevLogs,
       `[${new Date().toLocaleTimeString()}] ${message}`,
     ]);
+  };
+
+  const showModal = (title: string, content: any) => {
+    setModalTitle(title);
+    setModalContent(content);
+    setSelectedReport(null);
+
+    // If showing report list, save the original list
+    if (title === "Report List") {
+      setOriginalReportList(Array.isArray(content) ? content : []);
+    }
+
+    setModalVisible(true);
+  };
+
+  const showReportDetail = (report: any) => {
+    setSelectedReport(report);
+    setModalTitle("Sleep Report Details");
+    setModalContent(report);
+  };
+
+  const goBackToReportList = () => {
+    setSelectedReport(null);
+    setModalTitle("Report List");
+    setModalContent(originalReportList);
   };
 
   const _startTracking = async () => {
@@ -178,6 +122,165 @@ const App = () => {
     }
   };
 
+  const _getReport = async () => {
+    if (!sessionId) {
+      addLog("No session ID");
+      return;
+    }
+    try {
+      const report = await getReport(sessionId);
+      if (report) {
+        addLog(`Report retrieved for session: ${sessionId}`);
+        if (report.stat?.sleepIndex) {
+          addLog(`Sleep index: ${report.stat.sleepIndex}`);
+        }
+        // Show report in modal
+        showModal("Sleep Report", report);
+      }
+    } catch (error: any) {
+      addLog(`Get report error: ${error.message}`);
+    }
+  };
+
+  const _getReportList = async () => {
+    try {
+      const today = moment();
+      const fromDate = today.clone().subtract(1, "month").format("YYYY-MM-DD");
+      const toDate = today.format("YYYY-MM-DD");
+
+      const reportList = await getReportList(fromDate, toDate);
+      addLog(
+        `Retrieved ${
+          Array.isArray(reportList) ? reportList.length : "unknown"
+        } reports`
+      );
+
+      // Ensure reportList is an array
+      const normalizedReportList = Array.isArray(reportList) ? reportList : [];
+
+      // Show report list in modal
+      showModal("Report List", normalizedReportList);
+    } catch (error: any) {
+      addLog(`Get report list error: ${error.message}`);
+    }
+  };
+
+  const renderModalContent = () => {
+    if (!modalContent) return null;
+
+    // Show individual report details
+    if (modalTitle === "Sleep Report" || selectedReport) {
+      const report = selectedReport || modalContent;
+      return (
+        <View>
+          {selectedReport && (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={goBackToReportList}
+            >
+              <Text style={styles.backButtonText}>← Back to List</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={styles.modalSectionTitle}>Basic Information</Text>
+          <Text>Session ID: {report.sessionId || "N/A"}</Text>
+          <Text>User ID: {report.userId || "N/A"}</Text>
+          <Text>
+            Date: {report.createdAt || report.sessionStartTime || "N/A"}
+          </Text>
+          <Text>State: {report.state || "N/A"}</Text>
+          <Text>
+            Time in Bed:{" "}
+            {report.timeInBed ? `${report.timeInBed} minutes` : "N/A"}
+          </Text>
+
+          {report.stat && (
+            <>
+              <Text style={styles.modalSectionTitle}>Sleep Statistics</Text>
+              <Text>Sleep Index: {report.stat.sleepIndex || "N/A"}</Text>
+              <Text>
+                Sleep Time:{" "}
+                {report.stat.sleepTime
+                  ? `${Math.round(report.stat.sleepTime / 60)} minutes`
+                  : "N/A"}
+              </Text>
+              <Text>
+                Wake Time:{" "}
+                {report.stat.wakeTime
+                  ? `${Math.round(report.stat.wakeTime / 60)} minutes`
+                  : "N/A"}
+              </Text>
+              <Text>
+                Sleep Latency:{" "}
+                {report.stat.sleepLatency
+                  ? `${Math.round(report.stat.sleepLatency / 60)} minutes`
+                  : "N/A"}
+              </Text>
+              <Text>
+                Sleep Efficiency:{" "}
+                {report.stat.sleepEfficiency
+                  ? `${Math.round(report.stat.sleepEfficiency * 100)}%`
+                  : "N/A"}
+              </Text>
+            </>
+          )}
+
+          {report.timeSeries && report.timeSeries.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>Time Series Data</Text>
+              <Text>Total {report.timeSeries.length} data points</Text>
+            </>
+          )}
+        </View>
+      );
+    } else if (modalTitle === "Report List" && !selectedReport) {
+      // Show report list - ensure modalContent is an array
+      const reportList = Array.isArray(modalContent) ? modalContent : [];
+
+      if (reportList.length === 0) {
+        return (
+          <View>
+            <Text style={styles.modalSectionTitle}>No Reports Found</Text>
+            <Text>
+              There are no sleep reports available for the selected time period.
+            </Text>
+          </View>
+        );
+      }
+
+      return (
+        <View>
+          <Text style={styles.modalSectionTitle}>
+            Total {reportList.length} Reports
+          </Text>
+          {reportList.map((report: any, index: number) => (
+            <TouchableOpacity
+              key={report.sessionId || index}
+              style={styles.reportItem}
+              onPress={() => showReportDetail(report)}
+            >
+              <Text style={styles.reportItemTitle}>Report #{index + 1}</Text>
+              <Text>Session ID: {report.sessionId || "N/A"}</Text>
+              <Text>
+                Date: {report.createdAt || report.sessionStartTime || "N/A"}
+              </Text>
+              <Text>State: {report.state || "N/A"}</Text>
+              {report.timeInBed && (
+                <Text>Time in Bed: {report.timeInBed} minutes</Text>
+              )}
+              {report.stat?.sleepIndex && (
+                <Text>Sleep Index: {report.stat.sleepIndex}</Text>
+              )}
+              <Text style={styles.tapHint}>Tap to view details →</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      );
+    }
+
+    return <Text>{JSON.stringify(modalContent, null, 2)}</Text>;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.container}>
@@ -187,6 +290,7 @@ const App = () => {
           <Text>
             Tracking Status: {isTracking ? "Tracking" : "Not Tracking"}
           </Text>
+          {error && <Text style={styles.errorText}>Error: {error}</Text>}
         </View>
         <ScrollView style={styles.logContainer}>
           {logs.map((log, index) => (
@@ -202,27 +306,34 @@ const App = () => {
         </View>
 
         <View style={styles.buttonContainer}>
-          <Button
-            title="Get Report"
-            onPress={() => {
-              if (!sessionId) {
-                addLog("No session ID");
-                return;
-              }
-              getReport(sessionId);
-            }}
-          />
-          <Button
-            title="Get Report List"
-            onPress={() => {
-              const today = moment();
-              const fromDate = today.subtract(1, "month").format("YYYY-MM-DD");
-              const toDate = today.format("YYYY-MM-DD");
-
-              getReportList(fromDate, toDate);
-            }}
-          />
+          <Button title="Get Report" onPress={_getReport} />
+          <Button title="Get Report List" onPress={_getReportList} />
         </View>
+
+        {/* Modal Component */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{modalTitle}</Text>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => setModalVisible(false)}
+                >
+                  <Text style={styles.closeButtonText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalContent}>
+                {renderModalContent()}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -232,6 +343,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 10,
+    marginBottom: 20,
   },
   logContainer: {
     flex: 1,
@@ -245,9 +357,87 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 5,
   },
+  errorText: {
+    color: "red",
+    fontSize: 14,
+    marginTop: 5,
+  },
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContainer: {
+    backgroundColor: "white",
+    borderRadius: 10,
+    padding: 0,
+    margin: 20,
+    maxHeight: "80%",
+    minWidth: "80%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  closeButton: {
+    padding: 5,
+  },
+  closeButtonText: {
+    fontSize: 20,
+    color: "#666",
+  },
+  modalContent: {
+    padding: 20,
+    maxHeight: 400,
+  },
+  modalSectionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    marginTop: 15,
+    marginBottom: 10,
+    color: "#333",
+  },
+  reportItem: {
+    backgroundColor: "#f5f5f5",
+    padding: 15,
+    marginBottom: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  reportItemTitle: {
+    fontWeight: "bold",
+    marginBottom: 5,
+    fontSize: 16,
+  },
+  tapHint: {
+    color: "#007AFF",
+    fontSize: 12,
+    marginTop: 5,
+    fontStyle: "italic",
+  },
+  backButton: {
+    marginBottom: 15,
+    padding: 10,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 5,
+  },
+  backButtonText: {
+    color: "#007AFF",
+    fontSize: 14,
   },
 });
 

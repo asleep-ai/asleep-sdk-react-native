@@ -1,6 +1,6 @@
 {
   "name": "react-native-asleep",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Asleep SDK for React Native",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -37,6 +37,7 @@
   "peerDependencies": {
     "expo": "*",
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "zustand": "^5.0.1"
   }
 }

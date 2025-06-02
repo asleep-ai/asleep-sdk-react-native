@@ -13,9 +13,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ai.asleep.reactnative.example"
+      "bundleIdentifier": "ai.asleep.reactnative.example",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "This app uses the microphone to analyze sleep patterns and provide sleep tracking functionality.",
+        "UIBackgroundModes": ["audio"]
+      }
     },
     "android": {
+      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
