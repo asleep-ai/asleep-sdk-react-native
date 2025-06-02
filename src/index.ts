@@ -1,5 +1,5 @@
 import { EventEmitter } from "expo-modules-core";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Alert, Platform } from "react-native";
 import {
   AsleepConfig,
@@ -8,6 +8,7 @@ import {
   AsleepSession,
 } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
+import { useAsleepStore, initializeAsleepListeners } from "./AsleepStore";
 
 const emitter = new EventEmitter(AsleepModule);
 
@@ -113,226 +114,25 @@ class Asleep {
 }
 
 export const useAsleep = () => {
-  const [didClose, setDidClose] = useState(false);
-  const [isTracking, setIsTracking] = useState(asleep.isTracking());
-
-  const [error, setError] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [showDebugLog, setShowDebugLog] = useState(false);
-  const [log, setLog] = useState<string>("");
-
-  const initAsleepConfig = useCallback(async (config: AsleepConfig) => {
-    try {
-      console.log("[useAsleep] initAsleepConfig");
-      await asleep.initAsleepConfig(config);
-    } catch (err: any) {
-      setError(err.message);
-    }
-  }, []);
-
-  const startTracking = useCallback(async () => {
-    try {
-      console.log("[useAsleep] startTracking");
-      setDidClose(false);
-      setIsTracking(true);
-      console.log("[useAsleep] startTracking isTracking: ", isTracking);
-      await asleep.startTracking();
-    } catch (err: any) {
-      console.error("startTracking error:", err);
-      setError(err.message);
-    }
-  }, []);
-
-  const stopTracking = useCallback(async () => {
-    try {
-      console.log("[useAsleep] stopTracking");
-      const sessionId = await asleep.stopTracking();
-      setDidClose(true);
-      setSessionId(sessionId);
-      setIsTracking(false);
-    } catch (err: any) {
-      console.error("stopTracking error:", err);
-      setError(err.message);
-    }
-  }, []);
-
-  const getReport = async (sessionId: string): Promise<AsleepReport | null> => {
-    try {
-      console.log("[useAsleep] getReport sessionId: ", sessionId);
-      const report = await asleep.getReport(sessionId);
-      return report;
-    } catch (err: any) {
-      console.error("getReport error:", err);
-      setError(err.message);
-      return null;
-    }
-  };
-
-  const getReportList = async (
-    fromDate: string,
-    toDate: string
-  ): Promise<AsleepSession[]> => {
-    try {
-      console.log(
-        `[useAsleep] getReportList fromDate: ${fromDate}, toDate: ${toDate}`
-      );
-      const reportList = await asleep.getReportList(fromDate, toDate);
-      return reportList;
-    } catch (err: any) {
-      console.error("getReportList error:", err);
-      setError(err.message);
-      return [];
-    }
-  };
-
-  const addEventListener = useCallback(
-    <K extends keyof AsleepEventType>(
-      eventType: K,
-      listener: (data: AsleepEventType[K]) => void
-    ) => {
-      const subscription = asleep.addEventListener(eventType, listener);
-      return () => subscription.remove();
-    },
-    []
-  );
-
-  const enableLog = (print: boolean = true) => {
-    setShowDebugLog(print);
-  };
-
-  const setCustomNotification = useCallback(
-    async (title: string, text: string) => {
-      if (Platform.OS === "android") {
-        await AsleepModule.setCustomNotification(title, text);
-      } else {
-        console.warn("setCustomNotification is not supported on this platform");
-      }
-    },
-    []
-  );
-
-  const addLog = useCallback(
-    (log: string) => {
-      const now = new Date();
-      const dateString = `${now.getHours().toString().padStart(2, "0")}:${now
-        .getMinutes()
-        .toString()
-        .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-
-      if (showDebugLog) {
-        console.log(`[Asleep][${dateString}]${log}`);
-      }
-      setLog(`[${dateString}]${log}`);
-    },
-    [showDebugLog]
-  );
+  const {
+    didClose,
+    isTracking,
+    error,
+    userId,
+    sessionId,
+    log,
+    initAsleepConfig,
+    startTracking,
+    stopTracking,
+    getReport,
+    getReportList,
+    enableLog,
+    setCustomNotification,
+  } = useAsleepStore();
 
   useEffect(() => {
-    const onUserJoined = (data: any) => {
-      setUserId(data.userId);
-      addLog(`[onUserJoined] userId: ${data.userId}`);
-    };
-    const onUserJoinFailed = (error: any) => {
-      const errorString = JSON.stringify(error);
-      setError(errorString);
-      addLog(`[onUserJoinFailed] error: ${errorString}`);
-    };
-    const onUserDeleted = (data: any) => {
-      setUserId(null);
-      addLog(`[onUserDeleted] userId: ${data.userId}`);
-    };
-    const onTrackingCreated = (data: any) => {
-      setIsTracking(true);
-      if (data && data.sessionId) {
-        setSessionId(data.sessionId);
-      }
-      addLog(
-        `[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""}`
-      );
-    };
-    const onTrackingUploaded = (data: any) => {
-      addLog(`[onTrackingUploaded] sequence: ${data.sequence}`);
-    };
-    const onTrackingClosed = (data: { sessionId: string }) => {
-      setSessionId(data.sessionId);
-      setDidClose(true);
-      setIsTracking(false);
-      addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
-    };
-    const onTrackingFailed = (error: any) => {
-      const errorString = JSON.stringify(error);
-      setError(errorString);
-      setIsTracking(false);
-      addLog(`[onTrackingFailed] error: ${errorString}`);
-    };
-    const onTrackingInterrupted = () => {
-      setIsTracking(false);
-      addLog(`[onTrackingInterrupted]`);
-    };
-    const onTrackingResumed = () => {
-      setIsTracking(true);
-      addLog(`[onTrackingResumed]`);
-    };
-    const onMicPermissionDenied = () => {
-      addLog(`[onMicPermissionDenied]`);
-    };
-    const onDebugLog = (data: any) => {
-      addLog(`[onDebugLog] message: ${data.message}`);
-    };
-
-    const userJoinedListener = addEventListener("onUserJoined", onUserJoined);
-    const userJoinFailedListener = addEventListener(
-      "onUserJoinFailed",
-      onUserJoinFailed
-    );
-    const userDeletedListener = addEventListener(
-      "onUserDeleted",
-      onUserDeleted
-    );
-    const trackingCreatedListener = addEventListener(
-      "onTrackingCreated",
-      onTrackingCreated
-    );
-    const trackingUploadedListener = addEventListener(
-      "onTrackingUploaded",
-      onTrackingUploaded
-    );
-    const trackingClosedListener = addEventListener(
-      "onTrackingClosed",
-      onTrackingClosed
-    );
-    const trackingFailedListener = addEventListener(
-      "onTrackingFailed",
-      onTrackingFailed
-    );
-    const trackingInterruptedListener = addEventListener(
-      "onTrackingInterrupted",
-      onTrackingInterrupted
-    );
-    const trackingResumedListener = addEventListener(
-      "onTrackingResumed",
-      onTrackingResumed
-    );
-    const micPermissionDeniedListener = addEventListener(
-      "onMicPermissionDenied",
-      onMicPermissionDenied
-    );
-    const debugLogListener = addEventListener("onDebugLog", onDebugLog);
-
-    return () => {
-      userJoinedListener();
-      userJoinFailedListener();
-      userDeletedListener();
-      trackingCreatedListener();
-      trackingUploadedListener();
-      trackingClosedListener();
-      trackingFailedListener();
-      trackingInterruptedListener();
-      trackingResumedListener();
-      micPermissionDeniedListener();
-      debugLogListener();
-    };
+    const cleanup = initializeAsleepListeners();
+    return cleanup;
   }, []);
 
   return {
@@ -350,6 +150,38 @@ export const useAsleep = () => {
     getReportList,
     isTracking,
   };
+};
+
+export const asleepStore = useAsleepStore;
+
+export const AsleepSDK = {
+  initAsleepConfig: (config: AsleepConfig) =>
+    useAsleepStore.getState().initAsleepConfig(config),
+
+  startTracking: () => useAsleepStore.getState().startTracking(),
+
+  stopTracking: () => useAsleepStore.getState().stopTracking(),
+
+  getReport: (sessionId: string) =>
+    useAsleepStore.getState().getReport(sessionId),
+
+  getReportList: (fromDate: string, toDate: string) =>
+    useAsleepStore.getState().getReportList(fromDate, toDate),
+
+  isTracking: () => useAsleepStore.getState().isTracking,
+
+  getUserId: () => useAsleepStore.getState().userId,
+
+  getSessionId: () => useAsleepStore.getState().sessionId,
+
+  enableLog: (print: boolean) => useAsleepStore.getState().enableLog(print),
+
+  setCustomNotification: (title: string, text: string) =>
+    useAsleepStore.getState().setCustomNotification(title, text),
+
+  initialize: () => {
+    return initializeAsleepListeners();
+  },
 };
 
 const asleep = new Asleep();
