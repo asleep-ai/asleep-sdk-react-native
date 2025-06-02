@@ -19,14 +19,13 @@ class Asleep {
 
   setup = async (config: AsleepSetupConfig): Promise<void> => {
     try {
-      const result = await AsleepModule.setup(
+      await AsleepModule.setup(
         config.apiKey,
         config.baseUrl,
         config.callbackUrl,
         config.service,
         config.enableODA
       );
-      return result;
     } catch (error) {
       console.error("setup error:", error);
       throw error;

@@ -121,12 +121,12 @@ const App = () => {
           service: "Test App"
         });
         addLog("Setup initiated");
-        
+
         // Regular initialization (same as before)
-        const didInitSDK = await initAsleepConfig({
+        await initAsleepConfig({
           apiKey: API_KEY,
         });
-        addLog(`SDK initialized: ${didInitSDK}`);
+        addLog("SDK initialized");
       } catch (error: any) {
         addLog(`Initialization error: ${error.message}`);
       }
