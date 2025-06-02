@@ -21,6 +21,7 @@ const App = () => {
 
   const {
     userId,
+    setup,
     startTracking,
     stopTracking,
     initAsleepConfig,
@@ -61,6 +62,9 @@ const App = () => {
         addLog(`Debug log: ${data.message}`);
       }
     };
+    const onSetupDidComplete = () => addLog("Setup completed");
+    const onSetupDidFail = (data: any) => addLog(`Setup failed: ${data.error}`);
+    const onSetupInProgress = (data: any) => addLog(`Setup progress: ${data.progress}%`);
 
     const userJoinedListener = asleep.addEventListener(
       "onUserJoined",
@@ -104,9 +108,21 @@ const App = () => {
     );
 
     const debugLogListener = asleep.addEventListener("onDebugLog", onDebugLog);
+    const setupDidCompleteListener = asleep.addEventListener("onSetupDidComplete", onSetupDidComplete);
+    const setupDidFailListener = asleep.addEventListener("onSetupDidFail", onSetupDidFail);
+    const setupInProgressListener = asleep.addEventListener("onSetupInProgress", onSetupInProgress);
 
     const initSDK = async () => {
       try {
+        // Optional: Use setup for ODA
+        await setup({
+          apiKey: API_KEY,
+          enableODA: true,
+          service: "Test App"
+        });
+        addLog("Setup initiated");
+        
+        // Regular initialization (same as before)
         const didInitSDK = await initAsleepConfig({
           apiKey: API_KEY,
         });
@@ -130,6 +146,9 @@ const App = () => {
       trackingResumedListener.remove();
       micPermissionDeniedListener.remove();
       debugLogListener.remove();
+      setupDidCompleteListener.remove();
+      setupDidFailListener.remove();
+      setupInProgressListener.remove();
     };
   }, []);
 

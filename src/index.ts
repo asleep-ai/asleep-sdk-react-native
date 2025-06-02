@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, Platform } from "react-native";
 import {
   AsleepConfig,
+  AsleepSetupConfig,
   AsleepEventType,
   AsleepReport,
   AsleepSession,
@@ -15,6 +16,22 @@ class Asleep {
   private listeners: {
     [K in keyof AsleepEventType]?: ((data: AsleepEventType[K]) => void)[];
   } = {};
+
+  setup = async (config: AsleepSetupConfig): Promise<void> => {
+    try {
+      const result = await AsleepModule.setup(
+        config.apiKey,
+        config.baseUrl,
+        config.callbackUrl,
+        config.service,
+        config.enableODA
+      );
+      return result;
+    } catch (error) {
+      console.error("setup error:", error);
+      throw error;
+    }
+  };
 
   initAsleepConfig = async (config: AsleepConfig): Promise<void> => {
     try {
@@ -121,6 +138,15 @@ export const useAsleep = () => {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [showDebugLog, setShowDebugLog] = useState(false);
   const [log, setLog] = useState<string>("");
+
+  const setup = useCallback(async (config: AsleepSetupConfig) => {
+    try {
+      console.log("[useAsleep] setup");
+      await asleep.setup(config);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, []);
 
   const initAsleepConfig = useCallback(async (config: AsleepConfig) => {
     try {
@@ -280,6 +306,17 @@ export const useAsleep = () => {
     const onDebugLog = (data: any) => {
       addLog(`[onDebugLog] message: ${data.message}`);
     };
+    const onSetupDidComplete = () => {
+      addLog(`[onSetupDidComplete]`);
+    };
+    const onSetupDidFail = (data: any) => {
+      const errorString = JSON.stringify(data);
+      setError(errorString);
+      addLog(`[onSetupDidFail] error: ${errorString}`);
+    };
+    const onSetupInProgress = (data: any) => {
+      addLog(`[onSetupInProgress] progress: ${data.progress}%`);
+    };
 
     const userJoinedListener = addEventListener("onUserJoined", onUserJoined);
     const userJoinFailedListener = addEventListener(
@@ -319,6 +356,9 @@ export const useAsleep = () => {
       onMicPermissionDenied
     );
     const debugLogListener = addEventListener("onDebugLog", onDebugLog);
+    const setupDidCompleteListener = addEventListener("onSetupDidComplete", onSetupDidComplete);
+    const setupDidFailListener = addEventListener("onSetupDidFail", onSetupDidFail);
+    const setupInProgressListener = addEventListener("onSetupInProgress", onSetupInProgress);
 
     return () => {
       userJoinedListener();
@@ -332,6 +372,9 @@ export const useAsleep = () => {
       trackingResumedListener();
       micPermissionDeniedListener();
       debugLogListener();
+      setupDidCompleteListener();
+      setupDidFailListener();
+      setupInProgressListener();
     };
   }, []);
 
@@ -343,6 +386,7 @@ export const useAsleep = () => {
     log,
     enableLog,
     setCustomNotification,
+    setup,
     initAsleepConfig,
     startTracking,
     stopTracking,
@@ -357,6 +401,7 @@ export default asleep;
 
 export type {
   AsleepConfig,
+  AsleepSetupConfig,
   AsleepEventType,
   AsleepReport,
   AsleepSession,

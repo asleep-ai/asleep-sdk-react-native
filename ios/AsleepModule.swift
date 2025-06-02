@@ -21,6 +21,18 @@ public class AsleepModule: Module {
         Events("onUserDeleted")
         
         Events("onDebugLog")
+        Events("onSetupDidComplete")
+        Events("onSetupDidFail")
+        Events("onSetupInProgress")
+
+        Function("setup") { (apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
+            Asleep.setup(apiKey: apiKey,
+                        baseUrl: URL(string: baseUrl ?? ""),
+                        callbackUrl: URL(string: callbackUrl ?? ""),
+                        service: service,
+                        enableODA: enableODA ?? false,
+                        delegate: self)
+        }
 
         Function("initAsleepConfig") { (apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?) in
             Asleep.initAsleepConfig(apiKey: apiKey,
@@ -99,6 +111,20 @@ public class AsleepModule: Module {
             semaphore.wait()
             return permissionGranted
         }
+    }
+}
+
+extension AsleepModule: AsleepSetupDelegate {
+    public func setupDidComplete() {
+        sendEvent("onSetupDidComplete", [:])
+    }
+    
+    public func setupDidFail(error: Asleep.AsleepError) {
+        sendEvent("onSetupDidFail", ["error": error.localizedDescription])
+    }
+    
+    public func setupInProgress(progress: Int) {
+        sendEvent("onSetupInProgress", ["progress": progress])
     }
 }
 
