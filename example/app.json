@@ -15,7 +15,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "ai.asleep.reactnative.example",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app uses the microphone to analyze sleep patterns and provide sleep tracking functionality."
+        "NSMicrophoneUsageDescription": "This app uses the microphone to analyze sleep patterns and provide sleep tracking functionality.",
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {

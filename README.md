@@ -55,11 +55,32 @@ npx pod-install
 
 Add the following permissions to your app:
 
-#### iOS (ios/YourApp/Info.plist)
+#### iOS
+
+**For Expo Managed Projects (app.json):**
+
+```json
+{
+  "expo": {
+    "ios": {
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "This app needs microphone access for sleep tracking",
+        "UIBackgroundModes": ["audio"]
+      }
+    }
+  }
+}
+```
+
+**For Bare React Native Projects (ios/YourApp/Info.plist):**
 
 ```xml
 <key>NSMicrophoneUsageDescription</key>
 <string>This app needs microphone access for sleep tracking</string>
+<key>UIBackgroundModes</key>
+<array>
+  <string>audio</string>
+</array>
 ```
 
 #### Android (android/app/src/main/AndroidManifest.xml)
@@ -79,6 +100,7 @@ Add the following permissions to your app:
 ```typescript
 import React, { useEffect } from "react";
 import { useAsleep } from "react-native-asleep";
+import { View, Text, Button } from "react-native";
 
 const SleepTracker = () => {
   const {
@@ -144,21 +166,27 @@ const SleepTracker = () => {
   };
 
   return (
-    <div>
-      <p>User ID: {userId}</p>
-      <p>Session ID: {sessionId}</p>
-      <p>Status: {isTracking ? "Tracking" : "Not Tracking"}</p>
+    <View>
+      <Text>User ID: {userId}</Text>
+      <Text>Session ID: {sessionId}</Text>
+      <Text>Status: {isTracking ? "Tracking" : "Not Tracking"}</Text>
 
-      <button onClick={handleStartTracking} disabled={isTracking}>
-        Start Tracking
-      </button>
-      <button onClick={handleStopTracking} disabled={!isTracking}>
-        Stop Tracking
-      </button>
-      <button onClick={handleGetReport} disabled={!sessionId}>
-        Get Report
-      </button>
-    </div>
+      <Button
+        title="Start Tracking"
+        onPress={handleStartTracking}
+        disabled={isTracking}
+      />
+      <Button
+        title="Stop Tracking"
+        onPress={handleStopTracking}
+        disabled={!isTracking}
+      />
+      <Button
+        title="Get Report"
+        onPress={handleGetReport}
+        disabled={!sessionId}
+      />
+    </View>
   );
 };
 ```
@@ -178,6 +206,10 @@ class SleepManager {
       await AsleepSDK.initAsleepConfig({
         apiKey: "YOUR_API_KEY",
       });
+
+      // Initialize event listeners
+      AsleepSDK.initialize();
+
       console.log("SDK initialized");
     } catch (error) {
       console.error("SDK initialization failed:", error);
@@ -370,6 +402,6 @@ This project is licensed under the MIT License.
 
 For issues and support:
 
-- [GitHub Issues](https://github.com/your-repo/react-native-asleep/issues)
+- [GitHub Issues](https://github.com/asleep-ai/asleep-sdk-react-native/issues)
 - [Asleep Documentation](https://docs.asleep.ai)
 - [Asleep Dashboard](https://dashboard.asleep.ai)
