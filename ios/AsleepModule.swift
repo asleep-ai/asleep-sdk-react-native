@@ -151,16 +151,22 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     }
 
     public func didCreate() {
-        let maxRetries = 5
-        let retryInterval: UInt32 = 1
-        for _ in 0..<maxRetries {
-            sleep(retryInterval)
-            if let sessionId = trackingManager?.getTrackingStatus().sessionId{
-                sendEvent("onTrackingCreated", ["sessionId": sessionId])
-                return
-            }
+        attemptGetSessionId(retriesLeft: 5, retryInterval: 1.0)
+    }
+    
+    private func attemptGetSessionId(retriesLeft: Int, retryInterval: TimeInterval) {
+        if let sessionId = trackingManager?.getTrackingStatus().sessionId {
+            sendEvent("onTrackingCreated", ["sessionId": sessionId])
+            return
         }
-        sendEvent("onTrackingCreated", [:])
+        
+        if retriesLeft > 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + retryInterval) { [weak self] in
+                self?.attemptGetSessionId(retriesLeft: retriesLeft - 1, retryInterval: retryInterval)
+            }
+        } else {
+            sendEvent("onTrackingCreated", [:])
+        }
     }
 
     public func didUpload(sequence: Int) {
