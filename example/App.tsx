@@ -30,6 +30,9 @@ const App = () => {
     error,
     log,
     isTracking,
+    isODAEnabled,
+    latestAnalysisResult,
+    setup,
     initAsleepConfig,
     startTracking,
     stopTracking,
@@ -165,6 +168,20 @@ const App = () => {
     }
   };
 
+  const _requestAnalysis = async () => {
+    try {
+      const result = await requestAnalysis();
+      if (result) {
+        addLog(`Analysis result: ${JSON.stringify(result)}`);
+        showModal("Analysis Result", result);
+      } else {
+        addLog("No analysis result available");
+      }
+    } catch (error: any) {
+      addLog(`Analysis error: ${error.message}`);
+    }
+  };
+
   const renderModalContent = () => {
     if (!modalContent) return null;
 
@@ -276,6 +293,34 @@ const App = () => {
           ))}
         </View>
       );
+    } else if (modalTitle === "Analysis Result") {
+      // Show analysis result (Session data)
+      const session = modalContent;
+      return (
+        <View>
+          <Text style={styles.modalSectionTitle}>Real-time Analysis Result</Text>
+          <Text>Session ID: {session.id ?? "N/A"}</Text>
+          <Text>State: {session.state ?? "N/A"}</Text>
+          <Text>Start Time: {session.startTime ?? "N/A"}</Text>
+          <Text>End Time: {session.endTime ?? "N/A"}</Text>
+          <Text>Sleep Stages: {session.sleepStages?.length || 0} data points</Text>
+          <Text>Snoring Stages: {session.snoringStages?.length || 0} data points</Text>
+          
+          {session.sleepStages && session.sleepStages.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>Sleep Stages (Recent 10)</Text>
+              <Text>{session.sleepStages.slice(-10).join(", ")}</Text>
+            </>
+          )}
+          
+          {session.snoringStages && session.snoringStages.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>Snoring Stages (Recent 10)</Text>
+              <Text>{session.snoringStages.slice(-10).join(", ")}</Text>
+            </>
+          )}
+        </View>
+      );
     }
 
     return <Text>{JSON.stringify(modalContent, null, 2)}</Text>;
@@ -290,6 +335,18 @@ const App = () => {
           <Text>
             Tracking Status: {isTracking ? "Tracking" : "Not Tracking"}
           </Text>
+          <Text>
+            ODA Enabled: {isODAEnabled ? "Yes" : "No"}
+          </Text>
+          {latestAnalysisResult && (
+            <Text style={styles.analysisResult}>
+              Latest Analysis: Session ID: {latestAnalysisResult.id},
+              State: {latestAnalysisResult.state},
+              Sleep Stages: {latestAnalysisResult.sleepStages?.join(", ") || "[]"},
+              Breath Stages: {latestAnalysisResult.breathStages?.join(", ") || "[]"}
+              Snoring Stages: {latestAnalysisResult.snoringStages?.join(", ") || "[]"},
+            </Text>
+          )}
           {error && <Text style={styles.errorText}>Error: {error}</Text>}
         </View>
         <ScrollView style={styles.logContainer}>
@@ -308,6 +365,10 @@ const App = () => {
         <View style={styles.buttonContainer}>
           <Button title="Get Report" onPress={_getReport} />
           <Button title="Get Report List" onPress={_getReportList} />
+        </View>
+
+        <View style={styles.buttonContainer}>
+          <Button title="Request Analysis" onPress={_requestAnalysis} />
         </View>
 
         {/* Modal Component */}
@@ -361,6 +422,12 @@ const styles = StyleSheet.create({
     color: "red",
     fontSize: 14,
     marginTop: 5,
+  },
+  analysisResult: {
+    color: "blue",
+    fontSize: 12,
+    marginTop: 5,
+    fontWeight: "bold",
   },
   buttonContainer: {
     flexDirection: "row",

@@ -72,7 +72,7 @@ class AsleepModule : Module() {
         Events("onTrackingCreated", "onTrackingUploaded", "onTrackingClosed", "onTrackingFailed", 
                "onTrackingInterrupted", "onTrackingResumed", "onMicPermissionDenied",
                "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog",
-               "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress")
+               "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress", "onAnalysisResult")
 
         AsyncFunction("setup") { apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, promise: Promise ->
             try {
@@ -88,7 +88,6 @@ class AsleepModule : Module() {
                     asleepSetupListener = object : Asleep.AsleepSetupListener {
                         override fun onComplete() {
                             sendEvent("onSetupDidComplete", emptyMap<String, Any>())
-                            sendEvent("onDebugLog", mapOf("message" to "Setup completed"))
                             promise.resolve("Setup completed")
                         }
                         
@@ -337,6 +336,39 @@ class AsleepModule : Module() {
                 } catch (e: Exception) {
                     promise.reject("PERMISSION_ERROR", "Error requesting microphone permission: ${e.message}", e)
                 }
+            }
+        }
+
+        AsyncFunction("requestAnalysis") { promise: Promise ->
+            try {
+                if (_asleepConfig == null) {
+                    promise.reject("UNINITIALIZED_CONFIG", "AsleepConfig is not initialized", null)
+                    return@AsyncFunction
+                }
+
+                if (!isTracking) {
+                    promise.reject("NOT_TRACKING", "Sleep tracking is not active", null)
+                    return@AsyncFunction
+                }
+
+                Asleep.getCurrentSleepData(object : Asleep.AsleepSleepDataListener {
+                    override fun onSleepDataReceived(session: ai.asleep.asleepsdk.data.Session) {
+                        val sessionData = session.serializeToMap()
+                        sendEvent("onAnalysisResult", sessionData)
+                        sendEvent("onDebugLog", mapOf("message" to "Request analysis result: $sessionData"))
+                        promise.resolve(sessionData)
+                    }
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        val errorMessage = "Get current sleep data failed: errorCode=$errorCode, detail=$detail"
+                        sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                        promise.reject("ANALYSIS_ERROR", errorMessage, null)
+                    }
+                })
+            } catch (e: Exception) {
+                val errorMessage = "Analysis request failed: ${e.message}"
+                sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                promise.reject("UNEXPECTED_ERROR", errorMessage, e)
             }
         }
     }

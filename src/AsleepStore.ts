@@ -8,6 +8,7 @@ import {
   AsleepEventType,
   AsleepReport,
   AsleepSession,
+  AsleepAnalysisResult,
 } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
 
@@ -21,6 +22,8 @@ export interface AsleepState {
   sessionId: string | null;
   showDebugLog: boolean;
   log: string;
+  latestAnalysisResult: AsleepAnalysisResult | null;
+  isODAEnabled: boolean;
 
   // actions
   setup: (config: AsleepSetupConfig) => Promise<void>;
@@ -32,6 +35,7 @@ export interface AsleepState {
   requestMicrophonePermission: () => Promise<boolean>;
   setCustomNotification: (title: string, text: string) => Promise<void>;
   enableLog: (print: boolean) => void;
+  requestAnalysis: () => Promise<AsleepAnalysisResult | null>;
   addEventListener: <K extends keyof AsleepEventType>(
     eventType: K,
     listener: (data: AsleepEventType[K]) => void
@@ -43,6 +47,7 @@ export interface AsleepState {
   setSessionId: (sessionId: string | null) => void;
   setIsTracking: (isTracking: boolean) => void;
   setDidClose: (didClose: boolean) => void;
+  setLatestAnalysisResult: (result: AsleepAnalysisResult | null) => void;
   addLog: (log: string) => void;
 }
 
@@ -69,6 +74,8 @@ export const useAsleepStore = create<AsleepState>()(
     sessionId: null,
     showDebugLog: false,
     log: "",
+    latestAnalysisResult: null,
+    isODAEnabled: false,
 
     // actions
     setup: async (config: AsleepSetupConfig) => {
@@ -84,7 +91,9 @@ export const useAsleepStore = create<AsleepState>()(
           config.enableODA
         );
 
-        addLog("[setup] Success");
+        // Store ODA enabled state
+        set({ isODAEnabled: config.enableODA || false });
+        addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
       } catch (error: any) {
         console.error("setup error:", error);
         set({ error: error.message });
@@ -115,7 +124,7 @@ export const useAsleepStore = create<AsleepState>()(
 
     startTracking: async () => {
       try {
-        const { requestMicrophonePermission, addLog } = get();
+        const { requestMicrophonePermission, addLog, isODAEnabled } = get();
         addLog("[startTracking] Start");
 
         const permission = await requestMicrophonePermission();
@@ -126,6 +135,12 @@ export const useAsleepStore = create<AsleepState>()(
 
         set({ didClose: false, isTracking: true });
         await AsleepModule.startTracking();
+
+        if (isODAEnabled) {
+          addLog("[startTracking] ODA enabled - real-time analysis will start automatically");
+        } else {
+          addLog("[startTracking] ODA not enabled");
+        }
 
         addLog("[startTracking] Success");
       } catch (error: any) {
@@ -205,6 +220,26 @@ export const useAsleepStore = create<AsleepState>()(
       set({ showDebugLog: print });
     },
 
+    requestAnalysis: async () => {
+      try {
+        const { addLog } = get();
+        addLog("[requestAnalysis] Start");
+
+        const result = await AsleepModule.requestAnalysis();
+        const convertedResult = convertKeysToCamelCase(result);
+
+        set({ latestAnalysisResult: convertedResult });
+        addLog(`[requestAnalysis] Success - ${JSON.stringify(convertedResult)}`);
+
+        return convertedResult;
+      } catch (error: any) {
+        console.error("requestAnalysis error:", error);
+        set({ error: error.message });
+        return null;
+      }
+    },
+
+
     addEventListener: <K extends keyof AsleepEventType>(
       eventType: K,
       listener: (data: AsleepEventType[K]) => void
@@ -219,6 +254,7 @@ export const useAsleepStore = create<AsleepState>()(
     setSessionId: (sessionId) => set({ sessionId }),
     setIsTracking: (isTracking) => set({ isTracking }),
     setDidClose: (didClose) => set({ didClose }),
+    setLatestAnalysisResult: (result) => set({ latestAnalysisResult: result }),
 
     addLog: (log: string) => {
       const { showDebugLog } = get();
@@ -249,6 +285,7 @@ export const initializeAsleepListeners = () => {
     setIsTracking,
     setError,
     setDidClose,
+    setLatestAnalysisResult,
   } = store;
 
   // event handlers
@@ -272,13 +309,20 @@ export const initializeAsleepListeners = () => {
         setSessionId(data.sessionId);
       }
       addLog(
-        `[onTrackingCreated]${
-          data?.sessionId ? ` sessionId: ${data.sessionId}` : ""
+        `[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""
         }`
       );
     },
     onTrackingUploaded: (data: any) => {
       addLog(`[onTrackingUploaded] sequence: ${data.sequence}`);
+      
+      // Request analysis automatically if ODA is enabled
+      const state = useAsleepStore.getState();
+      if (state.isODAEnabled && state.isTracking) {
+        state.requestAnalysis().catch((error) => {
+          addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
+        });
+      }
     },
     onTrackingClosed: (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
@@ -316,6 +360,10 @@ export const initializeAsleepListeners = () => {
     },
     onSetupInProgress: (data: any) => {
       addLog(`[onSetupInProgress] progress: ${data.progress}%`);
+    },
+    onAnalysisResult: (data: any) => {
+      setLatestAnalysisResult(data);
+      addLog(`[onAnalysisResult] ${JSON.stringify(data)}`);
     },
   };
 

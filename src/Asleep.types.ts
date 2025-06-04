@@ -80,6 +80,16 @@ export type AsleepSession = {
   timeInBed?: number;
 };
 
+export type AsleepAnalysisResult = {
+  id?: string;
+  state?: string;
+  startTime?: string;
+  endTime?: string;
+  sleepStages?: number[];
+  breathStages?: number[];
+  snoringStages?: number[];
+};
+
 export type AsleepEventType = {
   onTrackingCreated: { sessionId?: string };
   onTrackingUploaded: { sequence: number };
@@ -95,4 +105,5 @@ export type AsleepEventType = {
   onSetupDidComplete: undefined;
   onSetupDidFail: { error: string };
   onSetupInProgress: { progress: number };
+  onAnalysisResult: AsleepAnalysisResult;
 };
