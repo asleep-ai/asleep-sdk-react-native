@@ -149,6 +149,9 @@ export const useAsleep = () => {
     isODAEnabled,
     analysisResult,
     isAnalyzing,
+    isTrackingPaused,
+    getTrackingDurationMinutes,
+    isInitialized,
   } = useAsleepStore();
 
   useEffect(() => {
@@ -175,6 +178,9 @@ export const useAsleep = () => {
     isODAEnabled,
     analysisResult,
     isAnalyzing,
+    isTrackingPaused,
+    getTrackingDurationMinutes,
+    isInitialized,
   };
 };
 

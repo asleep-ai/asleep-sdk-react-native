@@ -17,6 +17,7 @@ const emitter = new EventEmitter(AsleepModule);
 export interface AsleepState {
   didClose: boolean;
   isTracking: boolean;
+  isTrackingPaused: boolean;
   error: string | null;
   userId: string | null;
   sessionId: string | null;
@@ -25,6 +26,8 @@ export interface AsleepState {
   analysisResult: AsleepAnalysisResult | null;
   isODAEnabled: boolean;
   isAnalyzing: boolean;
+  trackingStartTime: Date | null;
+  isInitialized: boolean;
 
   // actions
   setup: (config: AsleepSetupConfig) => Promise<void>;
@@ -41,6 +44,7 @@ export interface AsleepState {
     eventType: K,
     listener: (data: AsleepEventType[K]) => void
   ) => () => void;
+  getTrackingDurationMinutes: () => number;
 
   // internal actions
   setError: (error: string | null) => void;
@@ -50,6 +54,8 @@ export interface AsleepState {
   setDidClose: (didClose: boolean) => void;
   setanalysisResult: (result: AsleepAnalysisResult | null) => void;
   setIsAnalyzing: (isAnalyzing: boolean) => void;
+  setTrackingStartTime: (time: Date | null) => void;
+  setIsInitialized: (initialized: boolean) => void;
   addLog: (log: string) => void;
 }
 
@@ -79,6 +85,8 @@ export const useAsleepStore = create<AsleepState>()(
     analysisResult: null,
     isODAEnabled: false,
     isAnalyzing: false,
+    trackingStartTime: null,
+    isInitialized: false,
 
     // actions
     setup: async (config: AsleepSetupConfig) => {
@@ -95,7 +103,7 @@ export const useAsleepStore = create<AsleepState>()(
         );
 
         // Store ODA enabled state
-        set({ isODAEnabled: config.enableODA || false });
+        set({ isODAEnabled: config.enableODA || false, isInitialized: true });
         addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
       } catch (error: any) {
         console.error("setup error:", error);
@@ -136,7 +144,12 @@ export const useAsleepStore = create<AsleepState>()(
           throw new Error("Microphone permission denied");
         }
 
-        set({ didClose: false, isTracking: true, isAnalyzing: false });
+        set({
+          didClose: false,
+          isTracking: true,
+          isAnalyzing: false,
+          trackingStartTime: new Date(),
+        });
         await AsleepModule.startTracking();
 
         if (isODAEnabled) {
@@ -150,7 +163,12 @@ export const useAsleepStore = create<AsleepState>()(
         addLog("[startTracking] Success");
       } catch (error: any) {
         console.error("startTracking error:", error);
-        set({ error: error.message, isTracking: false, isAnalyzing: false });
+        set({
+          error: error.message,
+          isTracking: false,
+          isAnalyzing: false,
+          trackingStartTime: null,
+        });
         throw error;
       }
     },
@@ -166,6 +184,7 @@ export const useAsleepStore = create<AsleepState>()(
           sessionId,
           isTracking: false,
           isAnalyzing: false,
+          trackingStartTime: null,
         });
 
         addLog(`[stopTracking] Success - sessionId: ${sessionId}`);
@@ -260,6 +279,14 @@ export const useAsleepStore = create<AsleepState>()(
       return () => subscription.remove();
     },
 
+    getTrackingDurationMinutes: () => {
+      const { trackingStartTime } = get();
+      if (!trackingStartTime) return 0;
+      return Math.floor(
+        (Date.now() - trackingStartTime.getTime()) / (1000 * 60)
+      );
+    },
+
     // internal actions
     setError: (error) => set({ error }),
     setUserId: (userId) => set({ userId }),
@@ -268,6 +295,8 @@ export const useAsleepStore = create<AsleepState>()(
     setDidClose: (didClose) => set({ didClose }),
     setanalysisResult: (result) => set({ analysisResult: result }),
     setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
+    setTrackingStartTime: (time) => set({ trackingStartTime: time }),
+    setIsInitialized: (initialized) => set({ isInitialized: initialized }),
 
     addLog: (log: string) => {
       const { showDebugLog } = get();
@@ -296,6 +325,7 @@ export const initializeAsleepListeners = () => {
     setUserId,
     setSessionId,
     setIsTracking,
+    setIsTrackingPaused,
     setError,
     setDidClose,
     setanalysisResult,
@@ -353,15 +383,15 @@ export const initializeAsleepListeners = () => {
       setError(errorString);
       setIsTracking(false);
       setIsAnalyzing(false);
+      store.setTrackingStartTime(null);
       addLog(`[onTrackingFailed] error: ${errorString}`);
     },
     onTrackingInterrupted: () => {
-      setIsTracking(false);
-      setIsAnalyzing(false);
+      setIsTrackingPaused(true);
       addLog(`[onTrackingInterrupted]`);
     },
     onTrackingResumed: () => {
-      setIsTracking(true);
+      setIsTrackingPaused(false);
       addLog(`[onTrackingResumed]`);
     },
     onMicPermissionDenied: () => {

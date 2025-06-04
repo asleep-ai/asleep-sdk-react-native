@@ -23,6 +23,7 @@ const App = () => {
   const [modalContent, setModalContent] = useState<any>(null);
   const [selectedReport, setSelectedReport] = useState<any>(null);
   const [originalReportList, setOriginalReportList] = useState<any[]>([]);
+  const [trackingDuration, setTrackingDuration] = useState<number>(0);
 
   const {
     userId,
@@ -41,6 +42,9 @@ const App = () => {
     getReportList,
     requestAnalysis,
     enableLog,
+    isTrackingPaused,
+    getTrackingDurationMinutes,
+    isInitialized,
   } = useAsleep();
 
   useEffect(() => {
@@ -48,17 +52,6 @@ const App = () => {
       try {
         // Enable debug logging
         enableLog(SHOW_DEBUG_LOG);
-
-        // ODA가 활성화된 상태로 먼저 setup을 수행하고 완료될 때까지 대기
-        addLog("Starting setup...");
-        await setup({
-          apiKey: API_KEY,
-          enableODA: true,
-        });
-        addLog("Setup completed with ODA enabled");
-
-        // setup이 완전히 완료되도록 약간의 지연을 추가
-        await new Promise((resolve) => setTimeout(resolve, 1000));
 
         // Regular initialization (same as before)
         await initAsleepConfig({
@@ -86,6 +79,25 @@ const App = () => {
       addLog(`Error: ${error}`);
     }
   }, [error]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isTracking && !isTrackingPaused) {
+      interval = setInterval(async () => {
+        try {
+          const duration = await getTrackingDurationMinutes();
+          setTrackingDuration(duration);
+        } catch (error) {
+          console.error("Failed to get tracking duration:", error);
+        }
+      }, 1000);
+    }
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isTracking, isTrackingPaused, getTrackingDurationMinutes]);
 
   const addLog = (message: string) => {
     console.log("message", message);
@@ -355,11 +367,22 @@ const App = () => {
         <View>
           <Text>User ID: {userId}</Text>
           <Text>Session ID: {sessionId}</Text>
+          <Text>SDK Initialized: {isInitialized ? "Yes" : "No"}</Text>
           <Text>
-            Tracking Status: {isTracking ? "Tracking" : "Not Tracking"}
+            Tracking Status:{" "}
+            {!isTracking
+              ? "Not Tracking"
+              : isTrackingPaused
+              ? "Paused"
+              : "Active"}
           </Text>
           <Text>ODA Enabled: {isODAEnabled ? "Yes" : "No"}</Text>
           <Text>Analysis Status: {isAnalyzing ? "Yes" : "No"}</Text>
+          {isTracking && (
+            <Text>
+              Tracking Duration: {Math.floor(trackingDuration)} minutes
+            </Text>
+          )}
           {analysisResult && (
             <Text style={styles.analysisResult}>
               Latest Analysis: Session ID: {analysisResult.id}, State:{" "}
@@ -383,7 +406,7 @@ const App = () => {
         <View style={styles.buttonContainer}>
           <Button
             title="Start Tracking"
-            disabled={isTracking}
+            disabled={!isInitialized || isTracking}
             onPress={_startTracking}
           />
           <Button
@@ -402,7 +425,7 @@ const App = () => {
           <Button
             title={isAnalyzing ? "Analyzing..." : "Request Analysis"}
             onPress={_requestAnalysis}
-            disabled={isAnalyzing || !isTracking}
+            disabled={isAnalyzing || !isTracking || isTrackingPaused}
           />
         </View>
 
