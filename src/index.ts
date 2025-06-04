@@ -147,7 +147,8 @@ export const useAsleep = () => {
     setCustomNotification,
     requestAnalysis,
     isODAEnabled,
-    latestAnalysisResult,
+    analysisResult,
+    isAnalyzing,
   } = useAsleepStore();
 
   useEffect(() => {
@@ -172,7 +173,8 @@ export const useAsleep = () => {
     getReportList,
     requestAnalysis,
     isODAEnabled,
-    latestAnalysisResult,
+    analysisResult,
+    isAnalyzing,
   };
 };
 
@@ -197,6 +199,8 @@ export const AsleepSDK = {
   requestAnalysis: () => useAsleepStore.getState().requestAnalysis(),
 
   isTracking: () => useAsleepStore.getState().isTracking,
+
+  isAnalyzing: () => useAsleepStore.getState().isAnalyzing,
 
   getUserId: () => useAsleepStore.getState().userId,
 
