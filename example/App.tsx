@@ -38,6 +38,7 @@ const App = () => {
     stopTracking,
     getReport,
     getReportList,
+    requestAnalysis,
     enableLog,
   } = useAsleep();
 
