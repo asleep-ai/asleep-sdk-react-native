@@ -51,6 +51,7 @@ export interface AsleepState {
   setUserId: (userId: string | null) => void;
   setSessionId: (sessionId: string | null) => void;
   setIsTracking: (isTracking: boolean) => void;
+  setIsTrackingPaused: (isTrackingPaused: boolean) => void;
   setDidClose: (didClose: boolean) => void;
   setanalysisResult: (result: AsleepAnalysisResult | null) => void;
   setIsAnalyzing: (isAnalyzing: boolean) => void;
@@ -77,6 +78,7 @@ export const useAsleepStore = create<AsleepState>()(
     // initial state
     didClose: false,
     isTracking: AsleepModule.isTracking ? AsleepModule.isTracking() : false,
+    isTrackingPaused: false,
     error: null,
     userId: null,
     sessionId: null,
@@ -292,6 +294,7 @@ export const useAsleepStore = create<AsleepState>()(
     setUserId: (userId) => set({ userId }),
     setSessionId: (sessionId) => set({ sessionId }),
     setIsTracking: (isTracking) => set({ isTracking }),
+    setIsTrackingPaused: (isTrackingPaused) => set({ isTrackingPaused }),
     setDidClose: (didClose) => set({ didClose }),
     setanalysisResult: (result) => set({ analysisResult: result }),
     setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
