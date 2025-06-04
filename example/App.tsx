@@ -30,11 +30,16 @@ const App = () => {
     error,
     log,
     isTracking,
+    isODAEnabled,
+    analysisResult,
+    isAnalyzing,
+    setup,
     initAsleepConfig,
     startTracking,
     stopTracking,
     getReport,
     getReportList,
+    requestAnalysis,
     enableLog,
   } = useAsleep();
 
@@ -43,6 +48,17 @@ const App = () => {
       try {
         // Enable debug logging
         enableLog(SHOW_DEBUG_LOG);
+
+        // ODA가 활성화된 상태로 먼저 setup을 수행하고 완료될 때까지 대기
+        addLog("Starting setup...");
+        await setup({
+          apiKey: API_KEY,
+          enableODA: true,
+        });
+        addLog("Setup completed with ODA enabled");
+
+        // setup이 완전히 완료되도록 약간의 지연을 추가
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
         // Regular initialization (same as before)
         await initAsleepConfig({
@@ -165,6 +181,20 @@ const App = () => {
     }
   };
 
+  const _requestAnalysis = async () => {
+    try {
+      const result = await requestAnalysis();
+      if (result) {
+        addLog(`Analysis result: ${JSON.stringify(result)}`);
+        showModal("Analysis Result", result);
+      } else {
+        addLog("No analysis result available");
+      }
+    } catch (error: any) {
+      addLog(`Analysis error: ${error.message}`);
+    }
+  };
+
   const renderModalContent = () => {
     if (!modalContent) return null;
 
@@ -276,6 +306,44 @@ const App = () => {
           ))}
         </View>
       );
+    } else if (modalTitle === "Analysis Result") {
+      // Show analysis result (Session data)
+      const session = modalContent;
+      return (
+        <View>
+          <Text style={styles.modalSectionTitle}>
+            Real-time Analysis Result
+          </Text>
+          <Text>Session ID: {session.id ?? "N/A"}</Text>
+          <Text>State: {session.state ?? "N/A"}</Text>
+          <Text>Start Time: {session.startTime ?? "N/A"}</Text>
+          <Text>End Time: {session.endTime ?? "N/A"}</Text>
+          <Text>
+            Sleep Stages: {session.sleepStages?.length || 0} data points
+          </Text>
+          <Text>
+            Snoring Stages: {session.snoringStages?.length || 0} data points
+          </Text>
+
+          {session.sleepStages && session.sleepStages.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>
+                Sleep Stages (Recent 10)
+              </Text>
+              <Text>{session.sleepStages.slice(-10).join(", ")}</Text>
+            </>
+          )}
+
+          {session.snoringStages && session.snoringStages.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>
+                Snoring Stages (Recent 10)
+              </Text>
+              <Text>{session.snoringStages.slice(-10).join(", ")}</Text>
+            </>
+          )}
+        </View>
+      );
     }
 
     return <Text>{JSON.stringify(modalContent, null, 2)}</Text>;
@@ -290,6 +358,18 @@ const App = () => {
           <Text>
             Tracking Status: {isTracking ? "Tracking" : "Not Tracking"}
           </Text>
+          <Text>ODA Enabled: {isODAEnabled ? "Yes" : "No"}</Text>
+          <Text>Analysis Status: {isAnalyzing ? "Yes" : "No"}</Text>
+          {analysisResult && (
+            <Text style={styles.analysisResult}>
+              Latest Analysis: Session ID: {analysisResult.id}, State:{" "}
+              {analysisResult.state}, Sleep Stages:{" "}
+              {analysisResult.sleepStages?.join(", ") || "[]"}, Breath Stages:{" "}
+              {analysisResult.breathStages?.join(", ") || "[]"}
+              Snoring Stages: {analysisResult.snoringStages?.join(", ") || "[]"}
+              ,
+            </Text>
+          )}
           {error && <Text style={styles.errorText}>Error: {error}</Text>}
         </View>
         <ScrollView style={styles.logContainer}>
@@ -301,13 +381,29 @@ const App = () => {
           <View style={{ height: 100 }} />
         </ScrollView>
         <View style={styles.buttonContainer}>
-          <Button title="Start Tracking" onPress={_startTracking} />
-          <Button title="Stop Tracking" onPress={_stopTracking} />
+          <Button
+            title="Start Tracking"
+            disabled={isTracking}
+            onPress={_startTracking}
+          />
+          <Button
+            title="Stop Tracking"
+            disabled={!isTracking}
+            onPress={_stopTracking}
+          />
         </View>
 
         <View style={styles.buttonContainer}>
           <Button title="Get Report" onPress={_getReport} />
           <Button title="Get Report List" onPress={_getReportList} />
+        </View>
+
+        <View style={styles.buttonContainer}>
+          <Button
+            title={isAnalyzing ? "Analyzing..." : "Request Analysis"}
+            onPress={_requestAnalysis}
+            disabled={isAnalyzing || !isTracking}
+          />
         </View>
 
         {/* Modal Component */}
@@ -361,6 +457,12 @@ const styles = StyleSheet.create({
     color: "red",
     fontSize: 14,
     marginTop: 5,
+  },
+  analysisResult: {
+    color: "blue",
+    fontSize: 12,
+    marginTop: 5,
+    fontWeight: "bold",
   },
   buttonContainer: {
     flexDirection: "row",

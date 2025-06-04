@@ -24,6 +24,7 @@ public class AsleepModule: Module {
         Events("onSetupDidComplete")
         Events("onSetupDidFail")
         Events("onSetupInProgress")
+        Events("onAnalysisResult")
 
         Function("setup") { (apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
             Asleep.setup(apiKey: apiKey,
@@ -111,6 +112,20 @@ public class AsleepModule: Module {
             semaphore.wait()
             return permissionGranted
         }
+
+        AsyncFunction("requestAnalysis") { () -> [String: Any]? in
+            guard let trackingManager = self.trackingManager else {
+                throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
+            }
+            
+            trackingManager.requestAnalysis()
+            let ackData: [String: Any] = [
+                "status": "requested",
+                "timestamp": Date().timeIntervalSince1970 * 1000
+            ]
+            
+            return ackData
+        }
     }
 }
 
@@ -147,6 +162,7 @@ extension AsleepModule: AsleepConfigDelegate {
 
 extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     public func didFail(error: Asleep.AsleepError) {
+        sendEvent("onDebugLog", ["message": "Tracking failed: \(error)"])
         sendEvent("onTrackingFailed", ["error": error.localizedDescription])
     }
 
@@ -191,6 +207,14 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     
     public func analysing(session: Asleep.Model.Session) {
         sendEvent("onDebugLog", ["message": "Analysing session: \(session)"])
+        
+        // Convert session to dictionary and send as analysis result
+        do {
+            let sessionData = try session.asDictionary()
+            sendEvent("onAnalysisResult", sessionData)
+        } catch {
+            sendEvent("onDebugLog", ["message": "Failed to convert session to dictionary: \(error)"])
+        }
     }
 }
 

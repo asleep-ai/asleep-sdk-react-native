@@ -145,6 +145,10 @@ export const useAsleep = () => {
     getReportList,
     enableLog,
     setCustomNotification,
+    requestAnalysis,
+    isODAEnabled,
+    analysisResult,
+    isAnalyzing,
   } = useAsleepStore();
 
   useEffect(() => {
@@ -154,6 +158,7 @@ export const useAsleep = () => {
 
   return {
     didClose,
+    isTracking,
     error,
     userId,
     sessionId,
@@ -166,7 +171,10 @@ export const useAsleep = () => {
     stopTracking,
     getReport,
     getReportList,
-    isTracking,
+    requestAnalysis,
+    isODAEnabled,
+    analysisResult,
+    isAnalyzing,
   };
 };
 
@@ -188,7 +196,11 @@ export const AsleepSDK = {
   getReportList: (fromDate: string, toDate: string) =>
     useAsleepStore.getState().getReportList(fromDate, toDate),
 
+  requestAnalysis: () => useAsleepStore.getState().requestAnalysis(),
+
   isTracking: () => useAsleepStore.getState().isTracking,
+
+  isAnalyzing: () => useAsleepStore.getState().isAnalyzing,
 
   getUserId: () => useAsleepStore.getState().userId,
 
@@ -214,4 +226,5 @@ export type {
   AsleepReport,
   AsleepSession,
   AsleepStat,
+  AsleepAnalysisResult,
 } from "./Asleep.types";

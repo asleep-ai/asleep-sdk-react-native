@@ -34,6 +34,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.app.Application
 import kotlinx.coroutines.*
+import kotlinx.coroutines.delay
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import android.os.DeadObjectException
@@ -72,7 +73,7 @@ class AsleepModule : Module() {
         Events("onTrackingCreated", "onTrackingUploaded", "onTrackingClosed", "onTrackingFailed", 
                "onTrackingInterrupted", "onTrackingResumed", "onMicPermissionDenied",
                "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog",
-               "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress")
+               "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress", "onAnalysisResult")
 
         AsyncFunction("setup") { apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, promise: Promise ->
             try {
@@ -88,7 +89,6 @@ class AsleepModule : Module() {
                     asleepSetupListener = object : Asleep.AsleepSetupListener {
                         override fun onComplete() {
                             sendEvent("onSetupDidComplete", emptyMap<String, Any>())
-                            sendEvent("onDebugLog", mapOf("message" to "Setup completed"))
                             promise.resolve("Setup completed")
                         }
                         
@@ -336,6 +336,66 @@ class AsleepModule : Module() {
                     }
                 } catch (e: Exception) {
                     promise.reject("PERMISSION_ERROR", "Error requesting microphone permission: ${e.message}", e)
+                }
+            }
+        }
+
+        AsyncFunction("requestAnalysis") { promise: Promise ->
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    if (_asleepConfig == null) {
+                        promise.reject("UNINITIALIZED_CONFIG", "AsleepConfig is not initialized", null)
+                        return@launch
+                    }
+
+                    var retryCount = 0
+                    val maxRetries = 3
+                    val delayMs = 5000L // 5 seconds
+
+                    while (retryCount < maxRetries) {
+                        if (isTracking) {
+                            // If tracking is active, request analysis
+                            try {
+                                Asleep.getCurrentSleepData(object : Asleep.AsleepSleepDataListener {
+                                    override fun onSleepDataReceived(session: ai.asleep.asleepsdk.data.Session) {
+                                        val sessionData = session.serializeToMap()
+                                        sendEvent("onAnalysisResult", sessionData)
+                                        sendEvent("onDebugLog", mapOf("message" to "Request analysis result: $sessionData"))
+                                        promise.resolve(sessionData)
+                                    }
+
+                                    override fun onFail(errorCode: Int, detail: String) {
+                                        val errorMessage = "Get current sleep data failed: errorCode=$errorCode, detail=$detail"
+                                        sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                                        promise.reject("ANALYSIS_ERROR", errorMessage, null)
+                                    }
+                                })
+                                return@launch
+                            } catch (e: Exception) {
+                                val errorMessage = "Analysis request failed during getCurrentSleepData: ${e.message}"
+                                sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                                promise.reject("ANALYSIS_ERROR", errorMessage, e)
+                                return@launch
+                            }
+                        } else {
+                            retryCount++
+                            sendEvent("onDebugLog", mapOf("message" to "Sleep tracking not active, retry $retryCount/$maxRetries"))
+                            
+                            if (retryCount < maxRetries) {
+                                delay(delayMs)
+                            }
+                        }
+                    }
+
+                    // All retries failed
+                    val errorMessage = "Sleep tracking is not active after $maxRetries retries"
+                    sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                    promise.reject("NOT_TRACKING", errorMessage, null)
+                    
+                } catch (e: Exception) {
+                    val errorMessage = "Analysis request failed: ${e.message}"
+                    sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                    promise.reject("UNEXPECTED_ERROR", errorMessage, e)
                 }
             }
         }
