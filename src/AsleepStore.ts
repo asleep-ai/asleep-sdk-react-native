@@ -321,8 +321,17 @@ export const useAsleepStore = create<AsleepState>()(
   }))
 );
 
+// Global flag to prevent multiple listener registrations
+let listenersInitialized = false;
+let cleanupFunction: (() => void) | null = null;
+
 // initialize event listeners
 export const initializeAsleepListeners = () => {
+  // If listeners are already initialized, return the existing cleanup function
+  if (listenersInitialized && cleanupFunction) {
+    return cleanupFunction;
+  }
+
   const store = useAsleepStore.getState();
   const {
     addLog,
@@ -430,8 +439,16 @@ export const initializeAsleepListeners = () => {
     subscriptions.push(() => subscription.remove());
   });
 
-  // return cleanup function
-  return () => {
+  // Mark listeners as initialized
+  listenersInitialized = true;
+
+  // Create cleanup function
+  cleanupFunction = () => {
     subscriptions.forEach((unsubscribe) => unsubscribe());
+    listenersInitialized = false;
+    cleanupFunction = null;
   };
+
+  // return cleanup function
+  return cleanupFunction;
 };
