@@ -126,6 +126,7 @@ export const useAsleepStore = create<AsleepState>()(
           config.callbackUrl
         );
 
+        set({ isInitialized: true });
         addLog("[initAsleepConfig] Success");
         return result;
       } catch (error: any) {
