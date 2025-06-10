@@ -10,9 +10,8 @@ import {
   Modal,
   TouchableOpacity,
 } from "react-native";
-import { useAsleep } from "../src";
-
-const API_KEY = process.env.EXPO_PUBLIC_API_KEY || "";
+import { useTracking } from "./useTracking";
+import { useAsleep } from "react-native-asleep/src";
 
 const SHOW_DEBUG_LOG = true;
 
@@ -34,8 +33,6 @@ const App = () => {
     isODAEnabled,
     analysisResult,
     isAnalyzing,
-    setup,
-    initAsleepConfig,
     startTracking,
     stopTracking,
     getReport,
@@ -45,28 +42,11 @@ const App = () => {
     isTrackingPaused,
     getTrackingDurationMinutes,
     isInitialized,
-  } = useAsleep();
+  } = useTracking();
 
-  useEffect(() => {
-    const initSDK = async () => {
-      try {
-        // Enable debug logging
-        enableLog(SHOW_DEBUG_LOG);
+  const { didClose } = useAsleep();
 
-        // Regular initialization (same as before)
-        await initAsleepConfig({
-          apiKey: API_KEY,
-        });
-        addLog("SDK initialized");
-      } catch (error: any) {
-        addLog(`Initialization error: ${error.message}`);
-      }
-    };
-
-    initSDK();
-  }, []);
-
-  // useAsleep hook
+  // useTracking hook에서 로그 처리
   useEffect(() => {
     if (log) {
       setLogs((prevLogs) => [...prevLogs, log]);
@@ -463,6 +443,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 10,
     marginBottom: 20,
+    backgroundColor: "white",
   },
   logContainer: {
     flex: 1,
