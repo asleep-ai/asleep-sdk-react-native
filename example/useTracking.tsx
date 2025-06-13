@@ -3,7 +3,7 @@ import { Alert, Platform } from "react-native";
 import { useAsleep, AsleepSession } from "../src";
 import { create } from "zustand";
 
-// Zustand 스토어 인터페이스
+// Zustand store interface
 interface TrackingState {
   shouldStopTracking: boolean;
   reportList: AsleepSession[];
@@ -17,15 +17,15 @@ interface TrackingState {
   setAstId: (id: string | null) => void;
 }
 
-// Zustand 스토어 생성
+// Create Zustand store
 const useTrackingStore = create<TrackingState>((set) => ({
-  // 초기 상태
+  // Initial state
   shouldStopTracking: false,
   reportList: [],
   trackingStartTime: null,
   astId: null,
 
-  // 상태 업데이트 함수들
+  // State update functions
   setShouldStopTracking: (should) => set({ shouldStopTracking: should }),
   setReportList: (list) => set({ reportList: list }),
   setTrackingStartTime: (time) => set({ trackingStartTime: time }),
@@ -54,9 +54,11 @@ export const useTracking = () => {
     requestAnalysis,
     isTrackingPaused,
     getTrackingDurationMinutes,
+    isSetupInProgress,
+    isSetupComplete,
   } = useAsleep();
 
-  // Zustand 스토어 사용
+  // Use Zustand store
   const {
     shouldStopTracking,
     reportList,
@@ -68,7 +70,7 @@ export const useTracking = () => {
     setAstId,
   } = useTrackingStore();
 
-  // SDK 초기화
+  // Initialize SDK
   useEffect(() => {
     enableLog(true);
     console.log("🐤 isInitialized", isInitialized);
@@ -77,7 +79,7 @@ export const useTracking = () => {
     }
   }, [isInitialized]);
 
-  // 트래킹 상태가 변경될 때 시작 시간 관리
+  // Manage start time when tracking state changes
   useEffect(() => {
     if (isTracking && !trackingStartTime) {
       setTrackingStartTime(Date.now());
@@ -86,7 +88,7 @@ export const useTracking = () => {
     }
   }, [isTracking]);
 
-  // astId 설정
+  // Set astId
   useEffect(() => {
     if (asleepUserId) {
       console.log("asleepUserId (astId):", asleepUserId);
@@ -96,15 +98,30 @@ export const useTracking = () => {
 
   const startTrackingWrapper = async () => {
     try {
+      if (isSetupInProgress) {
+        console.log(
+          "🐤 Setup is in progress. Please try again after completion."
+        );
+        Alert.alert(
+          "Notice",
+          "Setup is in progress. Please try again after completion."
+        );
+        return;
+      }
+
       if (!isTracking) {
         await startTracking();
         setTrackingStartTime(Date.now());
         console.log("🐤 Tracking started");
       }
-    } catch (error) {
+    } catch (error: any) {
       setShouldStopTracking(true);
       stopTracking();
       console.error("startTrackingWrapper error:", error);
+      Alert.alert(
+        "Error",
+        `Failed to start tracking: ${error?.message || String(error)}`
+      );
     }
   };
 
@@ -125,10 +142,14 @@ export const useTracking = () => {
       stopTrackingWrapper();
       return true;
     } else {
-      Alert.alert("트래킹 중지", "30분 미만입니다. 정말 중지하시겠습니까?", [
-        { text: "취소", style: "cancel" },
-        { text: "중지", onPress: stopTrackingWrapper },
-      ]);
+      Alert.alert(
+        "Stop Tracking",
+        "Less than 30 minutes. Are you sure you want to stop?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Stop", onPress: stopTrackingWrapper },
+        ]
+      );
       return false;
     }
   };
@@ -137,6 +158,11 @@ export const useTracking = () => {
     try {
       const _astId = preferredAstId || astId;
       console.log("initSDK astId:", _astId);
+
+      if (isSetupInProgress) {
+        console.log("🐤 Setup is already in progress.");
+        return;
+      }
 
       await setup({
         apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
@@ -149,8 +175,12 @@ export const useTracking = () => {
       });
 
       console.log("🐤 SDK initialized successfully");
-    } catch (error) {
+    } catch (error: any) {
       console.error("initSDK error:", error);
+      Alert.alert(
+        "Error",
+        `Failed to initialize SDK: ${error?.message || String(error)}`
+      );
     }
   };
 
@@ -160,7 +190,7 @@ export const useTracking = () => {
         return await getReportList(fromDate, toDate);
       } catch (error) {
         console.error("getReportListWrapper error:", error);
-        // 에러 발생 시에도 2초 대기 후 다시 시도
+        // Wait 2 seconds and retry even on error
         await new Promise((resolve) => setTimeout(resolve, 2000));
         try {
           return await getReportList(fromDate, toDate);
@@ -187,7 +217,17 @@ export const useTracking = () => {
   }, [isInitialized, getReportListWrapper]);
 
   const checkPermissionAndStartTracking = async () => {
-    // 간단히 바로 시작
+    if (isSetupInProgress) {
+      console.log(
+        "🐤 Setup is in progress. Please try again after completion."
+      );
+      Alert.alert(
+        "Notice",
+        "Setup is in progress. Please try again after completion."
+      );
+      return;
+    }
+
     await startTrackingWrapper();
   };
 
@@ -218,8 +258,10 @@ export const useTracking = () => {
     enableLog,
     isTrackingPaused,
     getTrackingDurationMinutes,
+    isSetupInProgress,
+    isSetupComplete,
   };
 };
 
-// 스토어를 직접 접근할 수 있도록 export
+// Export store for direct access
 export { useTrackingStore };

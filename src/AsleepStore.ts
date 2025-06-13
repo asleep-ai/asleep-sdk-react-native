@@ -28,6 +28,8 @@ export interface AsleepState {
   isAnalyzing: boolean;
   trackingStartTime: Date | null;
   isInitialized: boolean;
+  isSetupInProgress: boolean;
+  isSetupComplete: boolean;
 
   // actions
   setup: (config: AsleepSetupConfig) => Promise<void>;
@@ -57,6 +59,8 @@ export interface AsleepState {
   setIsAnalyzing: (isAnalyzing: boolean) => void;
   setTrackingStartTime: (time: Date | null) => void;
   setIsInitialized: (initialized: boolean) => void;
+  setIsSetupInProgress: (inProgress: boolean) => void;
+  setIsSetupComplete: (complete: boolean) => void;
   addLog: (log: string) => void;
 }
 
@@ -89,12 +93,32 @@ export const useAsleepStore = create<AsleepState>()(
     isAnalyzing: false,
     trackingStartTime: null,
     isInitialized: false,
+    isSetupInProgress: false,
+    isSetupComplete: false,
 
     // actions
     setup: async (config: AsleepSetupConfig) => {
       try {
-        const { addLog } = get();
+        const { addLog, isSetupInProgress, isTracking } = get();
+
+        // Prevent duplicate execution if setup is already in progress
+        if (isSetupInProgress) {
+          addLog(
+            "[setup] Setup is already in progress. Please try again later."
+          );
+          throw new Error("Setup is already in progress.");
+        }
+
+        // Block setup execution if tracking is in progress
+        if (isTracking) {
+          addLog("[setup] Cannot execute setup while tracking is in progress.");
+          throw new Error(
+            "Cannot execute setup while tracking is in progress."
+          );
+        }
+
         addLog("[setup] Start");
+        set({ isSetupInProgress: true, error: null });
 
         await AsleepModule.setup(
           config.apiKey,
@@ -105,11 +129,16 @@ export const useAsleepStore = create<AsleepState>()(
         );
 
         // Store ODA enabled state
-        set({ isODAEnabled: config.enableODA || false, isInitialized: true });
+        set({
+          isODAEnabled: config.enableODA || false,
+          isInitialized: true,
+          isSetupInProgress: false,
+          isSetupComplete: true,
+        });
         addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
       } catch (error: any) {
         console.error("setup error:", error);
-        set({ error: error.message });
+        set({ error: error.message, isSetupInProgress: false });
         throw error;
       }
     },
@@ -138,7 +167,27 @@ export const useAsleepStore = create<AsleepState>()(
 
     startTracking: async () => {
       try {
-        const { requestMicrophonePermission, addLog, isODAEnabled } = get();
+        const {
+          requestMicrophonePermission,
+          addLog,
+          isODAEnabled,
+          isSetupInProgress,
+        } = get();
+
+        // Block startTracking execution if setup is in progress
+        if (isSetupInProgress) {
+          addLog(
+            "[startTracking] Cannot start tracking while setup is in progress."
+          );
+          throw new Error("Cannot start tracking while setup is in progress.");
+        }
+
+        // Prevent duplicate execution if already tracking
+        if (get().isTracking) {
+          addLog("[startTracking] Tracking is already in progress.");
+          throw new Error("Tracking is already in progress.");
+        }
+
         addLog("[startTracking] Start");
 
         const permission = await requestMicrophonePermission();
@@ -253,7 +302,6 @@ export const useAsleepStore = create<AsleepState>()(
         const { addLog } = get();
         addLog("[requestAnalysis] Start");
 
-        // When analysis starts, set isAnalyzing to true
         set({ isAnalyzing: true });
 
         const result = await AsleepModule.requestAnalysis();
@@ -301,6 +349,9 @@ export const useAsleepStore = create<AsleepState>()(
     setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
     setTrackingStartTime: (time) => set({ trackingStartTime: time }),
     setIsInitialized: (initialized) => set({ isInitialized: initialized }),
+    setIsSetupInProgress: (inProgress) =>
+      set({ isSetupInProgress: inProgress }),
+    setIsSetupComplete: (complete) => set({ isSetupComplete: complete }),
 
     addLog: (log: string) => {
       const { showDebugLog } = get();
@@ -343,6 +394,8 @@ export const initializeAsleepListeners = () => {
     setDidClose,
     setanalysisResult,
     setIsAnalyzing,
+    setIsSetupInProgress,
+    setIsSetupComplete,
   } = store;
 
   // event handlers
@@ -374,7 +427,6 @@ export const initializeAsleepListeners = () => {
     onTrackingUploaded: (data: any) => {
       addLog(`[onTrackingUploaded] sequence: ${data.sequence}`);
 
-      // Request analysis automatically if ODA is enabled
       const state = useAsleepStore.getState();
       if (state.isODAEnabled && state.isTracking) {
         state.setIsAnalyzing(true);
@@ -414,14 +466,19 @@ export const initializeAsleepListeners = () => {
       addLog(`[onDebugLog] message: ${data.message}`);
     },
     onSetupDidComplete: () => {
+      setIsSetupInProgress(false);
+      setIsSetupComplete(true);
       addLog(`[onSetupDidComplete]`);
     },
     onSetupDidFail: (data: any) => {
       const errorString = JSON.stringify(data);
       setError(errorString);
+      setIsSetupInProgress(false);
+      setIsSetupComplete(false);
       addLog(`[onSetupDidFail] error: ${errorString}`);
     },
     onSetupInProgress: (data: any) => {
+      setIsSetupInProgress(true);
       addLog(`[onSetupInProgress] progress: ${data.progress}%`);
     },
     onAnalysisResult: (data: any) => {

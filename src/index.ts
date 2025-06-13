@@ -152,6 +152,8 @@ export const useAsleep = () => {
     isTrackingPaused,
     getTrackingDurationMinutes,
     isInitialized,
+    isSetupInProgress,
+    isSetupComplete,
   } = useAsleepStore();
 
   useEffect(() => {
@@ -181,6 +183,8 @@ export const useAsleep = () => {
     isTrackingPaused,
     getTrackingDurationMinutes,
     isInitialized,
+    isSetupInProgress,
+    isSetupComplete,
   };
 };
 
@@ -207,6 +211,10 @@ export const AsleepSDK = {
   isTracking: () => useAsleepStore.getState().isTracking,
 
   isAnalyzing: () => useAsleepStore.getState().isAnalyzing,
+
+  isSetupInProgress: () => useAsleepStore.getState().isSetupInProgress,
+
+  isSetupComplete: () => useAsleepStore.getState().isSetupComplete,
 
   getUserId: () => useAsleepStore.getState().userId,
 
