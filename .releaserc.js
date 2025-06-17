@@ -40,7 +40,7 @@ module.exports = {
     ],
     "@semantic-release/changelog",
     [
-      "semantic-release-yarn",
+      "@semantic-release/npm",
       {
         npmPublish: true,
       },
