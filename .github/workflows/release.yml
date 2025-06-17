@@ -26,8 +26,9 @@ jobs:
           cache: "yarn"
       - run: corepack enable
       - run: yarn install --frozen-lockfile
+      - run: yarn add -D semantic-release @semantic-release/changelog @semantic-release/commit-analyzer @semantic-release/git @semantic-release/github @semantic-release/release-notes-generator semantic-release-yarn
 
-      - run: npx semantic-release@21.0.2
+      - run: yarn semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
