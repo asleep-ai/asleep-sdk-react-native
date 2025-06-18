@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.1...v1.0.2) (2025-06-18)
+
+
+### fix
+
+* Fix release workflow to use semantic-release with Yarn ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/f1c8d1b3fb86f10a21c661f3c295b888859baafa))
+
 ## [1.0.1](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.0...v1.0.1) (2025-06-17)
 
 
