@@ -38,6 +38,7 @@ export interface AsleepState {
   stopTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport | null>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
+  deleteSession: (sessionId: string) => Promise<void>;
   requestMicrophonePermission: () => Promise<boolean>;
   setCustomNotification: (title: string, text: string) => Promise<void>;
   enableLog: (print: boolean) => void;
@@ -278,6 +279,21 @@ export const useAsleepStore = create<AsleepState>()(
         console.error("getReportList error:", error);
         set({ error: error.message });
         return [];
+      }
+    },
+
+    deleteSession: async (sessionId: string) => {
+      try {
+        const { addLog } = get();
+        addLog(`[deleteSession] sessionId: ${sessionId}`);
+
+        await AsleepModule.deleteSession(sessionId);
+
+        addLog("[deleteSession] Success");
+      } catch (error: any) {
+        console.error("deleteSession error:", error);
+        set({ error: error.message });
+        throw error;
       }
     },
 

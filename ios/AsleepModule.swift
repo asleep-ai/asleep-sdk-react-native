@@ -92,6 +92,15 @@ public class AsleepModule: Module {
             return dictionary
         }
 
+        AsyncFunction("deleteSession") { (sessionId: String) -> Void in
+            guard let reportManager = self.reportManager else {
+                throw NSError(domain: "AsleepModule", code: 2, userInfo: [NSLocalizedDescriptionKey: "Reports not initialized"])
+            }
+            sendEvent("onDebugLog", ["message": "deleteSession: \(sessionId)"])
+            try await reportManager.deleteReport(sessionId: sessionId)
+            sendEvent("onDebugLog", ["message": "deleteSession completed"])
+        }
+
         Function("isTracking") { () -> Bool in
             return trackingManager?.getTrackingStatus().sessionId != nil
         }

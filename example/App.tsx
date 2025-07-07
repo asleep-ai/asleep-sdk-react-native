@@ -1,6 +1,7 @@
 import moment from "moment";
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Button,
   SafeAreaView,
   ScrollView,
@@ -44,7 +45,7 @@ const App = () => {
     isInitialized,
   } = useTracking();
 
-  const { didClose } = useAsleep();
+  const { didClose, deleteSession } = useAsleep();
 
   // useTracking hook에서 로그 처리
   useEffect(() => {
@@ -158,8 +159,7 @@ const App = () => {
 
       const reportList = await getReportList(fromDate, toDate);
       addLog(
-        `Retrieved ${
-          Array.isArray(reportList) ? reportList.length : "unknown"
+        `Retrieved ${Array.isArray(reportList) ? reportList.length : "unknown"
         } reports`
       );
 
@@ -184,6 +184,20 @@ const App = () => {
       }
     } catch (error: any) {
       addLog(`Analysis error: ${error.message}`);
+    }
+  };
+
+  const _deleteSession = async (sessionId: string) => {
+    try {
+      await deleteSession(sessionId);
+      addLog(`Session deleted: ${sessionId}`);
+      Alert.alert("Success", "Session deleted successfully");
+      setModalVisible(false);
+      // Refresh the report list after deletion
+      _getReportList();
+    } catch (error: any) {
+      addLog(`Delete session error: ${error.message}`);
+      Alert.alert("Error", `Failed to delete session: ${error.message}`);
     }
   };
 
@@ -253,6 +267,27 @@ const App = () => {
               <Text>Total {report.timeSeries.length} data points</Text>
             </>
           )}
+
+          {/* Delete button */}
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => {
+              Alert.alert(
+                "Delete Session",
+                `Are you sure you want to delete session ${report.sessionId}?`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => _deleteSession(report.sessionId)
+                  },
+                ]
+              );
+            }}
+          >
+            <Text style={styles.deleteButtonText}>Delete Session</Text>
+          </TouchableOpacity>
         </View>
       );
     } else if (modalTitle === "Report List" && !selectedReport) {
@@ -353,8 +388,8 @@ const App = () => {
             {!isTracking
               ? "Not Tracking"
               : isTrackingPaused
-              ? "Paused"
-              : "Active"}
+                ? "Paused"
+                : "Active"}
           </Text>
           <Text>ODA Enabled: {isODAEnabled ? "Yes" : "No"}</Text>
           <Text>Analysis Status: {isAnalyzing ? "Yes" : "No"}</Text>
@@ -544,6 +579,18 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: "#007AFF",
     fontSize: 14,
+  },
+  deleteButton: {
+    marginTop: 20,
+    backgroundColor: "#ff3b30",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  deleteButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
 
