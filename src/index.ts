@@ -79,6 +79,10 @@ class Asleep {
     return reportList.map(this.convertKeysToCamelCase);
   };
 
+  deleteSession = async (sessionId: string): Promise<void> => {
+    return AsleepModule.deleteSession(sessionId);
+  };
+
   requestMicrophonePermission = async (): Promise<boolean> => {
     return AsleepModule.requestMicrophonePermission();
   };
@@ -143,6 +147,7 @@ export const useAsleep = () => {
     stopTracking,
     getReport,
     getReportList,
+    deleteSession,
     enableLog,
     setCustomNotification,
     requestAnalysis,
@@ -176,6 +181,7 @@ export const useAsleep = () => {
     stopTracking,
     getReport,
     getReportList,
+    deleteSession,
     requestAnalysis,
     isODAEnabled,
     analysisResult,
@@ -205,6 +211,9 @@ export const AsleepSDK = {
 
   getReportList: (fromDate: string, toDate: string) =>
     useAsleepStore.getState().getReportList(fromDate, toDate),
+
+  deleteSession: (sessionId: string) =>
+    useAsleepStore.getState().deleteSession(sessionId),
 
   requestAnalysis: () => useAsleepStore.getState().requestAnalysis(),
 
