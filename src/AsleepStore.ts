@@ -256,7 +256,32 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(report);
 
         addLog("[getReport] Success");
-        return convertedReport;
+        
+        // Ensure the report has the expected AsleepReport structure
+        // Handle cases where native modules might return data in different formats
+        if (convertedReport && !convertedReport.session && convertedReport.sessionId) {
+          // If the data comes in a flat format (like AsleepSession), convert it to AsleepReport format
+          const normalizedReport: AsleepReport = {
+            timezone: convertedReport.timezone || "",
+            session: {
+              id: convertedReport.sessionId || convertedReport.id || sessionId,
+              createdTimezone: convertedReport.createdTimezone || "",
+              startTime: convertedReport.sessionStartTime || convertedReport.startTime || "",
+              endTime: convertedReport.sessionEndTime || convertedReport.endTime,
+              unexpectedEndTime: convertedReport.unexpectedEndTime,
+              state: convertedReport.state || "",
+              sleepStages: convertedReport.sleepStages,
+              breathStages: convertedReport.breathStages,
+              snoringStages: convertedReport.snoringStages,
+            },
+            missingDataRatio: convertedReport.missingDataRatio || 0,
+            peculiarities: convertedReport.peculiarities || [],
+            stat: convertedReport.stat,
+          };
+          return normalizedReport;
+        }
+        
+        return convertedReport as AsleepReport;
       } catch (error: any) {
         console.error("getReport error:", error);
         set({ error: error.message });
