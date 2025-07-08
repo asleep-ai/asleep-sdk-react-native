@@ -132,7 +132,6 @@ public class AsleepModule: Module {
                 "status": "requested",
                 "timestamp": Date().timeIntervalSince1970 * 1000
             ]
-            
             return ackData
         }
     }
@@ -172,7 +171,25 @@ extension AsleepModule: AsleepConfigDelegate {
 extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     public func didFail(error: Asleep.AsleepError) {
         sendEvent("onDebugLog", ["message": "Tracking failed: \(error)"])
-        sendEvent("onTrackingFailed", ["error": error.localizedDescription])
+        
+        var errorInfo: [String: Any] = ["error": error.localizedDescription]
+        
+        // Add specific error codes for new v3.1.4 error cases
+        switch error {
+        case .ODAIntegrityFail:
+            errorInfo["code"] = "ODA_INTEGRITY_FAIL"
+            errorInfo["message"] = "The model has been updated or the file is corrupted"
+        case .networkOffline:
+            errorInfo["code"] = "NETWORK_OFFLINE"
+            errorInfo["message"] = "The Internet connection appears to be offline"
+        case .unableODA:
+            errorInfo["code"] = "UNABLE_ODA"
+            errorInfo["message"] = "On-device analysis is not available"
+        default:
+            errorInfo["code"] = "UNKNOWN_ERROR"
+        }
+        
+        sendEvent("onTrackingFailed", errorInfo)
     }
 
     public func didCreate() {
