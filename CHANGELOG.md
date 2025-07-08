@@ -1,3 +1,12 @@
+## [1.0.3](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.2...v1.0.3) (2025-07-08)
+
+
+### fix
+
+* Implement delete session functionality (#24) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/ed5b759cf4957e830844cb715498ec6dbf5841e9)), closes [#24](https://github.com/asleep-ai/asleep-sdk-react-native/issues/24)
+* Merge release/v1.0.3 into main ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/cff99261db3030154e819f2e9933407837e4707a))
+* Update iOS SDK to v3.1.4 (#25) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/f9b4bf198f5c3b38df7c0510d0015dbfa5da4607)), closes [#25](https://github.com/asleep-ai/asleep-sdk-react-native/issues/25)
+
 ## [1.0.2](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.1...v1.0.2) (2025-06-18)
 
 
