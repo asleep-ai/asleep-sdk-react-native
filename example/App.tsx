@@ -1,6 +1,7 @@
 import moment from "moment";
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Button,
   SafeAreaView,
   ScrollView,
@@ -9,6 +10,7 @@ import {
   View,
   Modal,
   TouchableOpacity,
+  Platform,
 } from "react-native";
 import { useTracking } from "./useTracking";
 import { useAsleep } from "react-native-asleep/src";
@@ -44,7 +46,7 @@ const App = () => {
     isInitialized,
   } = useTracking();
 
-  const { didClose } = useAsleep();
+  const { didClose, deleteSession } = useAsleep();
 
   // useTracking hook에서 로그 처리
   useEffect(() => {
@@ -59,6 +61,14 @@ const App = () => {
       addLog(`Error: ${error}`);
     }
   }, [error]);
+
+  // Watch for analysis result changes (for iOS)
+  useEffect(() => {
+    if (analysisResult) {
+      addLog(`Analysis result received: ${JSON.stringify(analysisResult)}`);
+      // Don't automatically show modal since analysis is called periodically
+    }
+  }, [analysisResult]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -158,8 +168,7 @@ const App = () => {
 
       const reportList = await getReportList(fromDate, toDate);
       addLog(
-        `Retrieved ${
-          Array.isArray(reportList) ? reportList.length : "unknown"
+        `Retrieved ${Array.isArray(reportList) ? reportList.length : "unknown"
         } reports`
       );
 
@@ -177,13 +186,38 @@ const App = () => {
     try {
       const result = await requestAnalysis();
       if (result) {
-        addLog(`Analysis result: ${JSON.stringify(result)}`);
-        showModal("Analysis Result", result);
+        addLog(`Request analysis response: ${JSON.stringify(result)}`);
+
+        // For Android, show the result immediately
+        if (Platform.OS === 'android' && result.sleepStages) {
+          showModal("Analysis Result", result);
+        } else if (Platform.OS === 'ios') {
+          // For iOS, show the current analysisResult if available
+          if (analysisResult) {
+            showModal("Analysis Result", analysisResult);
+          } else {
+            addLog("No analysis result available yet");
+          }
+        }
       } else {
         addLog("No analysis result available");
       }
     } catch (error: any) {
       addLog(`Analysis error: ${error.message}`);
+    }
+  };
+
+  const _deleteSession = async (sessionId: string) => {
+    try {
+      await deleteSession(sessionId);
+      addLog(`Session deleted: ${sessionId}`);
+      Alert.alert("Success", "Session deleted successfully");
+      setModalVisible(false);
+      // Refresh the report list after deletion
+      _getReportList();
+    } catch (error: any) {
+      addLog(`Delete session error: ${error.message}`);
+      Alert.alert("Error", `Failed to delete session: ${error.message}`);
     }
   };
 
@@ -205,16 +239,27 @@ const App = () => {
           )}
 
           <Text style={styles.modalSectionTitle}>Basic Information</Text>
-          <Text>Session ID: {report.sessionId || "N/A"}</Text>
-          <Text>User ID: {report.userId || "N/A"}</Text>
+          <Text>Session ID: {report.session?.id || report.sessionId || "N/A"}</Text>
+          <Text>User ID: {userId || "N/A"}</Text>
           <Text>
-            Date: {report.createdAt || report.sessionStartTime || "N/A"}
+            Start Time: {report.session?.startTime || report.sessionStartTime || "N/A"}
           </Text>
-          <Text>State: {report.state || "N/A"}</Text>
+          <Text>
+            End Time: {report.session?.endTime || report.sessionEndTime || "N/A"}
+          </Text>
+          <Text>State: {report.session?.state || report.state || "N/A"}</Text>
           <Text>
             Time in Bed:{" "}
-            {report.timeInBed ? `${report.timeInBed} minutes` : "N/A"}
+            {report.stat?.timeInBed 
+              ? `${Math.round(report.stat.timeInBed / 60)} minutes` 
+              : report.timeInBed 
+              ? `${report.timeInBed} minutes` 
+              : "N/A"}
           </Text>
+          {report.timezone && <Text>Timezone: {report.timezone}</Text>}
+          {report.missingDataRatio !== undefined && (
+            <Text>Missing Data Ratio: {(report.missingDataRatio * 100).toFixed(1)}%</Text>
+          )}
 
           {report.stat && (
             <>
@@ -253,6 +298,27 @@ const App = () => {
               <Text>Total {report.timeSeries.length} data points</Text>
             </>
           )}
+
+          {/* Delete button */}
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => {
+              Alert.alert(
+                "Delete Session",
+                `Are you sure you want to delete session ${report.sessionId}?`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => _deleteSession(report.sessionId)
+                  },
+                ]
+              );
+            }}
+          >
+            <Text style={styles.deleteButtonText}>Delete Session</Text>
+          </TouchableOpacity>
         </View>
       );
     } else if (modalTitle === "Report List" && !selectedReport) {
@@ -353,8 +419,8 @@ const App = () => {
             {!isTracking
               ? "Not Tracking"
               : isTrackingPaused
-              ? "Paused"
-              : "Active"}
+                ? "Paused"
+                : "Active"}
           </Text>
           <Text>ODA Enabled: {isODAEnabled ? "Yes" : "No"}</Text>
           <Text>Analysis Status: {isAnalyzing ? "Yes" : "No"}</Text>
@@ -544,6 +610,18 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: "#007AFF",
     fontSize: 14,
+  },
+  deleteButton: {
+    marginTop: 20,
+    backgroundColor: "#ff3b30",
+    padding: 15,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  deleteButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
 

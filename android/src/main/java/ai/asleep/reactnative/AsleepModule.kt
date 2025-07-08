@@ -310,6 +310,34 @@ class AsleepModule : Module() {
             }
         }
 
+        AsyncFunction("deleteSession") { sessionId: String, promise: Promise ->
+            try {
+                if (_reportManager == null) {
+                    promise.reject("UNINITIALIZED_REPORT_MANAGER", "Report manager is not initialized", null)
+                    return@AsyncFunction
+                }
+                
+                sendEvent("onDebugLog", mapOf("message" to "deleteSession: $sessionId"))
+                
+                _reportManager?.deleteReport(sessionId, object : Reports.DeleteReportListener {
+                    override fun onSuccess() {
+                        sendEvent("onDebugLog", mapOf("message" to "deleteSession completed"))
+                        promise.resolve("Session deleted successfully")
+                    }
+                    
+                    override fun onFail(errorCode: Int, detail: String) {
+                        val errorMessage = "Delete session failed: errorCode=$errorCode, detail=$detail"
+                        sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                        promise.reject("DELETE_ERROR", errorMessage, null)
+                    }
+                })
+            } catch (e: Exception) {
+                val errorMessage = "Delete session failed: ${e.message}"
+                sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                promise.reject("UNEXPECTED_ERROR", errorMessage, e)
+            }
+        }
+
         AsyncFunction("requestMicrophonePermission") { promise: Promise ->
             CoroutineScope(Dispatchers.Main).launch {
                 try {

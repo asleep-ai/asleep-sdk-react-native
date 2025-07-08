@@ -38,6 +38,7 @@ export interface AsleepState {
   stopTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport | null>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
+  deleteSession: (sessionId: string) => Promise<void>;
   requestMicrophonePermission: () => Promise<boolean>;
   setCustomNotification: (title: string, text: string) => Promise<void>;
   enableLog: (print: boolean) => void;
@@ -55,7 +56,7 @@ export interface AsleepState {
   setIsTracking: (isTracking: boolean) => void;
   setIsTrackingPaused: (isTrackingPaused: boolean) => void;
   setDidClose: (didClose: boolean) => void;
-  setanalysisResult: (result: AsleepAnalysisResult | null) => void;
+  setAnalysisResult: (result: AsleepAnalysisResult | null) => void;
   setIsAnalyzing: (isAnalyzing: boolean) => void;
   setTrackingStartTime: (time: Date | null) => void;
   setIsInitialized: (initialized: boolean) => void;
@@ -256,7 +257,32 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(report);
 
         addLog("[getReport] Success");
-        return convertedReport;
+        
+        // Ensure the report has the expected AsleepReport structure
+        // Handle cases where native modules might return data in different formats
+        if (convertedReport && !convertedReport.session && convertedReport.sessionId) {
+          // If the data comes in a flat format (like AsleepSession), convert it to AsleepReport format
+          const normalizedReport: AsleepReport = {
+            timezone: convertedReport.timezone || "",
+            session: {
+              id: convertedReport.sessionId || convertedReport.id || sessionId,
+              createdTimezone: convertedReport.createdTimezone || "",
+              startTime: convertedReport.sessionStartTime || convertedReport.startTime || "",
+              endTime: convertedReport.sessionEndTime || convertedReport.endTime,
+              unexpectedEndTime: convertedReport.unexpectedEndTime,
+              state: convertedReport.state || "",
+              sleepStages: convertedReport.sleepStages,
+              breathStages: convertedReport.breathStages,
+              snoringStages: convertedReport.snoringStages,
+            },
+            missingDataRatio: convertedReport.missingDataRatio || 0,
+            peculiarities: convertedReport.peculiarities || [],
+            stat: convertedReport.stat,
+          };
+          return normalizedReport;
+        }
+        
+        return convertedReport as AsleepReport;
       } catch (error: any) {
         console.error("getReport error:", error);
         set({ error: error.message });
@@ -278,6 +304,21 @@ export const useAsleepStore = create<AsleepState>()(
         console.error("getReportList error:", error);
         set({ error: error.message });
         return [];
+      }
+    },
+
+    deleteSession: async (sessionId: string) => {
+      try {
+        const { addLog } = get();
+        addLog(`[deleteSession] sessionId: ${sessionId}`);
+
+        await AsleepModule.deleteSession(sessionId);
+
+        addLog("[deleteSession] Success");
+      } catch (error: any) {
+        console.error("deleteSession error:", error);
+        set({ error: error.message });
+        throw error;
       }
     },
 
@@ -307,11 +348,17 @@ export const useAsleepStore = create<AsleepState>()(
         const result = await AsleepModule.requestAnalysis();
         const convertedResult = convertKeysToCamelCase(result);
 
-        if (Platform.OS === "android") {
-          set({ analysisResult: convertedResult });
+        // Platform differences:
+        // Android: Returns the actual analysis result immediately and also sends onAnalysisResult event
+        // iOS: Returns acknowledgment data only, actual result comes through onAnalysisResult event
+        if (Platform.OS === "android" && convertedResult.sleepStages) {
+          // Android returns the actual session data
+          set({ analysisResult: convertedResult, isAnalyzing: false });
         }
+        // For iOS, isAnalyzing will be set to false when onAnalysisResult event fires
+        
         addLog(
-          `[requestAnalysis] Success - ${JSON.stringify(convertedResult)}`
+          `[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`
         );
 
         return convertedResult;
@@ -345,7 +392,7 @@ export const useAsleepStore = create<AsleepState>()(
     setIsTracking: (isTracking) => set({ isTracking }),
     setIsTrackingPaused: (isTrackingPaused) => set({ isTrackingPaused }),
     setDidClose: (didClose) => set({ didClose }),
-    setanalysisResult: (result) => set({ analysisResult: result }),
+    setAnalysisResult: (result) => set({ analysisResult: result }),
     setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
     setTrackingStartTime: (time) => set({ trackingStartTime: time }),
     setIsInitialized: (initialized) => set({ isInitialized: initialized }),
@@ -392,7 +439,7 @@ export const initializeAsleepListeners = () => {
     setIsTrackingPaused,
     setError,
     setDidClose,
-    setanalysisResult,
+    setAnalysisResult,
     setIsAnalyzing,
     setIsSetupInProgress,
     setIsSetupComplete,
@@ -482,8 +529,8 @@ export const initializeAsleepListeners = () => {
       addLog(`[onSetupInProgress] progress: ${data.progress}%`);
     },
     onAnalysisResult: (data: any) => {
-      setanalysisResult(data);
-      setIsAnalyzing(true);
+      setAnalysisResult(data);
+      setIsAnalyzing(false);  // Analysis is complete, so set to false
       addLog(`[onAnalysisResult] ${JSON.stringify(data)}`);
     },
   };
