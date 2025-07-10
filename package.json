@@ -28,6 +28,10 @@
   "author": "Qube <qube@asleep.ai> (https://github.com/Sun-Woo-Kim)",
   "license": "SEE LICENSE IN <filename>",
   "homepage": "https://github.com/asleep-ai/asleep-sdk-react-native#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.1",
