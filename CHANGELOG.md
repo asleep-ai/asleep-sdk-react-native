@@ -1,3 +1,10 @@
+## [1.0.4](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.3...v1.0.4) (2025-07-10)
+
+
+### fix
+
+* Fix DeleteReportListener interface implementation ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/4349a9066db56c9a8a1508aa2874a543d5a58bd6))
+
 ## [1.0.3](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.2...v1.0.3) (2025-07-08)
 
 
