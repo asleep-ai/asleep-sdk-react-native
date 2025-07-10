@@ -320,8 +320,8 @@ class AsleepModule : Module() {
                 sendEvent("onDebugLog", mapOf("message" to "deleteSession: $sessionId"))
                 
                 _reportManager?.deleteReport(sessionId, object : Reports.DeleteReportListener {
-                    override fun onSuccess() {
-                        sendEvent("onDebugLog", mapOf("message" to "deleteSession completed"))
+                    override fun onSuccess(sessionId: String?) {
+                        sendEvent("onDebugLog", mapOf("message" to "deleteSession completed for sessionId: $sessionId"))
                         promise.resolve("Session deleted successfully")
                     }
                     
