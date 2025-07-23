@@ -13,22 +13,25 @@ import ObjectiveC
 // TODO: Remove this entire file when AsleepSDK iOS implements proper audio configuration
 
 extension AVAudioSession {
-    private static var isSwizzled = false
-    
-    static func swizzleSetCategory() {
-        // Ensure we only swizzle once
-        guard !isSwizzled else { return }
-        
+    private static let swizzleOnce: () = {
         let originalSelector = #selector(AVAudioSession.setCategory(_:mode:options:))
         let swizzledSelector = #selector(AVAudioSession.swizzled_setCategory(_:mode:options:))
         
         guard let originalMethod = class_getInstanceMethod(AVAudioSession.self, originalSelector),
               let swizzledMethod = class_getInstanceMethod(AVAudioSession.self, swizzledSelector) else {
+            // Using assertionFailure will crash in debug builds if swizzling fails,
+            // making the issue immediately obvious, while being a no-op in release builds.
+            assertionFailure("Failed to swizzle AVAudioSession.setCategory. Bluetooth audio may not work as expected.")
             return
         }
         
         method_exchangeImplementations(originalMethod, swizzledMethod)
-        isSwizzled = true
+    }()
+    
+    static func swizzleSetCategory() {
+        // This triggers the lazy initialization of swizzleOnce, ensuring the
+        // swizzling code is executed exactly once in a thread-safe manner.
+        _ = swizzleOnce
     }
     
     @objc private func swizzled_setCategory(_ category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions) throws {
