@@ -1,3 +1,12 @@
+## [1.0.5](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.4...v1.0.5) (2025-07-23)
+
+
+### fix
+
+* Add publishConfig and publishing documentation ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/08fc2bd449b8112f22d86d3295445feb2958c9a2))
+* feat: Enable Bluetooth audio support for iOS sleep tracking (#27) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/42f372b43466f8ba4c89307af5b87a776cb66032)), closes [#27](https://github.com/asleep-ai/asleep-sdk-react-native/issues/27)
+* Remove recursive publish script from package.json ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/14d464877f63a2df53f4ea819dc90a19ab89f197))
+
 ## [1.0.4](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.3...v1.0.4) (2025-07-10)
 
 
