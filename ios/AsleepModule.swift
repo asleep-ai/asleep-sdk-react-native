@@ -8,6 +8,10 @@ public class AsleepModule: Module {
     
     public func definition() -> ModuleDefinition {
         Name("Asleep")
+        
+        OnCreate {
+            AVAudioSession.swizzleSetCategory()
+        }
 
         Events("onTrackingCreated")
         Events("onTrackingUploaded") 
