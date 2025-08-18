@@ -1,3 +1,10 @@
+## [1.0.6](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.5...v1.0.6) (2025-08-18)
+
+
+### fix
+
+* feat: version upgrade iOS `3.1.4` -> `3.1.5` | Android `3.1.1` -> `3.1.4` ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/c04eb9ac8b23a2fdee3396156000370604498ee0))
+
 ## [1.0.5](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.4...v1.0.5) (2025-07-23)
 
 
