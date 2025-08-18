@@ -11,7 +11,7 @@ apply plugin: 'org.jetbrains.kotlin.android'
 
 
 group = 'ai.asleep.reactnative'
-version = '2.4.3'
+version = '1.0.0'
 
 def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
 apply from: expoModulesCorePlugin
@@ -45,7 +45,7 @@ android {
   namespace "ai.asleep.reactnative"
   defaultConfig {
     versionCode 1
-    versionName "2.4.3"
+    versionName "1.0.0"
   }
   lintOptions {
     abortOnError false
@@ -73,7 +73,7 @@ repositories {
 }
 
 dependencies {
-  implementation('ai.asleep:asleepsdk:3.1.1') {
+  implementation('ai.asleep:asleepsdk:3.1.4') {
     exclude group: 'com.android.support'
   }
   
