@@ -47,10 +47,11 @@ public class AsleepModule: Module {
                                     delegate: self)
         }
 
-        AsyncFunction("startTracking") { () -> Void in
+        AsyncFunction("startTracking") { (config: [String: Any]?) -> Void in
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
             }
+            // iOS doesn't need notification configuration, so we ignore the config parameter
             trackingManager.startTracking()
         }
 

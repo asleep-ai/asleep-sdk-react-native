@@ -90,6 +90,16 @@ export type AsleepAnalysisResult = {
   snoringStages?: number[];
 };
 
+export type TrackingConfig = {
+  android?: {
+    notification?: {
+      title?: string;
+      text?: string;
+      icon?: string;
+    };
+  };
+};
+
 export type AsleepEventType = {
   onTrackingCreated: { sessionId?: string };
   onTrackingUploaded: { sequence: number };

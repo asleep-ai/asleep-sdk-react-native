@@ -175,7 +175,7 @@ class AsleepModule : Module() {
             }
         }
         
-        AsyncFunction("startTracking") { promise: Promise ->
+        AsyncFunction("startTracking") { config: Map<String, Any>?, promise: Promise ->
             try {
                 val audioPermission = ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.RECORD_AUDIO)
                 val fgsPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -213,8 +213,23 @@ class AsleepModule : Module() {
 
                 sendEvent("onDebugLog", mapOf("message" to "Starting tracking!"))
                 
+                // Extract Android notification settings from config
+                val notification = (config?.get("android") as? Map<*, *>)
+                    ?.get("notification") as? Map<*, *>
+                
+                val context = appContext.reactContext!!
+                val notificationTitle = notification?.get("title") as? String ?: "Sleep Tracking"
+                val notificationText = notification?.get("text") as? String ?: "Monitoring your sleep"
+                val notificationIcon = notification?.get("icon")?.let { iconName ->
+                    context.resources.getIdentifier(iconName as String, "drawable", context.packageName)
+                } ?: context.applicationInfo.icon
+                
                 Asleep.beginSleepTracking(
                     asleepConfig = _asleepConfig!!,
+                    notificationClass = appContext.currentActivity?.javaClass,
+                    notificationTitle = notificationTitle,
+                    notificationText = notificationText,
+                    notificationIcon = notificationIcon,
                     asleepTrackingListener = object : Asleep.AsleepTrackingListener {
                         override fun onFail(errorCode: Int, detail: String) {
                             sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
