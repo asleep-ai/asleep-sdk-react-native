@@ -9,6 +9,7 @@ import {
   AsleepReport,
   AsleepSession,
   AsleepAnalysisResult,
+  TrackingConfig,
 } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
 
@@ -34,7 +35,7 @@ export interface AsleepState {
   // actions
   setup: (config: AsleepSetupConfig) => Promise<void>;
   initAsleepConfig: (config: AsleepConfig) => Promise<void>;
-  startTracking: () => Promise<void>;
+  startTracking: (config?: TrackingConfig) => Promise<void>;
   stopTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport | null>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
@@ -166,7 +167,7 @@ export const useAsleepStore = create<AsleepState>()(
       }
     },
 
-    startTracking: async () => {
+    startTracking: async (config?: TrackingConfig) => {
       try {
         const {
           requestMicrophonePermission,
@@ -203,7 +204,7 @@ export const useAsleepStore = create<AsleepState>()(
           isAnalyzing: false,
           trackingStartTime: new Date(),
         });
-        await AsleepModule.startTracking();
+        await AsleepModule.startTracking(config);
 
         if (isODAEnabled) {
           addLog(

@@ -110,7 +110,7 @@ export const useTracking = () => {
       }
 
       if (!isTracking) {
-        await startTracking();
+        await startTracking({ "android": { "notification": { "title": "Asleep Tracking", "text": "Look at the useTracking code to change!" } } });
         setTrackingStartTime(Date.now());
         console.log("🐤 Tracking started");
       }

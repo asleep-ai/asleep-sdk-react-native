@@ -7,6 +7,7 @@ import {
   AsleepEventType,
   AsleepReport,
   AsleepSession,
+  TrackingConfig,
 } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
 import { useAsleepStore, initializeAsleepListeners } from "./AsleepStore";
@@ -48,14 +49,14 @@ class Asleep {
     }
   };
 
-  startTracking = async (): Promise<void> => {
+  startTracking = async (config?: TrackingConfig): Promise<void> => {
     const permission = await this.requestMicrophonePermission();
     if (!permission) {
       Alert.alert("Microphone permission denied");
       throw new Error("Microphone permission denied");
     }
 
-    return AsleepModule.startTracking();
+    return AsleepModule.startTracking(config);
   };
 
   stopTracking = async (): Promise<string> => {
@@ -202,7 +203,7 @@ export const AsleepSDK = {
   initAsleepConfig: (config: AsleepConfig) =>
     useAsleepStore.getState().initAsleepConfig(config),
 
-  startTracking: () => useAsleepStore.getState().startTracking(),
+  startTracking: (config?: TrackingConfig) => useAsleepStore.getState().startTracking(config),
 
   stopTracking: () => useAsleepStore.getState().stopTracking(),
 
@@ -250,4 +251,5 @@ export type {
   AsleepSession,
   AsleepStat,
   AsleepAnalysisResult,
+  TrackingConfig,
 } from "./Asleep.types";
