@@ -201,7 +201,6 @@ class AsleepModule : Module() {
 
 
                 
-                val context = appContext.reactContext!!.applicationContext as Application
                 sendEvent("onDebugLog", mapOf("message" to "Starting tracking"))
                 if (_asleepConfig == null) {
                     sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not initialized"))
