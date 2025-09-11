@@ -1,3 +1,13 @@
+## [1.0.7](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.6...v1.0.7) (2025-09-11)
+
+
+### fix
+
+* Add AGENTS.md for SDK documentation and create CLAUDE.md symlink ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/1e147c574c8ee6475491fd97e620ced8c7f7b702))
+* Add Android service recovery and lifecycle management ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/a48d01bd15e4c65e7ed6919b37657042bb941f88))
+* Add tracking recovery check on app startup with store cleanup ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/13440c50e29dd7c182830a55f9370b832711b7ce))
+* feat: Add customizable Android foreground service notifications for sleep tracking ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/1899506b01b4142d2cea0487e78365c3ae1c7815))
+
 ## [1.0.6](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.5...v1.0.6) (2025-08-18)
 
 
