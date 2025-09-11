@@ -31,10 +31,14 @@ export interface AsleepState {
   isInitialized: boolean;
   isSetupInProgress: boolean;
   isSetupComplete: boolean;
+  
+  // Service status tracking
+  hasCheckedStatus: boolean;
 
   // actions
   setup: (config: AsleepSetupConfig) => Promise<void>;
   initAsleepConfig: (config: AsleepConfig) => Promise<void>;
+  checkAndRestoreTracking: () => Promise<{ hasActiveSession: boolean }>;
   startTracking: (config?: TrackingConfig) => Promise<void>;
   stopTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport | null>;
@@ -63,6 +67,7 @@ export interface AsleepState {
   setIsInitialized: (initialized: boolean) => void;
   setIsSetupInProgress: (inProgress: boolean) => void;
   setIsSetupComplete: (complete: boolean) => void;
+  setHasCheckedStatus: (checked: boolean) => void;
   addLog: (log: string) => void;
 }
 
@@ -97,6 +102,9 @@ export const useAsleepStore = create<AsleepState>()(
     isInitialized: false,
     isSetupInProgress: false,
     isSetupComplete: false,
+    
+    // Service status state
+    hasCheckedStatus: false,
 
     // actions
     setup: async (config: AsleepSetupConfig) => {
@@ -166,6 +174,42 @@ export const useAsleepStore = create<AsleepState>()(
         throw error;
       }
     },
+    
+    checkAndRestoreTracking: async () => {
+      try {
+        const { addLog } = get();
+        addLog("[checkAndRestoreTracking] Start");
+        
+        // Check if sleep tracking service is alive
+        const isAlive = await AsleepModule.isSleepTrackingAlive();
+        
+        set({ 
+          hasCheckedStatus: true
+        });
+        
+        // If service is alive on Android, restore connection to it
+        if (isAlive && Platform.OS === "android") {
+          addLog("[checkAndRestoreTracking] Service is alive, restoring connection...");
+          const isConnected = await AsleepModule.connectSleepTracking();
+          
+          if (isConnected) {
+            set({ isTracking: true });
+            addLog("[checkAndRestoreTracking] Successfully restored connection to existing service");
+          } else {
+            addLog("[checkAndRestoreTracking] Failed to restore connection to existing service");
+          }
+        }
+        
+        addLog(`[checkAndRestoreTracking] Complete - hasActiveSession: ${isAlive}`);
+        return {
+          hasActiveSession: isAlive
+        };
+      } catch (error: any) {
+        console.error("checkAndRestoreTracking error:", error);
+        set({ error: error.message });
+        throw error;
+      }
+    },
 
     startTracking: async (config?: TrackingConfig) => {
       try {
@@ -174,7 +218,14 @@ export const useAsleepStore = create<AsleepState>()(
           addLog,
           isODAEnabled,
           isSetupInProgress,
+          hasCheckedStatus,
         } = get();
+        
+        // Enforce that checkAndRestoreTracking must be called first
+        if (!hasCheckedStatus) {
+          addLog("[startTracking] Must call checkAndRestoreTracking() at app startup");
+          throw new Error("Must call checkAndRestoreTracking() at app startup before starting tracking");
+        }
 
         // Block startTracking execution if setup is in progress
         if (isSetupInProgress) {
@@ -400,6 +451,7 @@ export const useAsleepStore = create<AsleepState>()(
     setIsSetupInProgress: (inProgress) =>
       set({ isSetupInProgress: inProgress }),
     setIsSetupComplete: (complete) => set({ isSetupComplete: complete }),
+    setHasCheckedStatus: (checked) => set({ hasCheckedStatus: checked }),
 
     addLog: (log: string) => {
       const { showDebugLog } = get();

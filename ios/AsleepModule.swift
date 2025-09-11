@@ -47,6 +47,20 @@ public class AsleepModule: Module {
                                     delegate: self)
         }
 
+        AsyncFunction("isSleepTrackingAlive") { () -> Bool in
+            // iOS doesn't have a persistent foreground service like Android
+            // Always return false to maintain consistent API behavior
+            self.sendEvent("onDebugLog", ["message": "isSleepTrackingAlive: false (iOS)"])
+            return false
+        }
+        
+        AsyncFunction("connectSleepTracking") { () -> Bool in
+            // iOS doesn't need to connect to an existing service
+            // This is a stub method for API consistency with Android
+            self.sendEvent("onDebugLog", ["message": "connectSleepTracking: no-op on iOS"])
+            return false
+        }
+        
         AsyncFunction("startTracking") { (config: [String: Any]?) -> Void in
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])

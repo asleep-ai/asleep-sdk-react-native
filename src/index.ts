@@ -144,6 +144,7 @@ export const useAsleep = () => {
     log,
     setup,
     initAsleepConfig,
+    checkAndRestoreTracking,
     startTracking,
     stopTracking,
     getReport,
@@ -160,6 +161,7 @@ export const useAsleep = () => {
     isInitialized,
     isSetupInProgress,
     isSetupComplete,
+    hasCheckedStatus,
   } = useAsleepStore();
 
   useEffect(() => {
@@ -178,6 +180,7 @@ export const useAsleep = () => {
     setCustomNotification,
     setup,
     initAsleepConfig,
+    checkAndRestoreTracking,
     startTracking,
     stopTracking,
     getReport,
@@ -192,6 +195,7 @@ export const useAsleep = () => {
     isInitialized,
     isSetupInProgress,
     isSetupComplete,
+    hasCheckedStatus,
   };
 };
 
@@ -202,6 +206,8 @@ export const AsleepSDK = {
 
   initAsleepConfig: (config: AsleepConfig) =>
     useAsleepStore.getState().initAsleepConfig(config),
+    
+  checkAndRestoreTracking: () => useAsleepStore.getState().checkAndRestoreTracking(),
 
   startTracking: (config?: TrackingConfig) => useAsleepStore.getState().startTracking(config),
 
@@ -225,6 +231,8 @@ export const AsleepSDK = {
   isSetupInProgress: () => useAsleepStore.getState().isSetupInProgress,
 
   isSetupComplete: () => useAsleepStore.getState().isSetupComplete,
+  
+  hasCheckedStatus: () => useAsleepStore.getState().hasCheckedStatus,
 
   getUserId: () => useAsleepStore.getState().userId,
 

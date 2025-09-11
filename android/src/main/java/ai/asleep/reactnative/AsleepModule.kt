@@ -175,6 +175,63 @@ class AsleepModule : Module() {
             }
         }
         
+        AsyncFunction("isSleepTrackingAlive") { promise: Promise ->
+            try {
+                val context = appContext.reactContext!!.applicationContext
+                val isAlive = Asleep.isSleepTrackingAlive(context)
+                
+                sendEvent("onDebugLog", mapOf("message" to "isSleepTrackingAlive: $isAlive"))
+                promise.resolve(isAlive)
+            } catch (e: Exception) {
+                sendEvent("onDebugLog", mapOf("message" to "Error checking tracking status: ${e.message}"))
+                promise.reject("STATUS_CHECK_ERROR", "Failed to check tracking status: ${e.message}", e)
+            }
+        }
+        
+        AsyncFunction("connectSleepTracking") { promise: Promise ->
+            try {
+                // This function assumes the caller has already verified the service is alive
+                // The TypeScript layer checks isSleepTrackingAlive before calling this
+                sendEvent("onDebugLog", mapOf("message" to "Restoring connection to sleep tracking service..."))
+                
+                // Mark tracking as active
+                isTracking = true
+                
+                // Re-establish the tracking listener to receive events from the existing service
+                // This ensures we continue to receive tracking events even after app restart
+                Asleep.connectSleepTracking(object : Asleep.AsleepTrackingListener {
+                    override fun onFail(errorCode: Int, detail: String) {
+                        sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
+                        sendEvent("onTrackingFailed", mapOf("errorCode" to errorCode, "detail" to detail))
+                    }
+                    
+                    override fun onFinish(sessionId: String?) {
+                        isTracking = false
+                        sendEvent("onTrackingClosed", mapOf("sessionId" to (sessionId ?: "")))
+                        sendEvent("onDebugLog", mapOf("message" to "Sleep tracking finished: $sessionId"))
+                    }
+                    
+                    override fun onPerform(sequence: Int) {
+                        sendEvent("onTrackingUploaded", mapOf("sequence" to sequence))
+                        sendEvent("onDebugLog", mapOf("message" to "Sleep tracking performing: $sequence"))
+                    }
+                    
+                    override fun onStart(sessionId: String) {
+                        // This shouldn't be called for reconnection, but handle it just in case
+                        isTracking = true
+                        sendEvent("onTrackingCreated", mapOf("sessionId" to sessionId))
+                        sendEvent("onDebugLog", mapOf("message" to "Sleep tracking started: $sessionId"))
+                    }
+                })
+                
+                sendEvent("onDebugLog", mapOf("message" to "Successfully restored connection to existing sleep tracking service"))
+                promise.resolve(true)
+            } catch (e: Exception) {
+                sendEvent("onDebugLog", mapOf("message" to "Error connecting to tracking service: ${e.message}"))
+                promise.reject("CONNECTION_ERROR", "Failed to connect to tracking service: ${e.message}", e)
+            }
+        }
+        
         AsyncFunction("startTracking") { config: Map<String, Any>?, promise: Promise ->
             try {
                 val audioPermission = ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.RECORD_AUDIO)
@@ -222,6 +279,9 @@ class AsleepModule : Module() {
                 val notificationIcon = notification?.get("icon")?.let { iconName ->
                     context.resources.getIdentifier(iconName as String, "drawable", context.packageName)
                 } ?: context.applicationInfo.icon
+                
+                val processAlive = Asleep.isSleepTrackingAlive(context)
+                sendEvent("onDebugLog", mapOf("message" to "$processAlive"))
                 
                 Asleep.beginSleepTracking(
                     asleepConfig = _asleepConfig!!,
