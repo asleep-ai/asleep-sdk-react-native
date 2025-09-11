@@ -36,6 +36,7 @@ export const useTracking = () => {
   const {
     userId: asleepUserId,
     sessionId,
+    checkAndRestoreTracking,
     startTracking,
     stopTracking,
     initAsleepConfig,
@@ -163,6 +164,8 @@ export const useTracking = () => {
         console.log("🐤 Setup is already in progress.");
         return;
       }
+
+      await checkAndRestoreTracking();
 
       await setup({
         apiKey: process.env.EXPO_PUBLIC_API_KEY || "",

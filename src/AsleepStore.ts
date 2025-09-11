@@ -31,7 +31,7 @@ export interface AsleepState {
   isInitialized: boolean;
   isSetupInProgress: boolean;
   isSetupComplete: boolean;
-  
+
   // Service status tracking
   hasCheckedStatus: boolean;
 
@@ -102,7 +102,7 @@ export const useAsleepStore = create<AsleepState>()(
     isInitialized: false,
     isSetupInProgress: false,
     isSetupComplete: false,
-    
+
     // Service status state
     hasCheckedStatus: false,
 
@@ -174,24 +174,24 @@ export const useAsleepStore = create<AsleepState>()(
         throw error;
       }
     },
-    
+
     checkAndRestoreTracking: async () => {
       try {
         const { addLog } = get();
         addLog("[checkAndRestoreTracking] Start");
-        
+
         // Check if sleep tracking service is alive
         const isAlive = await AsleepModule.isSleepTrackingAlive();
-        
-        set({ 
+
+        set({
           hasCheckedStatus: true
         });
-        
+
         // If service is alive on Android, restore connection to it
         if (isAlive && Platform.OS === "android") {
           addLog("[checkAndRestoreTracking] Service is alive, restoring connection...");
           const isConnected = await AsleepModule.connectSleepTracking();
-          
+
           if (isConnected) {
             set({ isTracking: true });
             addLog("[checkAndRestoreTracking] Successfully restored connection to existing service");
@@ -199,7 +199,7 @@ export const useAsleepStore = create<AsleepState>()(
             addLog("[checkAndRestoreTracking] Failed to restore connection to existing service");
           }
         }
-        
+
         addLog(`[checkAndRestoreTracking] Complete - hasActiveSession: ${isAlive}`);
         return {
           hasActiveSession: isAlive
@@ -220,7 +220,7 @@ export const useAsleepStore = create<AsleepState>()(
           isSetupInProgress,
           hasCheckedStatus,
         } = get();
-        
+
         // Enforce that checkAndRestoreTracking must be called first
         if (!hasCheckedStatus) {
           addLog("[startTracking] Must call checkAndRestoreTracking() at app startup");
@@ -309,7 +309,7 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(report);
 
         addLog("[getReport] Success");
-        
+
         // Ensure the report has the expected AsleepReport structure
         // Handle cases where native modules might return data in different formats
         if (convertedReport && !convertedReport.session && convertedReport.sessionId) {
@@ -333,7 +333,7 @@ export const useAsleepStore = create<AsleepState>()(
           };
           return normalizedReport;
         }
-        
+
         return convertedReport as AsleepReport;
       } catch (error: any) {
         console.error("getReport error:", error);
@@ -408,7 +408,7 @@ export const useAsleepStore = create<AsleepState>()(
           set({ analysisResult: convertedResult, isAnalyzing: false });
         }
         // For iOS, isAnalyzing will be set to false when onAnalysisResult event fires
-        
+
         addLog(
           `[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`
         );
@@ -519,8 +519,7 @@ export const initializeAsleepListeners = () => {
         setSessionId(data.sessionId);
       }
       addLog(
-        `[onTrackingCreated]${
-          data?.sessionId ? ` sessionId: ${data.sessionId}` : ""
+        `[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""
         }`
       );
     },
