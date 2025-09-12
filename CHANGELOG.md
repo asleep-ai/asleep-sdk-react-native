@@ -1,3 +1,10 @@
+## [1.0.8](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.7...v1.0.8) (2025-09-12)
+
+
+### fix
+
+* Add battery optimization API with backward-compatible permission handling ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/6f7d5565230c57caa9bc5213e51a1291bd71d4f9))
+
 ## [1.0.7](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.6...v1.0.7) (2025-09-11)
 
 
