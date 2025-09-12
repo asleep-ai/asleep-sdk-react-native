@@ -50,7 +50,7 @@ class Asleep {
   };
 
   startTracking = async (config?: TrackingConfig): Promise<void> => {
-    const permission = await this.requestMicrophonePermission();
+    const permission = await this.requestRequiredPermissions();
     if (!permission) {
       Alert.alert("Microphone permission denied");
       throw new Error("Microphone permission denied");
@@ -84,8 +84,18 @@ class Asleep {
     return AsleepModule.deleteSession(sessionId);
   };
 
+  /**
+   * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
+   */
   requestMicrophonePermission = async (): Promise<boolean> => {
-    return AsleepModule.requestMicrophonePermission();
+    console.warn(
+      '[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.'
+    );
+    return this.requestRequiredPermissions();
+  };
+
+  requestRequiredPermissions = async (): Promise<boolean> => {
+    return AsleepModule.requestRequiredPermissions();
   };
 
   setCustomNotification = async (
@@ -145,6 +155,8 @@ export const useAsleep = () => {
     setup,
     initAsleepConfig,
     checkAndRestoreTracking,
+    checkBatteryOptimization,
+    requestBatteryOptimizationExemption,
     startTracking,
     stopTracking,
     getReport,
@@ -152,6 +164,8 @@ export const useAsleep = () => {
     deleteSession,
     enableLog,
     setCustomNotification,
+    requestMicrophonePermission,
+    requestRequiredPermissions,
     requestAnalysis,
     isODAEnabled,
     analysisResult,
@@ -162,6 +176,7 @@ export const useAsleep = () => {
     isSetupInProgress,
     isSetupComplete,
     hasCheckedStatus,
+    hasCheckedBatteryOptimization,
   } = useAsleepStore();
 
   useEffect(() => {
@@ -181,11 +196,15 @@ export const useAsleep = () => {
     setup,
     initAsleepConfig,
     checkAndRestoreTracking,
+    checkBatteryOptimization,
+    requestBatteryOptimizationExemption,
     startTracking,
     stopTracking,
     getReport,
     getReportList,
     deleteSession,
+    requestMicrophonePermission,
+    requestRequiredPermissions,
     requestAnalysis,
     isODAEnabled,
     analysisResult,
@@ -196,6 +215,7 @@ export const useAsleep = () => {
     isSetupInProgress,
     isSetupComplete,
     hasCheckedStatus,
+    hasCheckedBatteryOptimization,
   };
 };
 
@@ -206,8 +226,12 @@ export const AsleepSDK = {
 
   initAsleepConfig: (config: AsleepConfig) =>
     useAsleepStore.getState().initAsleepConfig(config),
-    
+
   checkAndRestoreTracking: () => useAsleepStore.getState().checkAndRestoreTracking(),
+
+  checkBatteryOptimization: () => useAsleepStore.getState().checkBatteryOptimization(),
+
+  requestBatteryOptimizationExemption: () => useAsleepStore.getState().requestBatteryOptimizationExemption(),
 
   startTracking: (config?: TrackingConfig) => useAsleepStore.getState().startTracking(config),
 
@@ -222,6 +246,12 @@ export const AsleepSDK = {
   deleteSession: (sessionId: string) =>
     useAsleepStore.getState().deleteSession(sessionId),
 
+  requestMicrophonePermission: () =>
+    useAsleepStore.getState().requestMicrophonePermission(),
+
+  requestRequiredPermissions: () =>
+    useAsleepStore.getState().requestRequiredPermissions(),
+
   requestAnalysis: () => useAsleepStore.getState().requestAnalysis(),
 
   isTracking: () => useAsleepStore.getState().isTracking,
@@ -231,8 +261,10 @@ export const AsleepSDK = {
   isSetupInProgress: () => useAsleepStore.getState().isSetupInProgress,
 
   isSetupComplete: () => useAsleepStore.getState().isSetupComplete,
-  
+
   hasCheckedStatus: () => useAsleepStore.getState().hasCheckedStatus,
+
+  hasCheckedBatteryOptimization: () => useAsleepStore.getState().hasCheckedBatteryOptimization,
 
   getUserId: () => useAsleepStore.getState().userId,
 

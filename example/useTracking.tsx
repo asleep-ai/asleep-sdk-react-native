@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Platform } from "react-native";
-import { useAsleep, AsleepSession } from "../src";
+import { useAsleep, AsleepSession, AsleepSDK } from "../src";
 import { create } from "zustand";
 
 // Zustand store interface
@@ -166,6 +166,28 @@ export const useTracking = () => {
       }
 
       await checkAndRestoreTracking();
+
+      // Check battery optimization for Android
+      const batteryStatus = await AsleepSDK.checkBatteryOptimization();
+      if (!batteryStatus.exempted && Platform.OS === 'android') {
+        console.log("🔋 Battery optimization not exempted, requesting...");
+        Alert.alert(
+          "Battery Optimization Required",
+          "To track sleep continuously for 6-8 hours, battery optimization must be disabled.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: async () => {
+                const result = await AsleepSDK.requestBatteryOptimizationExemption();
+                if (!result) {
+                  console.log("🔋 Battery settings opened, user needs to disable optimization");
+                }
+              }
+            }
+          ]
+        );
+      }
 
       await setup({
         apiKey: process.env.EXPO_PUBLIC_API_KEY || "",

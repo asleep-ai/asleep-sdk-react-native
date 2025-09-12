@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { EventEmitter } from "expo-modules-core";
-import { Alert, Platform } from "react-native";
+import { Platform, PermissionsAndroid } from "react-native";
 import {
   AsleepConfig,
   AsleepSetupConfig,
@@ -35,16 +35,22 @@ export interface AsleepState {
   // Service status tracking
   hasCheckedStatus: boolean;
 
+  // Battery optimization tracking
+  hasCheckedBatteryOptimization: boolean;
+
   // actions
   setup: (config: AsleepSetupConfig) => Promise<void>;
   initAsleepConfig: (config: AsleepConfig) => Promise<void>;
   checkAndRestoreTracking: () => Promise<{ hasActiveSession: boolean }>;
+  checkBatteryOptimization: () => Promise<{ exempted: boolean; platform: string; message?: string }>;
+  requestBatteryOptimizationExemption: () => Promise<boolean>;
   startTracking: (config?: TrackingConfig) => Promise<void>;
   stopTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport | null>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
   deleteSession: (sessionId: string) => Promise<void>;
-  requestMicrophonePermission: () => Promise<boolean>;
+  requestMicrophonePermission: () => Promise<boolean>; // deprecated
+  requestRequiredPermissions: () => Promise<boolean>;
   setCustomNotification: (title: string, text: string) => Promise<void>;
   enableLog: (print: boolean) => void;
   requestAnalysis: () => Promise<AsleepAnalysisResult | null>;
@@ -68,6 +74,7 @@ export interface AsleepState {
   setIsSetupInProgress: (inProgress: boolean) => void;
   setIsSetupComplete: (complete: boolean) => void;
   setHasCheckedStatus: (checked: boolean) => void;
+  setHasCheckedBatteryOptimization: (checked: boolean) => void;
   addLog: (log: string) => void;
 }
 
@@ -105,6 +112,9 @@ export const useAsleepStore = create<AsleepState>()(
 
     // Service status state
     hasCheckedStatus: false,
+
+    // Battery optimization state
+    hasCheckedBatteryOptimization: false,
 
     // actions
     setup: async (config: AsleepSetupConfig) => {
@@ -211,10 +221,51 @@ export const useAsleepStore = create<AsleepState>()(
       }
     },
 
+    checkBatteryOptimization: async () => {
+      const { addLog } = get();
+
+      addLog("[checkBatteryOptimization] Checking battery optimization status...");
+
+      // Mark that check was performed (required for startTracking)
+      set({ hasCheckedBatteryOptimization: true });
+
+      if (Platform.OS === 'ios') {
+        addLog("[checkBatteryOptimization] iOS - not applicable");
+        return { exempted: true, platform: 'ios' };
+      }
+
+      // Android: Check current status
+      const exempted = await AsleepModule.isBatteryOptimizationExempted();
+      addLog(`[checkBatteryOptimization] Exempted: ${exempted}`);
+
+      return {
+        exempted,
+        platform: 'android',
+        message: exempted ?
+          "Battery optimization disabled - ready for tracking" :
+          "Battery optimization must be disabled for reliable tracking"
+      };
+    },
+
+    requestBatteryOptimizationExemption: async () => {
+      const { addLog } = get();
+
+      if (Platform.OS === 'ios') {
+        addLog("[requestBatteryOptimizationExemption] iOS - not applicable");
+        return true;  // Not applicable on iOS
+      }
+
+      addLog("[requestBatteryOptimizationExemption] Opening battery settings...");
+
+      // This just opens settings, doesn't wait
+      // Returns true if already exempted, false if settings opened
+      return await AsleepModule.requestBatteryOptimizationExemption();
+    },
+
     startTracking: async (config?: TrackingConfig) => {
       try {
         const {
-          requestMicrophonePermission,
+          requestRequiredPermissions,
           addLog,
           isODAEnabled,
           isSetupInProgress,
@@ -225,6 +276,12 @@ export const useAsleepStore = create<AsleepState>()(
         if (!hasCheckedStatus) {
           addLog("[startTracking] Must call checkAndRestoreTracking() at app startup");
           throw new Error("Must call checkAndRestoreTracking() at app startup before starting tracking");
+        }
+
+        // Enforce battery optimization was checked (developer awareness)
+        if (Platform.OS === 'android' && !get().hasCheckedBatteryOptimization) {
+          addLog("[startTracking] ERROR: Must check battery optimization first");
+          throw new Error("Must call checkBatteryOptimization() before starting tracking on Android");
         }
 
         // Block startTracking execution if setup is in progress
@@ -243,10 +300,27 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog("[startTracking] Start");
 
-        const permission = await requestMicrophonePermission();
+        const permission = await requestRequiredPermissions();
         if (!permission) {
-          Alert.alert("Microphone permission denied");
-          throw new Error("Microphone permission denied");
+          // SDK shouldn't show UI directly - throw specific error message
+          if (Platform.OS === 'android' && Platform.Version >= 33) {
+            throw new Error("Microphone and notification permissions are required for sleep tracking");
+          } else {
+            throw new Error("Microphone permission is required for sleep tracking");
+          }
+        }
+
+        // Always verify CURRENT exemption status
+        if (Platform.OS === 'android') {
+          const batteryExempted = await AsleepModule.isBatteryOptimizationExempted();
+          if (!batteryExempted) {
+            addLog("[startTracking] ERROR: Battery optimization not disabled");
+            throw new Error(
+              "Battery optimization must be disabled for reliable sleep tracking. " +
+              "Call requestBatteryOptimizationExemption() to guide user to settings."
+            );
+          }
+          addLog("[startTracking] Battery optimization exempted - OK");
         }
 
         set({
@@ -374,8 +448,47 @@ export const useAsleepStore = create<AsleepState>()(
       }
     },
 
+    /**
+     * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
+     */
     requestMicrophonePermission: async () => {
-      return AsleepModule.requestMicrophonePermission();
+      console.warn(
+        '[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.'
+      );
+      return get().requestRequiredPermissions();
+    },
+
+    requestRequiredPermissions: async () => {
+      if (Platform.OS === 'android') {
+        try {
+          // Prepare permissions array with RECORD_AUDIO
+          const permissions = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
+
+          // Add POST_NOTIFICATIONS for Android 13+ (API level 33)
+          if (Platform.Version >= 33) {
+            permissions.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+          }
+
+          // Request all permissions together for better UX (single dialog)
+          const results = await PermissionsAndroid.requestMultiple(permissions);
+
+          // Check if all required permissions are granted
+          const audioGranted = results[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] ===
+            PermissionsAndroid.RESULTS.GRANTED;
+
+          const notificationGranted = Platform.Version >= 33 ?
+            results[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] ===
+            PermissionsAndroid.RESULTS.GRANTED : true;
+
+          // Both must be granted for tracking to work properly
+          return audioGranted && notificationGranted;
+        } catch (err) {
+          console.warn('Permission request error:', err);
+          return false;
+        }
+      }
+      // iOS uses native implementation
+      return AsleepModule.requestRequiredPermissions();
     },
 
     setCustomNotification: async (title: string, text: string) => {
@@ -452,6 +565,7 @@ export const useAsleepStore = create<AsleepState>()(
       set({ isSetupInProgress: inProgress }),
     setIsSetupComplete: (complete) => set({ isSetupComplete: complete }),
     setHasCheckedStatus: (checked) => set({ hasCheckedStatus: checked }),
+    setHasCheckedBatteryOptimization: (checked) => set({ hasCheckedBatteryOptimization: checked }),
 
     addLog: (log: string) => {
       const { showDebugLog } = get();

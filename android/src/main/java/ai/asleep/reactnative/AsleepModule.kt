@@ -39,6 +39,9 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import android.os.DeadObjectException
 import android.util.Log
+import android.os.PowerManager
+import android.provider.Settings
+import android.net.Uri
 
 class AsleepModule : Module() {
     private val gson = Gson()
@@ -412,7 +415,42 @@ class AsleepModule : Module() {
             }
         }
 
+        // Deprecated method for backward compatibility
         AsyncFunction("requestMicrophonePermission") { promise: Promise ->
+            // Delegate to the new method
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    val permissions = mutableListOf(android.Manifest.permission.RECORD_AUDIO)
+                    
+                    // Add notification permission for Android 13+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    
+                    // Request permissions
+                    val permissionsArray = permissions.toTypedArray()
+                    if (appContext.currentActivity != null) {
+                        ActivityCompat.requestPermissions(
+                            appContext.currentActivity!!,
+                            permissionsArray,
+                            100
+                        )
+                    }
+                    
+                    // Check granted status
+                    val allGranted = permissions.all { permission ->
+                        ContextCompat.checkSelfPermission(appContext.reactContext!!, permission) == 
+                            PackageManager.PERMISSION_GRANTED
+                    }
+                    
+                    promise.resolve(allGranted)
+                } catch (e: Exception) {
+                    promise.reject("PERMISSION_ERROR", e.message, e)
+                }
+            }
+        }
+
+        AsyncFunction("requestRequiredPermissions") { promise: Promise ->
             CoroutineScope(Dispatchers.Main).launch {
                 try {
                     val audioPermission = ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.RECORD_AUDIO)
@@ -499,6 +537,60 @@ class AsleepModule : Module() {
                     sendEvent("onDebugLog", mapOf("message" to errorMessage))
                     promise.reject("UNEXPECTED_ERROR", errorMessage, e)
                 }
+            }
+        }
+        
+        // Battery optimization check function - minimal implementation
+        AsyncFunction("isBatteryOptimizationExempted") { promise: Promise ->
+            try {
+                // API 23+ required for battery optimization checks
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val context = appContext.reactContext!!
+                    val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                    val packageName = context.packageName
+                    val isExempted = pm.isIgnoringBatteryOptimizations(packageName)
+                    promise.resolve(isExempted)
+                } else {
+                    // For older Android versions, return true (no battery optimization restrictions)
+                    sendEvent("onDebugLog", mapOf("message" to "Battery optimization not applicable for API < 23"))
+                    promise.resolve(true)
+                }
+            } catch (e: Exception) {
+                sendEvent("onDebugLog", mapOf("message" to "Error checking battery optimization: ${e.message}"))
+                promise.resolve(false)
+            }
+        }
+        
+        AsyncFunction("requestBatteryOptimizationExemption") { promise: Promise ->
+            try {
+                // API 23+ required for battery optimization
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val context = appContext.reactContext!!
+                    val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                    val packageName = context.packageName
+                    
+                    // Check if already exempted
+                    if (pm.isIgnoringBatteryOptimizations(packageName)) {
+                        sendEvent("onDebugLog", mapOf("message" to "Battery optimization already exempted"))
+                        promise.resolve(true)
+                        return@AsyncFunction
+                    }
+                    
+                    // Open battery optimization settings
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                    intent.data = Uri.parse("package:$packageName")
+                    appContext.currentActivity?.startActivity(intent)
+                    
+                    sendEvent("onDebugLog", mapOf("message" to "Opened battery optimization settings"))
+                    promise.resolve(false)  // Settings opened, not exempted yet
+                } else {
+                    // For older Android versions, return true (no battery optimization restrictions)
+                    sendEvent("onDebugLog", mapOf("message" to "Battery optimization not applicable for API < 23"))
+                    promise.resolve(true)
+                }
+            } catch (e: Exception) {
+                sendEvent("onDebugLog", mapOf("message" to "Error opening battery settings: ${e.message}"))
+                promise.reject("SETTINGS_ERROR", "Cannot open battery optimization settings", e)
             }
         }
     }

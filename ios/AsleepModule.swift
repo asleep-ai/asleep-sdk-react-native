@@ -124,7 +124,22 @@ public class AsleepModule: Module {
             return trackingManager?.getTrackingStatus().sessionId != nil
         }
 
+        // Deprecated method for backward compatibility
         AsyncFunction("requestMicrophonePermission") { () -> Bool in
+            let audioSession = AVAudioSession.sharedInstance()
+            var permissionGranted = false
+            let semaphore = DispatchSemaphore(value: 0)
+            
+            audioSession.requestRecordPermission { granted in
+                permissionGranted = granted
+                semaphore.signal()
+            }
+            
+            semaphore.wait()
+            return permissionGranted
+        }
+
+        AsyncFunction("requestRequiredPermissions") { () -> Bool in
             let audioSession = AVAudioSession.sharedInstance()
             var permissionGranted = false
             let semaphore = DispatchSemaphore(value: 0)
@@ -152,6 +167,17 @@ public class AsleepModule: Module {
                 "timestamp": Date().timeIntervalSince1970 * 1000
             ]
             return ackData
+        }
+        
+        // Battery optimization stub - not applicable on iOS
+        Function("isBatteryOptimizationExempted") { () -> Bool in
+            // iOS doesn't have battery optimization like Android
+            return true
+        }
+        
+        AsyncFunction("requestBatteryOptimizationExemption") { (promise: Promise) in
+            // Not applicable on iOS
+            promise.resolve(true)
         }
     }
 }
