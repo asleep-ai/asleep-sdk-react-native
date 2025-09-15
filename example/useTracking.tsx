@@ -167,13 +167,18 @@ export const useTracking = () => {
 
       await checkAndRestoreTracking();
 
-      // Check battery optimization for Android
+      // IMPORTANT: Check battery optimization on BOTH platforms
+      // This ensures iOS developers test battery optimization handling,
+      // preventing issues for their Android users in production
       const batteryStatus = await AsleepSDK.checkBatteryOptimization();
-      if (!batteryStatus.exempted && Platform.OS === 'android') {
+      console.log(`🔋 Battery optimization check - Platform: ${batteryStatus.platform}, Exempted: ${batteryStatus.exempted}`);
+
+      // Only prompt on Android when not exempted
+      if (!batteryStatus.exempted) {
         console.log("🔋 Battery optimization not exempted, requesting...");
         Alert.alert(
           "Battery Optimization Required",
-          "To track sleep continuously for 6-8 hours, battery optimization must be disabled.",
+          "To track sleep continuously for 6-8 hours, battery optimization must be disabled. This ensures uninterrupted sleep tracking.",
           [
             { text: "Cancel", style: "cancel" },
             {

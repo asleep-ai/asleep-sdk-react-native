@@ -221,6 +221,18 @@ export const useAsleepStore = create<AsleepState>()(
       }
     },
 
+    /**
+     * Checks battery optimization status on the device.
+     * REQUIRED: Must be called before startTracking() on both iOS and Android.
+     *
+     * This ensures cross-platform consistency - iOS developers must handle
+     * battery optimization to prevent their Android users from experiencing issues.
+     *
+     * @returns Promise with exemption status and platform information
+     * @returns {boolean} exempted - Whether battery optimization is disabled (always true on iOS)
+     * @returns {string} platform - Current platform ('ios' or 'android')
+     * @returns {string} message - Optional status message
+     */
     checkBatteryOptimization: async () => {
       const { addLog } = get();
 
@@ -247,6 +259,15 @@ export const useAsleepStore = create<AsleepState>()(
       };
     },
 
+    /**
+     * Requests battery optimization exemption from the user.
+     * On Android: Opens system settings for battery optimization.
+     * On iOS: No-op, returns true (not applicable).
+     *
+     * Use this when checkBatteryOptimization() returns exempted: false.
+     *
+     * @returns Promise<boolean> - true if already exempted or iOS, false if settings opened
+     */
     requestBatteryOptimizationExemption: async () => {
       const { addLog } = get();
 
@@ -262,6 +283,16 @@ export const useAsleepStore = create<AsleepState>()(
       return await AsleepModule.requestBatteryOptimizationExemption();
     },
 
+    /**
+     * Starts sleep tracking session.
+     *
+     * Prerequisites:
+     * 1. checkAndRestoreTracking() must be called at app startup
+     * 2. checkBatteryOptimization() must be called (required on both platforms)
+     *
+     * @param config Optional tracking configuration
+     * @throws Error if prerequisites are not met or tracking is already in progress
+     */
     startTracking: async (config?: TrackingConfig) => {
       try {
         const {
@@ -278,10 +309,14 @@ export const useAsleepStore = create<AsleepState>()(
           throw new Error("Must call checkAndRestoreTracking() at app startup before starting tracking");
         }
 
-        // Enforce battery optimization was checked (developer awareness)
-        if (Platform.OS === 'android' && !get().hasCheckedBatteryOptimization) {
+        // Enforce battery optimization check on BOTH platforms for consistency
+        // This ensures iOS developers handle battery optimization for their Android users
+        if (!get().hasCheckedBatteryOptimization) {
           addLog("[startTracking] ERROR: Must check battery optimization first");
-          throw new Error("Must call checkBatteryOptimization() before starting tracking on Android");
+          throw new Error(
+            "Must call checkBatteryOptimization() before starting tracking. " +
+            "This check is required on both iOS and Android to ensure cross-platform consistency."
+          );
         }
 
         // Block startTracking execution if setup is in progress

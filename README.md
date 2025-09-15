@@ -355,10 +355,47 @@ useEffect(() => {
 - Provide clear explanation to users about why permission is needed
 - Handle permission denial gracefully
 
-### 3. Battery Optimization
+### 3. Battery Optimization (Required)
 
-- For Android, consider requesting battery optimization exemption
-- Implement proper foreground service for long-running tracking
+#### Cross-Platform Requirement
+
+**IMPORTANT**: Battery optimization check is required on both iOS and Android platforms. This ensures iOS developers properly handle battery optimization, preventing issues for their Android users in production.
+
+#### Implementation
+
+```typescript
+import { AsleepSDK } from 'react-native-asleep';
+
+// Required before starting tracking on BOTH platforms
+const batteryStatus = await AsleepSDK.checkBatteryOptimization();
+
+if (!batteryStatus.exempted && Platform.OS === 'android') {
+  // Prompt user to disable battery optimization
+  Alert.alert(
+    'Battery Optimization Required',
+    'Sleep tracking requires battery optimization to be disabled for uninterrupted 6-8 hour sessions.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Open Settings',
+        onPress: async () => {
+          await AsleepSDK.requestBatteryOptimizationExemption();
+        }
+      }
+    ]
+  );
+}
+
+// Now safe to start tracking
+await AsleepSDK.startTracking();
+```
+
+#### Why This Matters
+
+- **Android**: Battery optimization can interrupt long-running sleep tracking sessions
+- **iOS**: While not technically needed, the check ensures consistent cross-platform code
+- **Developer Experience**: iOS developers testing only on iOS might miss Android requirements
+- **User Experience**: Prevents tracking failures for Android users of iOS-developed apps
 
 ### 4. Error Handling
 
@@ -383,7 +420,8 @@ See the `/example` directory for a complete implementation example.
 1. **Permission Denied**: Ensure microphone permission is granted
 2. **SDK Not Initialized**: Call `initAsleepConfig` before other methods
 3. **Network Errors**: Check internet connection and API key validity
-4. **Battery Optimization**: On Android, exempt app from battery optimization
+4. **Battery Optimization Error**: Call `checkBatteryOptimization()` before `startTracking()` on all platforms
+5. **Android Tracking Interrupted**: Ensure battery optimization is disabled via system settings
 
 ### Debug Mode
 
