@@ -1,3 +1,10 @@
+## [1.0.9](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.8...v1.0.9) (2025-09-15)
+
+
+### fix
+
+* Enforce battery optimization check on all platforms for cross-platform consistency ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/aa528da6241ddb41b9e93f3d068a20a37823c81c))
+
 ## [1.0.8](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.7...v1.0.8) (2025-09-12)
 
 
