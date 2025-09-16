@@ -1,3 +1,10 @@
+## [1.0.11](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.10...v1.0.11) (2025-09-16)
+
+
+### fix
+
+* Add automatic analysis trigger for non-ODA tracking mode ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/068e76a537bfd1fdd9e8e7975a8c6ecd3bd3d98b))
+
 ## [1.0.10](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.9...v1.0.10) (2025-09-16)
 
 
