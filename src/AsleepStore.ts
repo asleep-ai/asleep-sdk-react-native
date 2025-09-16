@@ -683,6 +683,15 @@ export const initializeAsleepListeners = () => {
           state.setIsAnalyzing(false);
         });
       }
+      else if (!state.isODAEnabled && state.isTracking) {
+        if (data.sequence >= 10 && data.sequence % 10 === 1) {
+          state.setIsAnalyzing(true);
+          state.requestAnalysis().catch((error) => {
+            addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
+            state.setIsAnalyzing(false);
+          });
+        }
+      }
     },
     onTrackingClosed: (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
