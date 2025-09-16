@@ -1,3 +1,10 @@
+## [1.0.10](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.9...v1.0.10) (2025-09-16)
+
+
+### fix
+
+* Update iOS AsleepSDK to 3.1.6 to prevent microphone permission requests during initAsleepConfig ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/35a061d17ea42f9295f0682b690e3ede8459e800))
+
 ## [1.0.9](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.8...v1.0.9) (2025-09-15)
 
 
