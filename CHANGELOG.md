@@ -1,3 +1,10 @@
+## [1.0.12](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.11...v1.0.12) (2025-10-02)
+
+
+### fix
+
+* feat: add average report API and normalize session types (#30) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/f22b11d2fb2d64a3ba9fee8762ecb1a34ff508ea)), closes [#30](https://github.com/asleep-ai/asleep-sdk-react-native/issues/30)
+
 ## [1.0.11](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.10...v1.0.11) (2025-09-16)
 
 
