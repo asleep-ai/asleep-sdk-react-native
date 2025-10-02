@@ -78,13 +78,6 @@ public class AsleepModule: Module {
 
         AsyncFunction("getReport") { (sessionId: String) -> [String: Any] in
             sendEvent("onDebugLog", ["message": "getReport"])
- 
-            guard let config = self.config else {
-                sendEvent("onDebugLog", ["message": "Config not initialized"])
-                throw NSError(domain: "AsleepModule", code: 2, userInfo: [NSLocalizedDescriptionKey: "Config not initialized"])
-
-            }
-            reportManager = Asleep.createReports(config: config)
 
             guard let reportManager = self.reportManager else {
                 sendEvent("onDebugLog", ["message": "Reports not initialized"])
@@ -93,7 +86,7 @@ public class AsleepModule: Module {
             do {
                 let report = try await reportManager.report(sessionId: sessionId)
                 sendEvent("onDebugLog", ["message": "report: \(report)"])
-                 
+
                 return try report.asDictionary()
             } catch {
                 sendEvent("onDebugLog", ["message": "Error getting report: \(error)"])
@@ -118,6 +111,24 @@ public class AsleepModule: Module {
             sendEvent("onDebugLog", ["message": "deleteSession: \(sessionId)"])
             try await reportManager.deleteReport(sessionId: sessionId)
             sendEvent("onDebugLog", ["message": "deleteSession completed"])
+        }
+
+        AsyncFunction("getAverageReport") { (fromDate: String, toDate: String) -> [String: Any] in
+            sendEvent("onDebugLog", ["message": "getAverageReport"])
+
+            guard let reportManager = self.reportManager else {
+                sendEvent("onDebugLog", ["message": "Reports not initialized"])
+                throw NSError(domain: "AsleepModule", code: 2, userInfo: [NSLocalizedDescriptionKey: "Reports not initialized"])
+            }
+            do {
+                let averageReport = try await reportManager.getAverageReport(fromDate: fromDate, toDate: toDate)
+                sendEvent("onDebugLog", ["message": "averageReport: \(averageReport)"])
+
+                return try averageReport.asDictionary()
+            } catch {
+                sendEvent("onDebugLog", ["message": "Error getting average report: \(error)"])
+                throw error
+            }
         }
 
         Function("isTracking") { () -> Bool in

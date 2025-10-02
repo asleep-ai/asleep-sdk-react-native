@@ -393,15 +393,15 @@ class AsleepModule : Module() {
                     promise.reject("UNINITIALIZED_REPORT_MANAGER", "Report manager is not initialized", null)
                     return@AsyncFunction
                 }
-                
+
                 sendEvent("onDebugLog", mapOf("message" to "deleteSession: $sessionId"))
-                
+
                 _reportManager?.deleteReport(sessionId, object : Reports.DeleteReportListener {
                     override fun onSuccess(sessionId: String?) {
                         sendEvent("onDebugLog", mapOf("message" to "deleteSession completed for sessionId: $sessionId"))
                         promise.resolve("Session deleted successfully")
                     }
-                    
+
                     override fun onFail(errorCode: Int, detail: String) {
                         val errorMessage = "Delete session failed: errorCode=$errorCode, detail=$detail"
                         sendEvent("onDebugLog", mapOf("message" to errorMessage))
@@ -410,6 +410,34 @@ class AsleepModule : Module() {
                 })
             } catch (e: Exception) {
                 val errorMessage = "Delete session failed: ${e.message}"
+                sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                promise.reject("UNEXPECTED_ERROR", errorMessage, e)
+            }
+        }
+
+        AsyncFunction("getAverageReport") { fromDate: String, toDate: String, promise: Promise ->
+            try {
+                if (_reportManager == null) {
+                    promise.reject("UNINITIALIZED_REPORT_MANAGER", "Report manager is not initialized", null)
+                    return@AsyncFunction
+                }
+
+                sendEvent("onDebugLog", mapOf("message" to "getAverageReport: fromDate=$fromDate, toDate=$toDate"))
+
+                _reportManager?.getAverageReport(fromDate, toDate, object : Reports.AverageReportListener {
+                    override fun onSuccess(averageReport: ai.asleep.asleepsdk.data.AverageReport?) {
+                        sendEvent("onDebugLog", mapOf("message" to "Average report retrieval successful"))
+                        promise.resolve(averageReport?.serializeToMap())
+                    }
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        val errorMessage = "Average report retrieval failed: errorCode=$errorCode, detail=$detail"
+                        sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                        promise.reject("AVERAGE_REPORT_ERROR", errorMessage, null)
+                    }
+                })
+            } catch (e: Exception) {
+                val errorMessage = "Average report retrieval failed: ${e.message}"
                 sendEvent("onDebugLog", mapOf("message" to errorMessage))
                 promise.reject("UNEXPECTED_ERROR", errorMessage, e)
             }

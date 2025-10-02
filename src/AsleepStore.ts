@@ -8,6 +8,7 @@ import {
   AsleepEventType,
   AsleepReport,
   AsleepSession,
+  AsleepAverageReport,
   AsleepAnalysisResult,
   TrackingConfig,
 } from "./Asleep.types";
@@ -48,6 +49,7 @@ export interface AsleepState {
   stopTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport | null>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
+  getAverageReport: (fromDate: string, toDate: string) => Promise<AsleepAverageReport | null>;
   deleteSession: (sessionId: string) => Promise<void>;
   requestMicrophonePermission: () => Promise<boolean>; // deprecated
   requestRequiredPermissions: () => Promise<boolean>;
@@ -457,7 +459,20 @@ export const useAsleepStore = create<AsleepState>()(
         addLog(`[getReportList] fromDate: ${fromDate}, toDate: ${toDate}`);
 
         const reportList = await AsleepModule.getReportList(fromDate, toDate);
-        const convertedList = reportList.map(convertKeysToCamelCase);
+        const convertedList = reportList.map((session: any) => {
+          const converted = convertKeysToCamelCase(session);
+          // Normalize property names to match other session types
+          return {
+            id: converted.sessionId || converted.id,
+            state: converted.state,
+            startTime: converted.sessionStartTime || converted.startTime,
+            endTime: converted.sessionEndTime || converted.endTime,
+            createdTimezone: converted.createdTimezone,
+            unexpectedEndTime: converted.unexpectedEndTime,
+            lastReceivedSeqNum: converted.lastReceivedSeqNum,
+            timeInBed: converted.timeInBed,
+          };
+        });
 
         addLog("[getReportList] Success");
         return convertedList;
@@ -480,6 +495,23 @@ export const useAsleepStore = create<AsleepState>()(
         console.error("deleteSession error:", error);
         set({ error: error.message });
         throw error;
+      }
+    },
+
+    getAverageReport: async (fromDate: string, toDate: string) => {
+      try {
+        const { addLog } = get();
+        addLog(`[getAverageReport] fromDate: ${fromDate}, toDate: ${toDate}`);
+
+        const averageReport = await AsleepModule.getAverageReport(fromDate, toDate);
+        const convertedReport = convertKeysToCamelCase(averageReport);
+
+        addLog("[getAverageReport] Success");
+        return convertedReport;
+      } catch (error: any) {
+        console.error("getAverageReport error:", error);
+        set({ error: error.message });
+        return null;
       }
     },
 

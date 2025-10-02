@@ -1,5 +1,5 @@
 import { EventEmitter } from "expo-modules-core";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Alert, Platform } from "react-native";
 import {
   AsleepConfig,
@@ -7,6 +7,7 @@ import {
   AsleepEventType,
   AsleepReport,
   AsleepSession,
+  AsleepAverageReport,
   TrackingConfig,
 } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
@@ -77,11 +78,32 @@ class Asleep {
     toDate: string
   ): Promise<AsleepSession[]> => {
     const reportList = await AsleepModule.getReportList(fromDate, toDate);
-    return reportList.map(this.convertKeysToCamelCase);
+    return reportList.map((session: any) => {
+      const converted = this.convertKeysToCamelCase(session);
+      // Normalize property names to match other session types
+      return {
+        id: converted.sessionId || converted.id,
+        state: converted.state,
+        startTime: converted.sessionStartTime || converted.startTime,
+        endTime: converted.sessionEndTime || converted.endTime,
+        createdTimezone: converted.createdTimezone,
+        unexpectedEndTime: converted.unexpectedEndTime,
+        lastReceivedSeqNum: converted.lastReceivedSeqNum,
+        timeInBed: converted.timeInBed,
+      };
+    });
   };
 
   deleteSession = async (sessionId: string): Promise<void> => {
     return AsleepModule.deleteSession(sessionId);
+  };
+
+  getAverageReport = async (
+    fromDate: string,
+    toDate: string
+  ): Promise<AsleepAverageReport> => {
+    const averageReport = await AsleepModule.getAverageReport(fromDate, toDate);
+    return this.convertKeysToCamelCase(averageReport);
   };
 
   /**
@@ -161,6 +183,7 @@ export const useAsleep = () => {
     stopTracking,
     getReport,
     getReportList,
+    getAverageReport,
     deleteSession,
     enableLog,
     setCustomNotification,
@@ -202,6 +225,7 @@ export const useAsleep = () => {
     stopTracking,
     getReport,
     getReportList,
+    getAverageReport,
     deleteSession,
     requestMicrophonePermission,
     requestRequiredPermissions,
@@ -242,6 +266,9 @@ export const AsleepSDK = {
 
   getReportList: (fromDate: string, toDate: string) =>
     useAsleepStore.getState().getReportList(fromDate, toDate),
+
+  getAverageReport: (fromDate: string, toDate: string) =>
+    useAsleepStore.getState().getAverageReport(fromDate, toDate),
 
   deleteSession: (sessionId: string) =>
     useAsleepStore.getState().deleteSession(sessionId),
@@ -289,6 +316,9 @@ export type {
   AsleepEventType,
   AsleepReport,
   AsleepSession,
+  AsleepAverageReport,
+  AsleepSleptSession,
+  AsleepNeverSleptSession,
   AsleepStat,
   AsleepAnalysisResult,
   TrackingConfig,
