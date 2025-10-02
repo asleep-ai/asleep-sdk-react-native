@@ -78,13 +78,6 @@ public class AsleepModule: Module {
 
         AsyncFunction("getReport") { (sessionId: String) -> [String: Any] in
             sendEvent("onDebugLog", ["message": "getReport"])
- 
-            guard let config = self.config else {
-                sendEvent("onDebugLog", ["message": "Config not initialized"])
-                throw NSError(domain: "AsleepModule", code: 2, userInfo: [NSLocalizedDescriptionKey: "Config not initialized"])
-
-            }
-            reportManager = Asleep.createReports(config: config)
 
             guard let reportManager = self.reportManager else {
                 sendEvent("onDebugLog", ["message": "Reports not initialized"])
@@ -93,7 +86,7 @@ public class AsleepModule: Module {
             do {
                 let report = try await reportManager.report(sessionId: sessionId)
                 sendEvent("onDebugLog", ["message": "report: \(report)"])
-                 
+
                 return try report.asDictionary()
             } catch {
                 sendEvent("onDebugLog", ["message": "Error getting report: \(error)"])
@@ -122,12 +115,6 @@ public class AsleepModule: Module {
 
         AsyncFunction("getAverageReport") { (fromDate: String, toDate: String) -> [String: Any] in
             sendEvent("onDebugLog", ["message": "getAverageReport"])
-
-            guard let config = self.config else {
-                sendEvent("onDebugLog", ["message": "Config not initialized"])
-                throw NSError(domain: "AsleepModule", code: 2, userInfo: [NSLocalizedDescriptionKey: "Config not initialized"])
-            }
-            reportManager = Asleep.createReports(config: config)
 
             guard let reportManager = self.reportManager else {
                 sendEvent("onDebugLog", ["message": "Reports not initialized"])
