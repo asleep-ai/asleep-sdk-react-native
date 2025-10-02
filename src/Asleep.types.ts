@@ -72,12 +72,81 @@ export type AsleepStat = {
   timeInWake?: number;
 };
 
+// From getReportList() - maps to SDK SleepSession
 export type AsleepSession = {
-  sessionId: string;
+  id: string;  // mapped from sessionId
   state: string;
-  sessionStartTime: string;
-  sessionEndTime?: string;
+  startTime: string;  // mapped from sessionStartTime
+  endTime?: string;  // mapped from sessionEndTime
+  createdTimezone: string;
+  unexpectedEndTime?: string;
+  lastReceivedSeqNum?: number;
   timeInBed?: number;
+};
+
+// From getAverageReport() sleptSessions - maps to SDK SleptSession
+export type AsleepSleptSession = {
+  id: string;
+  createdTimezone: string;
+  startTime: string;
+  endTime: string;
+  completedTime: string;
+  sleepEfficiency: number;
+  sleepLatency?: number;
+  wakeupLatency?: number;
+  lightLatency?: number;
+  deepLatency?: number;
+  remLatency?: number;
+  sleepTime?: string;
+  wakeTime?: string;
+  timeInWake: number;
+  timeInSleepPeriod: number;
+  timeInSleep: number;
+  timeInBed: number;
+  timeInRem?: number;
+  timeInLight?: number;
+  timeInDeep?: number;
+  timeInStableBreath?: number;
+  timeInUnstableBreath?: number;
+  timeInSnoring?: number;
+  timeInNoSnoring?: number;
+  wakeRatio: number;
+  sleepRatio: number;
+  remRatio?: number;
+  lightRatio?: number;
+  deepRatio?: number;
+  stableBreathRatio?: number;
+  unstableBreathRatio?: number;
+  snoringRatio?: number;
+  noSnoringRatio?: number;
+  unstableBreathCount?: number;
+  breathingPattern?: string;
+  breathingIndex?: number;
+  sleepCycle?: number;
+  sleepCycleCount?: number;
+  wasoCount?: number;
+  longestWaso?: number;
+  snoringCount?: number;
+};
+
+// From getAverageReport() neverSleptSessions - maps to SDK NeverSleptSession
+export type AsleepNeverSleptSession = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  completedTime: string;
+};
+
+export type AsleepAverageReport = {
+  period: {
+    timezone: string;
+    startDate: string;
+    endDate: string;
+  };
+  peculiarities: string[];
+  averageStats?: AsleepStat;
+  neverSleptSessions?: AsleepNeverSleptSession[];
+  sleptSessions?: AsleepSleptSession[];
 };
 
 export type AsleepAnalysisResult = {
