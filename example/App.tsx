@@ -13,7 +13,7 @@ import {
   Platform,
 } from "react-native";
 import { useTracking } from "./useTracking";
-import { useAsleep } from "react-native-asleep/src";
+import { useAsleep, AsleepSleptSession, AsleepNeverSleptSession } from "react-native-asleep/src";
 
 const SHOW_DEBUG_LOG = true;
 
@@ -39,6 +39,7 @@ const App = () => {
     stopTracking,
     getReport,
     getReportList,
+    getAverageReport,
     requestAnalysis,
     enableLog,
     isTrackingPaused,
@@ -182,6 +183,24 @@ const App = () => {
     }
   };
 
+  const _getAverageReport = async () => {
+    try {
+      const today = moment();
+      const fromDate = today.clone().subtract(1, "month").format("YYYY-MM-DD");
+      const toDate = today.format("YYYY-MM-DD");
+
+      const averageReport = await getAverageReport(fromDate, toDate);
+      if (averageReport) {
+        addLog(`Average report retrieved for period: ${fromDate} to ${toDate}`);
+        showModal("Average Report", averageReport);
+      } else {
+        addLog("No average report data available");
+      }
+    } catch (error: any) {
+      addLog(`Get average report error: ${error.message}`);
+    }
+  };
+
   const _requestAnalysis = async () => {
     try {
       const result = await requestAnalysis();
@@ -239,22 +258,22 @@ const App = () => {
           )}
 
           <Text style={styles.modalSectionTitle}>Basic Information</Text>
-          <Text>Session ID: {report.session?.id || report.sessionId || "N/A"}</Text>
+          <Text>Session ID: {report.session?.id || report.id || "N/A"}</Text>
           <Text>User ID: {userId || "N/A"}</Text>
           <Text>
-            Start Time: {report.session?.startTime || report.sessionStartTime || "N/A"}
+            Start Time: {report.session?.startTime || report.startTime || "N/A"}
           </Text>
           <Text>
-            End Time: {report.session?.endTime || report.sessionEndTime || "N/A"}
+            End Time: {report.session?.endTime || report.endTime || "N/A"}
           </Text>
           <Text>State: {report.session?.state || report.state || "N/A"}</Text>
           <Text>
             Time in Bed:{" "}
-            {report.stat?.timeInBed 
-              ? `${Math.round(report.stat.timeInBed / 60)} minutes` 
-              : report.timeInBed 
-              ? `${report.timeInBed} minutes` 
-              : "N/A"}
+            {report.stat?.timeInBed
+              ? `${Math.round(report.stat.timeInBed / 60)} minutes`
+              : report.timeInBed
+                ? `${report.timeInBed} minutes`
+                : "N/A"}
           </Text>
           {report.timezone && <Text>Timezone: {report.timezone}</Text>}
           {report.missingDataRatio !== undefined && (
@@ -266,16 +285,10 @@ const App = () => {
               <Text style={styles.modalSectionTitle}>Sleep Statistics</Text>
               <Text>Sleep Index: {report.stat.sleepIndex || "N/A"}</Text>
               <Text>
-                Sleep Time:{" "}
-                {report.stat.sleepTime
-                  ? `${Math.round(report.stat.sleepTime / 60)} minutes`
-                  : "N/A"}
+                Sleep Time: {report.stat.sleepTime || "N/A"}
               </Text>
               <Text>
-                Wake Time:{" "}
-                {report.stat.wakeTime
-                  ? `${Math.round(report.stat.wakeTime / 60)} minutes`
-                  : "N/A"}
+                Wake Time: {report.stat.wakeTime || "N/A"}
               </Text>
               <Text>
                 Sleep Latency:{" "}
@@ -303,15 +316,16 @@ const App = () => {
           <TouchableOpacity
             style={styles.deleteButton}
             onPress={() => {
+              const sessionId = report.session?.id || report.id;
               Alert.alert(
                 "Delete Session",
-                `Are you sure you want to delete session ${report.sessionId}?`,
+                `Are you sure you want to delete session ${sessionId}?`,
                 [
                   { text: "Cancel", style: "cancel" },
                   {
                     text: "Delete",
                     style: "destructive",
-                    onPress: () => _deleteSession(report.sessionId)
+                    onPress: () => _deleteSession(sessionId)
                   },
                 ]
               );
@@ -343,14 +357,14 @@ const App = () => {
           </Text>
           {reportList.map((report: any, index: number) => (
             <TouchableOpacity
-              key={report.sessionId || index}
+              key={report.id || index}
               style={styles.reportItem}
               onPress={() => showReportDetail(report)}
             >
               <Text style={styles.reportItemTitle}>Report #{index + 1}</Text>
-              <Text>Session ID: {report.sessionId || "N/A"}</Text>
+              <Text>Session ID: {report.id || "N/A"}</Text>
               <Text>
-                Date: {report.createdAt || report.sessionStartTime || "N/A"}
+                Date: {report.createdAt || report.startTime || "N/A"}
               </Text>
               <Text>State: {report.state || "N/A"}</Text>
               {report.timeInBed && (
@@ -398,6 +412,135 @@ const App = () => {
                 Snoring Stages (Recent 10)
               </Text>
               <Text>{session.snoringStages.slice(-10).join(", ")}</Text>
+            </>
+          )}
+        </View>
+      );
+    } else if (modalTitle === "Average Report") {
+      // Show average report
+      const avgReport = modalContent;
+      return (
+        <View>
+          <Text style={styles.modalSectionTitle}>Period Information</Text>
+          <Text>Timezone: {avgReport.period?.timezone || "N/A"}</Text>
+          <Text>Start Date: {avgReport.period?.startDate || "N/A"}</Text>
+          <Text>End Date: {avgReport.period?.endDate || "N/A"}</Text>
+
+          {avgReport.peculiarities && avgReport.peculiarities.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>Peculiarities</Text>
+              {avgReport.peculiarities.map((item: string, idx: number) => (
+                <Text key={idx}>• {item}</Text>
+              ))}
+            </>
+          )}
+
+          {avgReport.averageStats && (
+            <>
+              <Text style={styles.modalSectionTitle}>Average Sleep Statistics</Text>
+              <Text>Sleep Index: {avgReport.averageStats.sleepIndex || "N/A"}</Text>
+              <Text>
+                Time in Bed:{" "}
+                {avgReport.averageStats.timeInBed
+                  ? `${Math.round(avgReport.averageStats.timeInBed / 60)} minutes`
+                  : "N/A"}
+              </Text>
+              <Text>
+                Time in Sleep:{" "}
+                {avgReport.averageStats.timeInSleep
+                  ? `${Math.round(avgReport.averageStats.timeInSleep / 60)} minutes`
+                  : "N/A"}
+              </Text>
+              <Text>
+                Sleep Efficiency:{" "}
+                {avgReport.averageStats.sleepEfficiency
+                  ? `${Math.round(avgReport.averageStats.sleepEfficiency * 100)}%`
+                  : "N/A"}
+              </Text>
+              <Text>
+                Sleep Latency:{" "}
+                {avgReport.averageStats.sleepLatency
+                  ? `${Math.round(avgReport.averageStats.sleepLatency / 60)} minutes`
+                  : "N/A"}
+              </Text>
+              <Text>
+                Wake Ratio:{" "}
+                {avgReport.averageStats.wakeRatio
+                  ? `${Math.round(avgReport.averageStats.wakeRatio * 100)}%`
+                  : "N/A"}
+              </Text>
+            </>
+          )}
+
+          {avgReport.sleptSessions && avgReport.sleptSessions.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>
+                Sleep Sessions ({avgReport.sleptSessions.length})
+              </Text>
+              {avgReport.sleptSessions.map((session: AsleepSleptSession, idx: number) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.reportItem}
+                  onPress={async () => {
+                    try {
+                      const report = await getReport(session.id);
+                      if (report) {
+                        showReportDetail(report);
+                      }
+                    } catch (error: any) {
+                      addLog(`Failed to load session: ${error.message}`);
+                      Alert.alert("Error", `Failed to load session: ${error.message}`);
+                    }
+                  }}
+                >
+                  <Text style={styles.reportItemTitle}>Session #{idx + 1}</Text>
+                  <Text>Session ID: {session.id}</Text>
+                  <Text>Start: {session.startTime}</Text>
+                  {session.endTime && (
+                    <Text>End: {session.endTime}</Text>
+                  )}
+                  {session.timeInBed && (
+                    <Text>Time in Bed: {session.timeInBed} minutes</Text>
+                  )}
+                  {session.sleepEfficiency && (
+                    <Text>Sleep Efficiency: {Math.round(session.sleepEfficiency * 100)}%</Text>
+                  )}
+                  <Text style={styles.tapHint}>Tap to view details →</Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+
+          {avgReport.neverSleptSessions && avgReport.neverSleptSessions.length > 0 && (
+            <>
+              <Text style={styles.modalSectionTitle}>
+                Sessions Without Sleep ({avgReport.neverSleptSessions.length})
+              </Text>
+              {avgReport.neverSleptSessions.map((session: AsleepNeverSleptSession, idx: number) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.reportItem}
+                  onPress={async () => {
+                    try {
+                      const report = await getReport(session.id);
+                      if (report) {
+                        showReportDetail(report);
+                      }
+                    } catch (error: any) {
+                      addLog(`Failed to load session: ${error.message}`);
+                      Alert.alert("Error", `Failed to load session: ${error.message}`);
+                    }
+                  }}
+                >
+                  <Text style={styles.reportItemTitle}>No Sleep Session #{idx + 1}</Text>
+                  <Text>Session ID: {session.id}</Text>
+                  <Text>Start: {session.startTime}</Text>
+                  {session.endTime && (
+                    <Text>End: {session.endTime}</Text>
+                  )}
+                  <Text style={styles.tapHint}>Tap to view details →</Text>
+                </TouchableOpacity>
+              ))}
             </>
           )}
         </View>
@@ -465,6 +608,10 @@ const App = () => {
         <View style={styles.buttonContainer}>
           <Button title="Get Report" onPress={_getReport} />
           <Button title="Get Report List" onPress={_getReportList} />
+        </View>
+
+        <View style={styles.buttonContainer}>
+          <Button title="Get Average Report" onPress={_getAverageReport} />
         </View>
 
         <View style={styles.buttonContainer}>

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Alert, Platform } from "react-native";
+import { useCallback, useEffect } from "react";
+import { Alert } from "react-native";
 import { useAsleep, AsleepSession, AsleepSDK } from "../src";
 import { create } from "zustand";
 
@@ -40,10 +40,10 @@ export const useTracking = () => {
     startTracking,
     stopTracking,
     initAsleepConfig,
-    setup,
     getReport,
     analysisResult,
     getReportList,
+    getAverageReport,
     isTracking,
     error,
     didClose,
@@ -194,10 +194,11 @@ export const useTracking = () => {
         );
       }
 
-      await setup({
-        apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
-        enableODA: true,
-      });
+      // Disabled setup() - using initAsleepConfig only
+      // await setup({
+      //   apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
+      //   enableODA: true,
+      // });
 
       await initAsleepConfig({
         apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
@@ -269,6 +270,7 @@ export const useTracking = () => {
     tryStopTracking,
     getReport,
     getReportList: getReportListWrapper,
+    getAverageReport,
     reportList,
     fetchReportList,
     shouldStopTracking,
