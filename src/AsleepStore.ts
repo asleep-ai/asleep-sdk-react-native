@@ -681,19 +681,23 @@ export const initializeAsleepListeners = () => {
 
   // event handlers
   const handlers = {
+    // Connected: iOS userDidJoin, Android onSuccess (AsleepConfigListener)
     onUserJoined: (data: any) => {
       setUserId(data.userId);
       addLog(`[onUserJoined] userId: ${data.userId}`);
     },
+    // Connected: iOS didFailUserJoin, Android onFail (AsleepConfigListener)
     onUserJoinFailed: (error: any) => {
       const errorString = JSON.stringify(error);
       setError(errorString);
       addLog(`[onUserJoinFailed] error: ${errorString}`);
     },
+    // Connected: iOS userDidDelete, Android NOT IMPLEMENTED
     onUserDeleted: (data: any) => {
       setUserId(null);
       addLog(`[onUserDeleted] userId: ${data.userId}`);
     },
+    // Connected: iOS didCreate, Android onStart (AsleepTrackingListener)
     onTrackingCreated: (data: any) => {
       setIsTracking(true);
       if (data && data.sessionId) {
@@ -704,6 +708,8 @@ export const initializeAsleepListeners = () => {
         }`
       );
     },
+    // Connected: iOS didUpload, Android onPerform (AsleepTrackingListener)
+    // Triggers automatic analysis requests in both ODA and non-ODA modes
     onTrackingUploaded: (data: any) => {
       addLog(`[onTrackingUploaded] sequence: ${data.sequence}`);
 
@@ -725,40 +731,47 @@ export const initializeAsleepListeners = () => {
         }
       }
     },
+    // Connected: iOS didClose, Android onFinish (AsleepTrackingListener)
     onTrackingClosed: (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
       setDidClose(true);
       setIsTracking(false);
       setIsAnalyzing(false);
+      store.setTrackingStartTime(null);
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
+    // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
+    // Note: This is a transient error event - tracking continues, only logs the error
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
       setError(errorString);
-      setIsTracking(false);
-      setIsAnalyzing(false);
-      store.setTrackingStartTime(null);
-      addLog(`[onTrackingFailed] error: ${errorString}`);
+      addLog(`[onTrackingError] error: ${errorString}`);
     },
+    // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
     onTrackingInterrupted: () => {
       setIsTrackingPaused(true);
       addLog(`[onTrackingInterrupted]`);
     },
+    // Connected: iOS didResume, Android NOT IMPLEMENTED
     onTrackingResumed: () => {
       setIsTrackingPaused(false);
       addLog(`[onTrackingResumed]`);
     },
+    // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
     onMicPermissionDenied: () => {
       addLog(`[onMicPermissionDenied]`);
     },
+    // Connected: iOS didPrint (AsleepDebugLoggerDelegate), Android sendEvent called directly
     onDebugLog: (data: any) => {
       addLog(`[onDebugLog] message: ${data.message}`);
     },
+    // Connected: iOS setupDidComplete, Android onComplete (AsleepSetupListener)
     onSetupDidComplete: () => {
       setIsSetupInProgress(false);
       setIsSetupComplete(true);
       addLog(`[onSetupDidComplete]`);
     },
+    // Connected: iOS setupDidFail, Android onFail (AsleepSetupListener)
     onSetupDidFail: (data: any) => {
       const errorString = JSON.stringify(data);
       setError(errorString);
@@ -766,10 +779,12 @@ export const initializeAsleepListeners = () => {
       setIsSetupComplete(false);
       addLog(`[onSetupDidFail] error: ${errorString}`);
     },
+    // Connected: iOS setupInProgress, Android onProgress (AsleepSetupListener)
     onSetupInProgress: (data: any) => {
       setIsSetupInProgress(true);
       addLog(`[onSetupInProgress] progress: ${data.progress}%`);
     },
+    // Connected: iOS analyzing (session), Android onSleepDataReceived (AsleepSleepDataListener)
     onAnalysisResult: (data: any) => {
       setAnalysisResult(data);
       setIsAnalyzing(false);  // Analysis is complete, so set to false
