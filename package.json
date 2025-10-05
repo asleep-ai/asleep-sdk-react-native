@@ -1,6 +1,6 @@
 {
   "name": "react-native-asleep",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Asleep SDK for React Native",
   "main": "build/index.js",
   "types": "build/index.d.ts",

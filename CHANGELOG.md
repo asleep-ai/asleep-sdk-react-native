@@ -1,3 +1,10 @@
+## [1.0.13](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.12...v1.0.13) (2025-10-05)
+
+
+### fix
+
+* Fix onTrackingFailed handler to only log errors without stopping tracking (#31) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/8f02aa5cea77ac06c4599e4c1abc26a067a227b8)), closes [#31](https://github.com/asleep-ai/asleep-sdk-react-native/issues/31)
+
 ## [1.0.12](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.11...v1.0.12) (2025-10-02)
 
 
