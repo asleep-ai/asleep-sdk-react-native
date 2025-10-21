@@ -64,6 +64,7 @@ export interface AsleepState {
 
   // internal actions
   setError: (error: string | null) => void;
+  clearError: () => void;
   setUserId: (userId: string | null) => void;
   setSessionId: (sessionId: string | null) => void;
   setIsTracking: (isTracking: boolean) => void;
@@ -619,6 +620,7 @@ export const useAsleepStore = create<AsleepState>()(
 
     // internal actions
     setError: (error) => set({ error }),
+    clearError: () => set({ error: null }),
     setUserId: (userId) => set({ userId }),
     setSessionId: (sessionId) => set({ sessionId }),
     setIsTracking: (isTracking) => set({ isTracking }),
