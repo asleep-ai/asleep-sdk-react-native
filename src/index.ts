@@ -200,6 +200,7 @@ export const useAsleep = () => {
     isSetupComplete,
     hasCheckedStatus,
     hasCheckedBatteryOptimization,
+    clearError,
   } = useAsleepStore();
 
   useEffect(() => {
@@ -240,6 +241,7 @@ export const useAsleep = () => {
     isSetupComplete,
     hasCheckedStatus,
     hasCheckedBatteryOptimization,
+    clearError,
   };
 };
 
@@ -301,6 +303,8 @@ export const AsleepSDK = {
 
   setCustomNotification: (title: string, text: string) =>
     useAsleepStore.getState().setCustomNotification(title, text),
+
+  clearError: () => useAsleepStore.getState().clearError(),
 
   initialize: () => {
     return initializeAsleepListeners();
