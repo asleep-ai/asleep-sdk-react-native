@@ -55,6 +55,7 @@ export interface AsleepState {
   requestRequiredPermissions: () => Promise<boolean>;
   setCustomNotification: (title: string, text: string) => Promise<void>;
   enableLog: (print: boolean) => void;
+  clearError: () => void;
   requestAnalysis: () => Promise<AsleepAnalysisResult | null>;
   addEventListener: <K extends keyof AsleepEventType>(
     eventType: K,
@@ -64,7 +65,6 @@ export interface AsleepState {
 
   // internal actions
   setError: (error: string | null) => void;
-  clearError: () => void;
   setUserId: (userId: string | null) => void;
   setSessionId: (sessionId: string | null) => void;
   setIsTracking: (isTracking: boolean) => void;
