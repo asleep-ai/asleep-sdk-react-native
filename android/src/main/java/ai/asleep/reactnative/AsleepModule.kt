@@ -228,6 +228,13 @@ class AsleepModule : Module() {
                 })
                 
                 sendEvent("onDebugLog", mapOf("message" to "Successfully restored connection to existing sleep tracking service"))
+
+                // Send userId if available (for app restart scenarios)
+                if (savedUserId != null) {
+                    sendEvent("onUserJoined", mapOf("userId" to savedUserId))
+                    sendEvent("onDebugLog", mapOf("message" to "Restored userId: $savedUserId"))
+                }
+
                 promise.resolve(true)
             } catch (e: Exception) {
                 sendEvent("onDebugLog", mapOf("message" to "Error connecting to tracking service: ${e.message}"))
