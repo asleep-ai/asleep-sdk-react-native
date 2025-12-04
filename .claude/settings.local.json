@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(adb devices:*)",
+      "Bash(yarn install)",
+      "Bash(yarn android)",
+      "Bash(adb logcat:*)",
+      "Bash(kill:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill -9)",
+      "Bash(npx expo start:*)",
+      "Bash(npx expo prebuild:*)",
+      "Bash(adb shell input:*)",
+      "Bash(npx expo run:ios:*)",
+      "Bash(xcrun xctrace:*)",
+      "Bash(xcrun simctl spawn:*)",
+      "Bash(brew list:*)",
+      "Bash(brew install:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
