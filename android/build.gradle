@@ -73,7 +73,7 @@ repositories {
 }
 
 dependencies {
-  implementation('ai.asleep:asleepsdk:3.1.4') {
+  implementation('ai.asleep:asleepsdk:3.1.5') {
     exclude group: 'com.android.support'
   }
   
