@@ -11,6 +11,7 @@ import {
   Modal,
   TouchableOpacity,
   Platform,
+  Switch,
 } from "react-native";
 import { useTracking } from "./useTracking";
 import { useAsleep, AsleepSleptSession, AsleepNeverSleptSession } from "react-native-asleep/src";
@@ -45,6 +46,8 @@ const App = () => {
     isTrackingPaused,
     getTrackingDurationMinutes,
     isInitialized,
+    useODAMode,
+    toggleODAMode,
   } = useTracking();
 
   const { didClose, deleteSession } = useAsleep();
@@ -565,7 +568,17 @@ const App = () => {
                 ? "Paused"
                 : "Active"}
           </Text>
-          <Text>ODA Enabled: {isODAEnabled ? "Yes" : "No"}</Text>
+          <View style={styles.odaToggleContainer}>
+            <Text>ODA Mode: </Text>
+            <Switch
+              value={useODAMode}
+              onValueChange={toggleODAMode}
+              disabled={isTracking}
+            />
+            <Text style={styles.odaStatus}>
+              {isODAEnabled ? "(Active)" : "(Inactive)"}
+            </Text>
+          </View>
           <Text>Analysis Status: {isAnalyzing ? "Yes" : "No"}</Text>
           {isTracking && (
             <Text>
@@ -769,6 +782,16 @@ const styles = StyleSheet.create({
     color: "white",
     fontWeight: "bold",
     fontSize: 16,
+  },
+  odaToggleContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 5,
+  },
+  odaStatus: {
+    marginLeft: 8,
+    color: "#666",
+    fontSize: 12,
   },
 });
 

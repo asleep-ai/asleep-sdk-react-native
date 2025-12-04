@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { useAsleep, AsleepSession, AsleepSDK } from "../src";
 import { create } from "zustand";
@@ -40,6 +40,7 @@ export const useTracking = () => {
     startTracking,
     stopTracking,
     initAsleepConfig,
+    setup,
     getReport,
     analysisResult,
     getReportList,
@@ -58,6 +59,9 @@ export const useTracking = () => {
     isSetupInProgress,
     isSetupComplete,
   } = useAsleep();
+
+  // ODA mode state (local, not in Zustand since it's UI preference)
+  const [useODAMode, setUseODAMode] = useState(false);
 
   // Use Zustand store
   const {
@@ -155,10 +159,11 @@ export const useTracking = () => {
     }
   };
 
-  const initSDK = async (preferredAstId?: string) => {
+  const initSDK = async (preferredAstId?: string, enableODA?: boolean) => {
     try {
       const _astId = preferredAstId || astId;
-      console.log("initSDK astId:", _astId);
+      const _enableODA = enableODA ?? useODAMode;
+      console.log("initSDK astId:", _astId, "enableODA:", _enableODA);
 
       if (isSetupInProgress) {
         console.log("🐤 Setup is already in progress.");
@@ -194,18 +199,21 @@ export const useTracking = () => {
         );
       }
 
-      // Disabled setup() - using initAsleepConfig only
-      // await setup({
-      //   apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
-      //   enableODA: true,
-      // });
-
-      await initAsleepConfig({
-        apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
-        userId: _astId ?? undefined,
-      });
-
-      console.log("🐤 SDK initialized successfully");
+      if (_enableODA) {
+        // Use setup() for ODA mode
+        await setup({
+          apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
+          enableODA: true,
+        });
+        console.log("🐤 SDK initialized with ODA mode");
+      } else {
+        // Use initAsleepConfig() for standard mode
+        await initAsleepConfig({
+          apiKey: process.env.EXPO_PUBLIC_API_KEY || "",
+          userId: _astId ?? undefined,
+        });
+        console.log("🐤 SDK initialized with standard mode");
+      }
     } catch (error: any) {
       console.error("initSDK error:", error);
       Alert.alert(
@@ -213,6 +221,30 @@ export const useTracking = () => {
         `Failed to initialize SDK: ${error?.message || String(error)}`
       );
     }
+  };
+
+  const toggleODAMode = async (enabled: boolean) => {
+    if (isTracking) {
+      Alert.alert("Warning", "Cannot change ODA mode while tracking is active. Please stop tracking first.");
+      return;
+    }
+
+    setUseODAMode(enabled);
+
+    // Re-initialize SDK with new mode
+    Alert.alert(
+      "Reinitialize SDK",
+      `Switch to ${enabled ? "ODA" : "Standard"} mode? This will reinitialize the SDK.`,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => setUseODAMode(!enabled) },
+        {
+          text: "OK",
+          onPress: async () => {
+            await initSDK(astId ?? undefined, enabled);
+          }
+        }
+      ]
+    );
   };
 
   const getReportListWrapper = useCallback(
@@ -292,6 +324,8 @@ export const useTracking = () => {
     getTrackingDurationMinutes,
     isSetupInProgress,
     isSetupComplete,
+    useODAMode,
+    toggleODAMode,
   };
 };
 
