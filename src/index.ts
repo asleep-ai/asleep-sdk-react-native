@@ -309,6 +309,13 @@ export const AsleepSDK = {
   initialize: () => {
     return initializeAsleepListeners();
   },
+
+  addEventListener: <K extends keyof AsleepEventType>(
+    eventType: K,
+    listener: (data: AsleepEventType[K]) => void
+  ) => {
+    return useAsleepStore.getState().addEventListener(eventType, listener);
+  },
 };
 
 const asleep = new Asleep();
