@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Asleep SDK TestApp",
+    "slug": "react-native-asleep-testapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.asleep.reactnative.testapp",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "This app uses the microphone to analyze sleep patterns and provide sleep tracking functionality.",
+        "UIBackgroundModes": ["audio"]
+      }
+    },
+    "android": {
+      "edgeToEdgeEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "ai.asleep.reactnative.testapp"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
