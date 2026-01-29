@@ -5,25 +5,25 @@ public class AsleepModule: Module {
     private var trackingManager: Asleep.SleepTrackingManager?
     private var reportManager: Asleep.Reports?
     private(set) var config: Asleep.Config?
-    
+
     public func definition() -> ModuleDefinition {
         Name("Asleep")
-        
+
         OnCreate {
             AVAudioSession.swizzleSetCategory()
         }
 
         Events("onTrackingCreated")
-        Events("onTrackingUploaded") 
-        Events("onTrackingClosed")  
-        Events("onTrackingFailed")  
+        Events("onTrackingUploaded")
+        Events("onTrackingClosed")
+        Events("onTrackingFailed")
         Events("onTrackingInterrupted")
         Events("onTrackingResumed")
         Events("onMicPermissionDenied")
-        Events("onUserJoined")  
-        Events("onUserJoinFailed") 
+        Events("onUserJoined")
+        Events("onUserJoinFailed")
         Events("onUserDeleted")
-        
+
         Events("onDebugLog")
         Events("onSetupDidComplete")
         Events("onSetupDidFail")
@@ -53,14 +53,14 @@ public class AsleepModule: Module {
             self.sendEvent("onDebugLog", ["message": "isSleepTrackingAlive: false (iOS)"])
             return false
         }
-        
+
         AsyncFunction("connectSleepTracking") { () -> Bool in
             // iOS doesn't need to connect to an existing service
             // This is a stub method for API consistency with Android
             self.sendEvent("onDebugLog", ["message": "connectSleepTracking: no-op on iOS"])
             return false
         }
-        
+
         AsyncFunction("startTracking") { (config: [String: Any]?) -> Void in
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
@@ -140,12 +140,12 @@ public class AsleepModule: Module {
             let audioSession = AVAudioSession.sharedInstance()
             var permissionGranted = false
             let semaphore = DispatchSemaphore(value: 0)
-            
+
             audioSession.requestRecordPermission { granted in
                 permissionGranted = granted
                 semaphore.signal()
             }
-            
+
             semaphore.wait()
             return permissionGranted
         }
@@ -171,7 +171,7 @@ public class AsleepModule: Module {
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
             }
-            
+
             trackingManager.requestAnalysis()
             let ackData: [String: Any] = [
                 "status": "requested",
@@ -179,13 +179,13 @@ public class AsleepModule: Module {
             ]
             return ackData
         }
-        
+
         // Battery optimization stub - not applicable on iOS
         Function("isBatteryOptimizationExempted") { () -> Bool in
             // iOS doesn't have battery optimization like Android
             return true
         }
-        
+
         AsyncFunction("requestBatteryOptimizationExemption") { (promise: Promise) in
             // Not applicable on iOS
             promise.resolve(true)
@@ -197,11 +197,15 @@ extension AsleepModule: AsleepSetupDelegate {
     public func setupDidComplete() {
         sendEvent("onSetupDidComplete", [:])
     }
-    
+
     public func setupDidFail(error: Asleep.AsleepError) {
-        sendEvent("onSetupDidFail", ["error": error.localizedDescription])
+        sendEvent("onSetupDidFail", [
+            "error": error.localizedDescription,
+            "caseName": String(describing: error),
+            "code": (error as NSError).code
+        ])
     }
-    
+
     public func setupInProgress(progress: Int) {
         sendEvent("onSetupInProgress", ["progress": progress])
     }
@@ -216,7 +220,11 @@ extension AsleepModule: AsleepConfigDelegate {
     }
 
     public func didFailUserJoin(error: Asleep.AsleepError) {
-        sendEvent("onUserJoinFailed", ["error": error.localizedDescription])
+        sendEvent("onUserJoinFailed", [
+            "error": error.localizedDescription,
+            "caseName": String(describing: error),
+            "code": (error as NSError).code
+        ])
     }
 
     public func userDidDelete(userId: String) {
@@ -227,9 +235,9 @@ extension AsleepModule: AsleepConfigDelegate {
 extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     public func didFail(error: Asleep.AsleepError) {
         sendEvent("onDebugLog", ["message": "Tracking failed: \(error)"])
-        
+
         var errorInfo: [String: Any] = ["error": error.localizedDescription]
-        
+
         // Add specific error codes for new v3.1.4 error cases
         switch error {
         case .ODAIntegrityFail:
@@ -243,21 +251,23 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
             errorInfo["message"] = "On-device analysis is not available"
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
+            errorInfo["caseName"] = String(describing: error)
         }
-        
+        errorInfo["errorCode"] = (error as NSError).code
+
         sendEvent("onTrackingFailed", errorInfo)
     }
 
     public func didCreate() {
         attemptGetSessionId(retriesLeft: 5, retryInterval: 1.0)
     }
-    
+
     private func attemptGetSessionId(retriesLeft: Int, retryInterval: TimeInterval) {
         if let sessionId = trackingManager?.getTrackingStatus().sessionId {
             sendEvent("onTrackingCreated", ["sessionId": sessionId])
             return
         }
-        
+
         if retriesLeft > 0 {
             DispatchQueue.global().asyncAfter(deadline: .now() + retryInterval) { [weak self] in
                 self?.attemptGetSessionId(retriesLeft: retriesLeft - 1, retryInterval: retryInterval)
@@ -286,10 +296,10 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     public func micPermissionWasDenied() {
         sendEvent("onMicPermissionDenied", [:])
     }
-    
+
     public func analysing(session: Asleep.Model.Session) {
         sendEvent("onDebugLog", ["message": "Analysing session: \(session)"])
-        
+
         // Convert session to dictionary and send as analysis result
         do {
             let sessionData = try session.asDictionary()
@@ -326,23 +336,23 @@ extension Asleep.Model.SleepSession {
             "sessionStartTime": ISO8601DateFormatter().string(from: sessionStartTime),
             "createdTimezone": createdTimezone
         ]
-        
+
         if let sessionEndTime = sessionEndTime {
             dict["sessionEndTime"] = ISO8601DateFormatter().string(from: sessionEndTime)
         }
-        
+
         if let unexpectedEndTime = unexpectedEndTime {
             dict["unexpectedEndTime"] = ISO8601DateFormatter().string(from: unexpectedEndTime)
         }
-        
+
         if let lastReceivedSeqNum = lastReceivedSeqNum {
             dict["lastReceivedSeqNum"] = lastReceivedSeqNum
         }
-        
+
         if let timeInBed = timeInBed {
             dict["timeInBed"] = timeInBed
         }
-        
+
         return dict
     }
 }
