@@ -13,7 +13,7 @@ React Native SDK for Asleep's AI-powered sleep tracking technology. This SDK pro
 # Build the SDK
 yarn build
 
-# Clean build artifacts  
+# Clean build artifacts
 yarn clean
 
 # Run linting
@@ -50,7 +50,7 @@ yarn semantic-release
 1. **Native Modules** (`ios/AsleepModule.swift`, `android/.../AsleepModule.kt`)
    - Platform-specific implementations wrapping native Asleep SDKs
    - Handle audio recording, permission management, and sleep tracking
-   - iOS SDK version: 3.1.5, Android SDK version: 3.1.4
+   - iOS SDK version: 3.1.8, Android SDK version: 3.1.5
 
 2. **State Management** (`src/AsleepStore.ts`)
    - Zustand store with singleton pattern for consistent state across app
@@ -72,7 +72,7 @@ yarn semantic-release
 - **Real-time Tracking**: Start/stop tracking with automatic microphone permission handling
 - **Report Generation**: Fetch detailed sleep analysis reports with comprehensive metrics
 - **Event System**: Automatic event handling through EventEmitter with state synchronization
-- **Platform Differences**: 
+- **Platform Differences**:
   - Android: Returns analysis results immediately from `requestAnalysis()`
   - iOS: Returns acknowledgment only, results come via `onAnalysisResult` event
 
