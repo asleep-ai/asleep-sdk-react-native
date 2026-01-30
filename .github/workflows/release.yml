@@ -24,10 +24,10 @@ jobs:
         with:
           node-version: "22"
           cache: "yarn"
+          registry-url: "https://registry.npmjs.org"
       - run: corepack enable
       - run: yarn install --frozen-lockfile
 
       - run: yarn semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
