@@ -1,3 +1,16 @@
+## [1.0.14](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.13...v1.0.14) (2026-01-30)
+
+
+### fix
+
+* Add @semantic-release/npm and upgrade to v25 ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/357a2693f4ee5cbc077dd4cb3216222ab6c0e46e))
+* Add caseName and code to iOS error events for debugging ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/58b756c1e955075c99790dfc35072e3f758c2e44))
+* Bump form-data from 4.0.2 to 4.0.4 (#26) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/7867a4cc18a17967cdea2a78e6170ee9bdabb508)), closes [#26](https://github.com/asleep-ai/asleep-sdk-react-native/issues/26)
+* Bump image-size from 1.1.1 to 1.2.1 in /example (#13) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/0182735d7a48385e2f05f9b4830d71937d3ac265)), closes [#13](https://github.com/asleep-ai/asleep-sdk-react-native/issues/13)
+* feat : error가 한번이상 발생 할 경우 error를 지우지 않는 이상 error message 가 계속 확인 됨 (#32) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/dc35bcc180d64fb13bb4e1b4a91bc7cce4463abe)), closes [#32](https://github.com/asleep-ai/asleep-sdk-react-native/issues/32)
+* Switch to npm trusted publishers OIDC authentication ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/2d992f58ab3180af8f486a36cbba56c9a5b0736d))
+* Update native SDK versions to Android 3.1.5 and iOS 3.1.8 ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/bdab9cc19cae322dccfbab66167d227e256ec10b))
+
 ## [1.0.13](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.12...v1.0.13) (2025-10-05)
 
 
