@@ -50,7 +50,7 @@ yarn semantic-release
 1. **Native Modules** (`ios/AsleepModule.swift`, `android/.../AsleepModule.kt`)
    - Platform-specific implementations wrapping native Asleep SDKs
    - Handle audio recording, permission management, and sleep tracking
-   - iOS SDK version: 3.1.8, Android SDK version: 3.1.5
+   - iOS SDK version: 3.2.0, Android SDK version: 3.2.0
 
 2. **State Management** (`src/AsleepStore.ts`)
    - Zustand store with singleton pattern for consistent state across app
