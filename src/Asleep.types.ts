@@ -159,6 +159,11 @@ export type AsleepAnalysisResult = {
   snoringStages?: number[];
 };
 
+export type AudioSessionOption =
+  | 'duckOthers'
+  | 'allowAirPlay'
+  | 'allowBluetooth';
+
 export type TrackingConfig = {
   android?: {
     notification?: {
@@ -167,19 +172,35 @@ export type TrackingConfig = {
       icon?: string;
     };
   };
+  ios?: {
+    /** Additional AVAudioSession options appended to SDK defaults (mixWithOthers, allowBluetoothA2DP, defaultToSpeaker). Options reset on each startTracking() call. */
+    audioSessionOptions?: AudioSessionOption[];
+  };
 };
 
 export type AsleepEventType = {
   onTrackingCreated: { sessionId?: string };
   onTrackingUploaded: { sequence: number };
   onTrackingClosed: { sessionId: string };
-  onTrackingFailed: undefined;
+  onTrackingFailed: {
+    error: string;
+    code: string;
+    message?: string;
+    errorCode?: number;
+    caseName?: string;
+  };
   onTrackingInterrupted: undefined;
   onTrackingResumed: undefined;
   onMicPermissionDenied: undefined;
-  onUserJoined: undefined;
-  onUserJoinFailed: undefined;
-  onUserDeleted: undefined;
+  onUserJoined: { userId: string };
+  onUserJoinFailed: {
+    error?: string;
+    errorCode?: number;
+    detail?: string;
+    caseName?: string;
+    code?: number;
+  };
+  onUserDeleted: { userId: string };
   onDebugLog: { message: string };
   onSetupDidComplete: undefined;
   onSetupDidFail: { error: string };

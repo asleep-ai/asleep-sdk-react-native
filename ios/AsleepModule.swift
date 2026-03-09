@@ -9,10 +9,6 @@ public class AsleepModule: Module {
     public func definition() -> ModuleDefinition {
         Name("Asleep")
 
-        OnCreate {
-            AVAudioSession.swizzleSetCategory()
-        }
-
         Events("onTrackingCreated")
         Events("onTrackingUploaded")
         Events("onTrackingClosed")
@@ -65,8 +61,25 @@ public class AsleepModule: Module {
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
             }
-            // iOS doesn't need notification configuration, so we ignore the config parameter
-            trackingManager.startTracking()
+
+            var additionalOptions: AVAudioSession.CategoryOptions = []
+            if let iosConfig = config?["ios"] as? [String: Any],
+               let optionNames = iosConfig["audioSessionOptions"] as? [String] {
+                for name in optionNames {
+                    switch name {
+                    case "duckOthers":
+                        additionalOptions.insert(.duckOthers)
+                    case "allowAirPlay":
+                        additionalOptions.insert(.allowAirPlay)
+                    case "allowBluetooth":
+                        additionalOptions.insert(.allowBluetooth)
+                    default:
+                        sendEvent("onDebugLog", ["message": "Unknown audio session option: \(name)"])
+                    }
+                }
+            }
+
+            trackingManager.startTracking(additionalAudioSessionOptions: additionalOptions)
         }
 
         AsyncFunction("stopTracking") { () -> Void in
@@ -238,7 +251,6 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
 
         var errorInfo: [String: Any] = ["error": error.localizedDescription]
 
-        // Add specific error codes for new v3.1.4 error cases
         switch error {
         case .ODAIntegrityFail:
             errorInfo["code"] = "ODA_INTEGRITY_FAIL"
@@ -249,6 +261,9 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
         case .unableODA:
             errorInfo["code"] = "UNABLE_ODA"
             errorInfo["message"] = "On-device analysis is not available"
+        case .uploadTrackingTerminated(let msg):
+            errorInfo["code"] = "UPLOAD_TRACKING_TERMINATED"
+            errorInfo["message"] = msg
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)
