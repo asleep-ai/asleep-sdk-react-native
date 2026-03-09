@@ -5,12 +5,12 @@
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "scripts": {
-    "build": "npm_config_user_agent=yarn expo-module build",
+    "build": "expo-module build",
     "clean": "expo-module clean",
-    "lint": "npm_config_user_agent=yarn expo-module lint",
-    "test": "npm_config_user_agent=yarn expo-module test",
-    "prepare": "npm_config_user_agent=yarn expo-module prepare",
-    "prepublishOnly": "npm_config_user_agent=yarn expo-module prepublishOnly",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",
     "open:ios": "xed example/ios",
     "open:android": "open -a \"Android Studio\" example/android"
@@ -41,9 +41,8 @@
     "@semantic-release/release-notes-generator": "^14.0.3",
     "@types/react": "^18.0.25",
     "@types/react-native": "^0.73.0",
-    "expo-module-scripts": "^3.5.2",
+    "expo-module-scripts": "^5.0.8",
     "expo-modules-core": "^1.12.19",
-    "jest": "^30.2.0",
     "semantic-release": "^25.0.2",
     "zustand": "^5.0.5"
   },
