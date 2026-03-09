@@ -234,7 +234,6 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
 
         var errorInfo: [String: Any] = ["error": error.localizedDescription]
 
-        // Add specific error codes for new v3.1.4 error cases
         switch error {
         case .ODAIntegrityFail:
             errorInfo["code"] = "ODA_INTEGRITY_FAIL"
@@ -245,6 +244,9 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
         case .unableODA:
             errorInfo["code"] = "UNABLE_ODA"
             errorInfo["message"] = "On-device analysis is not available"
+        case .uploadTrackingTerminated(let msg):
+            errorInfo["code"] = "UPLOAD_TRACKING_TERMINATED"
+            errorInfo["message"] = msg
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)

@@ -173,7 +173,13 @@ export type AsleepEventType = {
   onTrackingCreated: { sessionId?: string };
   onTrackingUploaded: { sequence: number };
   onTrackingClosed: { sessionId: string };
-  onTrackingFailed: undefined;
+  onTrackingFailed: {
+    error: string;
+    code: string;
+    message?: string;
+    errorCode?: number;
+    caseName?: string;
+  };
   onTrackingInterrupted: undefined;
   onTrackingResumed: undefined;
   onMicPermissionDenied: undefined;
