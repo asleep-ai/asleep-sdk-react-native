@@ -61,8 +61,25 @@ public class AsleepModule: Module {
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
             }
-            // iOS doesn't need notification configuration, so we ignore the config parameter
-            trackingManager.startTracking()
+
+            var additionalOptions: AVAudioSession.CategoryOptions = []
+            if let iosConfig = config?["ios"] as? [String: Any],
+               let optionNames = iosConfig["audioSessionOptions"] as? [String] {
+                for name in optionNames {
+                    switch name {
+                    case "duckOthers":
+                        additionalOptions.insert(.duckOthers)
+                    case "allowAirPlay":
+                        additionalOptions.insert(.allowAirPlay)
+                    case "allowBluetooth":
+                        additionalOptions.insert(.allowBluetooth)
+                    default:
+                        sendEvent("onDebugLog", ["message": "Unknown audio session option: \(name)"])
+                    }
+                }
+            }
+
+            trackingManager.startTracking(additionalAudioSessionOptions: additionalOptions)
         }
 
         AsyncFunction("stopTracking") { () -> Void in

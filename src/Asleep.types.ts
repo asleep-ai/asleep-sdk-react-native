@@ -159,6 +159,11 @@ export type AsleepAnalysisResult = {
   snoringStages?: number[];
 };
 
+export type AudioSessionOption =
+  | 'duckOthers'
+  | 'allowAirPlay'
+  | 'allowBluetooth';
+
 export type TrackingConfig = {
   android?: {
     notification?: {
@@ -166,6 +171,10 @@ export type TrackingConfig = {
       text?: string;
       icon?: string;
     };
+  };
+  ios?: {
+    /** Additional AVAudioSession options appended to SDK defaults (mixWithOthers, allowBluetoothA2DP, defaultToSpeaker). Options reset on each startTracking() call. */
+    audioSessionOptions?: AudioSessionOption[];
   };
 };
 
