@@ -204,6 +204,7 @@ class AsleepModule : Module() {
                 // This ensures we continue to receive tracking events even after app restart
                 Asleep.connectSleepTracking(object : Asleep.AsleepTrackingListener {
                     override fun onFail(errorCode: Int, detail: String) {
+                        isTracking = false
                         sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
                         sendEvent("onTrackingFailed", mapOf(
                             "error" to detail,

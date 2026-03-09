@@ -192,9 +192,15 @@ export type AsleepEventType = {
   onTrackingInterrupted: undefined;
   onTrackingResumed: undefined;
   onMicPermissionDenied: undefined;
-  onUserJoined: undefined;
-  onUserJoinFailed: undefined;
-  onUserDeleted: undefined;
+  onUserJoined: { userId: string };
+  onUserJoinFailed: {
+    error?: string;
+    errorCode?: number;
+    detail?: string;
+    caseName?: string;
+    code?: number;
+  };
+  onUserDeleted: { userId: string };
   onDebugLog: { message: string };
   onSetupDidComplete: undefined;
   onSetupDidFail: { error: string };
