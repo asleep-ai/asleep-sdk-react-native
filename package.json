@@ -5,12 +5,12 @@
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "scripts": {
-    "build": "npm_config_user_agent=yarn expo-module build",
+    "build": "expo-module build",
     "clean": "expo-module clean",
-    "lint": "npm_config_user_agent=yarn expo-module lint",
-    "test": "npm_config_user_agent=yarn expo-module test",
-    "prepare": "npm_config_user_agent=yarn expo-module prepare",
-    "prepublishOnly": "npm_config_user_agent=yarn expo-module prepublishOnly",
+    "lint": "expo-module lint",
+    "test": "expo-module test",
+    "prepare": "expo-module prepare",
+    "prepublishOnly": "expo-module prepublishOnly",
     "expo-module": "expo-module",
     "open:ios": "xed example/ios",
     "open:android": "open -a \"Android Studio\" example/android"
