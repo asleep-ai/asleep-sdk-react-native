@@ -1,3 +1,11 @@
+## [1.0.15](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.14...v1.0.15) (2026-03-10)
+
+
+### fix
+
+* Fix cross-platform error handling and add allowBluetoothA2DP option (#44) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/8f47b5bdeee904ee803a93f6d46c7ae750a70aa4)), closes [#44](https://github.com/asleep-ai/asleep-sdk-react-native/issues/44)
+* Update native SDKs to 3.2.0, migrate to pnpm (#42) ([](https://github.com/asleep-ai/asleep-sdk-react-native/commit/dd21b33766516b0fc8dd8bec6bcd0a8918071f8e)), closes [#42](https://github.com/asleep-ai/asleep-sdk-react-native/issues/42)
+
 ## [1.0.14](https://github.com/asleep-ai/asleep-sdk-react-native/compare/v1.0.13...v1.0.14) (2026-01-30)
 
 
