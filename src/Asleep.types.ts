@@ -162,7 +162,8 @@ export type AsleepAnalysisResult = {
 export type AudioSessionOption =
   | 'duckOthers'
   | 'allowAirPlay'
-  | 'allowBluetooth';
+  | 'allowBluetooth'
+  | 'allowBluetoothA2DP';
 
 export type TrackingConfig = {
   android?: {

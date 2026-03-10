@@ -395,16 +395,16 @@ export const useAsleepStore = create<AsleepState>()(
         const { addLog } = get();
         addLog("[stopTracking] Start");
 
-        const sessionId = await AsleepModule.stopTracking();
+        const result = await AsleepModule.stopTracking();
         set({
           didClose: true,
-          sessionId,
+          ...(result ? { sessionId: result } : {}),
           isTracking: false,
           isAnalyzing: false,
           trackingStartTime: null,
         });
 
-        addLog(`[stopTracking] Success - sessionId: ${sessionId}`);
+        addLog(`[stopTracking] Success - result: ${result}`);
       } catch (error: any) {
         console.error("stopTracking error:", error);
         set({ error: error.message });
@@ -757,6 +757,7 @@ export const initializeAsleepListeners = () => {
     // Connected: iOS didResume, Android NOT IMPLEMENTED
     onTrackingResumed: () => {
       setIsTrackingPaused(false);
+      setError(null);
       addLog(`[onTrackingResumed]`);
     },
     // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
