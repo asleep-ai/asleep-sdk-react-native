@@ -206,9 +206,10 @@ class AsleepModule : Module() {
                     override fun onFail(errorCode: Int, detail: String) {
                         isTracking = false
                         sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
+                        val code = if (errorCode == 23499) "UPLOAD_TRACKING_TERMINATED" else "TRACKING_FAILED"
                         sendEvent("onTrackingFailed", mapOf(
                             "error" to detail,
-                            "code" to "TRACKING_FAILED",
+                            "code" to code,
                             "message" to detail,
                             "errorCode" to errorCode
                         ))
@@ -300,10 +301,12 @@ class AsleepModule : Module() {
                     notificationIcon = notificationIcon,
                     asleepTrackingListener = object : Asleep.AsleepTrackingListener {
                         override fun onFail(errorCode: Int, detail: String) {
+                            isTracking = false
                             sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
+                            val code = if (errorCode == 23499) "UPLOAD_TRACKING_TERMINATED" else "TRACKING_FAILED"
                             sendEvent("onTrackingFailed", mapOf(
                                 "error" to detail,
-                                "code" to "TRACKING_FAILED",
+                                "code" to code,
                                 "message" to detail,
                                 "errorCode" to errorCode
                             ))
@@ -344,7 +347,7 @@ class AsleepModule : Module() {
         AsyncFunction("stopTracking") { promise: Promise ->
             Asleep.endSleepTracking()
             isTracking = false
-            promise.resolve("Tracking stopped")
+            promise.resolve(null)
         }
 
         AsyncFunction("getReport") { sessionId: String, promise: Promise ->
@@ -391,6 +394,7 @@ class AsleepModule : Module() {
                     override fun onFail(errorCode: Int, detail: String) {
                         val errorMessage = "Get report list failed: errorCode=$errorCode, detail=$detail"
                         sendEvent("onDebugLog", mapOf("message" to errorMessage))
+                        promise.reject("GET_REPORT_LIST_FAILED", errorMessage, null)
                     }
                 })
             } catch (e: Exception) {

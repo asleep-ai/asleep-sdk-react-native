@@ -73,6 +73,8 @@ public class AsleepModule: Module {
                         additionalOptions.insert(.allowAirPlay)
                     case "allowBluetooth":
                         additionalOptions.insert(.allowBluetooth)
+                    case "allowBluetoothA2DP":
+                        additionalOptions.insert(.allowBluetoothA2DP)
                     default:
                         sendEvent("onDebugLog", ["message": "Unknown audio session option: \(name)"])
                     }
