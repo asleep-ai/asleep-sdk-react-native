@@ -24,5 +24,11 @@
     "autolinking": {
       "nativeModulesDir": ".."
     }
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "^8.5.12",
+      "uuid@<14.0.0": "^14.0.0"
+    }
   }
 }
