@@ -57,10 +57,11 @@ pnpm semantic-release
    - Handles all SDK state including tracking status, session management, and error handling
    - Provides event listener initialization and cleanup
 
-3. **API Surface** (`src/index.ts`)
-   - `useAsleep` hook for React components
-   - `AsleepSDK` singleton for non-React contexts
-   - Event-driven architecture with automatic state updates
+3. **API Surface** (`src/index.ts`) — currently 4 parallel surfaces, being consolidated in v2.0 (see #47):
+   - `useAsleep` hook — primary surface for React components (the only one consumers actually use; see Library Boundary Principles below)
+   - `AsleepSDK` singleton — dead code in practice, slated for removal
+   - default `asleep` class instance — has bugs (bypasses zustand store), slated for removal
+   - `asleepStore` raw zustand — leaks implementation detail, slated for removal
 
 4. **Type Definitions** (`src/Asleep.types.ts`)
    - TypeScript interfaces for all API responses and configurations
@@ -69,7 +70,7 @@ pnpm semantic-release
 ### Key Features
 
 - **Setup Methods**: Two initialization approaches - `setup()` for ODA (On-Device Analysis) and `initAsleepConfig()` for standard mode
-- **Real-time Tracking**: Start/stop tracking with automatic microphone permission handling
+- **Real-time Tracking**: Start/stop tracking lifecycle
 - **Report Generation**: Fetch detailed sleep analysis reports with comprehensive metrics
 - **Event System**: Automatic event handling through EventEmitter with state synchronization
 - **Platform Differences**:
@@ -82,6 +83,52 @@ pnpm semantic-release
 - **Android**: Kotlin module with foreground service for long-running tracking
 - **Permissions**: Microphone access required on both platforms, battery optimization exemption recommended on Android
 
+## Library Boundary Principles
+
+This is a **primitive SDK library**, not a sleep-tracking framework. Apps build products on top of it. The boundary is strict — when in doubt, push concerns OUT of the library.
+
+### What this library owns
+
+- Native module bridge (iOS Swift / Android Kotlin → JS)
+- SDK lifecycle: `setup`, `initAsleepConfig`, `startTracking`, `stopTracking`, `checkAndRestoreTracking`
+- State synchronization between native and JS (via internal zustand store)
+- Raw data exposure: `sessionId`, `analysisResult`, `AsleepReport`, `AsleepSession`, `AsleepAverageReport`
+- Permission *methods* (check + request as separate operations)
+- Background lifecycle plumbing (Android foreground service, iOS background audio mode)
+- Stable hook API (`useAsleep`) + a thin escape hatch for non-React contexts
+- Type definitions for the data model
+
+### What apps own (do NOT absorb into the library)
+
+- Business workflow: when to start/stop tracking, alarm coordination, retry policy
+- Authentication / cloud sync (Amplify, Firebase, custom backend)
+- UI/UX: alerts, modals, permission-denied screens, error toasts
+- Domain calculations beyond raw SDK output: timeline slot generation, sleep-stage text labels, WASO computation
+- Cross-feature coordination: Live Activity, Widgets, push notifications
+- Persistent storage (UserStorage, AsyncStorage, MMKV)
+- Analytics / observability — emit events the consumer hooks into, do not log directly
+- Application state (tracking start time as wall-clock, user preferences, feature flags)
+
+### Anti-patterns currently in the codebase (to fix in v2.0)
+
+1. **UI calls from the library** — `Alert.alert("Microphone permission denied")` in `src/index.ts:56`. The library must not invoke `Alert`, `Modal`, or any UI surface. Throw a typed error and let the app render its own UX.
+2. **Direct `console.error` / `console.warn`** — bypasses the consumer's logging system (Sentry, Logger). The library should throw or emit events; consumers decide whether and how to log.
+3. **Auto-request permissions inside `startTracking`** — `startTracking` silently calls `requestRequiredPermissions`. This causes "spooky" permission dialogs from the consumer's perspective. Split into `hasRequiredPermissions()` (check) and `requestRequiredPermissions()` (request); `startTracking` assumes permission and throws if missing.
+4. **Parallel API surfaces with state divergence** — the `Asleep` class default export calls `AsleepModule` directly and skips the zustand store, so `useAsleep().isTracking` does not update when `asleep.startTracking()` is called. See #47.
+5. **`addEventListener` only on the class, not in hook output or namespace** — forces consumers into `ref` hacks or store-internal access.
+
+### Real-world consumer pattern (validation)
+
+[`asleep-ai/sleepstar`](https://github.com/asleep-ai/sleepstar) is the primary consumer. Audit (May 2026) of 11 source files outside `node_modules` and worktrees:
+
+- 100% of SDK access goes through `useAsleep()` hook
+- 0 uses of `AsleepSDK`, default `asleep` export, `asleepStore`, or `addEventListener`
+- Types (`AsleepReport`, `AsleepSession`, `AsleepAverageReport`) are imported as named exports
+
+sleepstar wraps `useAsleep` in app-level hooks (`useTracking`, `useAstIdManager`, `useReport`, `useSessionMetrics`) and adds: app-level zustand store (`useTrackingStore`), Amplify cloud sync, LiveActivity/Widget/Alarm coordination, sleep-stage UI calculations, and permission UX. **All of that is correct application architecture and must not migrate into the library.**
+
+This evidence is why v2.0 (#47) collapses to **`useAsleep` + thin escape hatch + types**, not a full `AsleepSDK` mirror.
+
 ## Development Guidelines
 
 ### State Management Pattern
@@ -93,6 +140,8 @@ pnpm semantic-release
 - All async operations should be wrapped in try-catch blocks
 - Errors are automatically stored in the state and accessible via the `error` property
 - Use the `addLog` function for debug logging when `enableLog(true)` is set
+- **Do not call `console.error` / `console.warn` directly from library code** — throw or emit events instead (see Library Boundary Principles)
+- **Do not call `Alert.alert` or any UI primitive** — the library is headless; the consumer renders UX
 
 ### Testing Changes
 - Test on both iOS and Android platforms
