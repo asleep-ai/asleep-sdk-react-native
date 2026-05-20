@@ -26,7 +26,7 @@
     "url": "https://github.com/asleep-ai/asleep-sdk-react-native/issues"
   },
   "author": "Qube <qube@asleep.ai> (https://github.com/Sun-Woo-Kim)",
-  "license": "SEE LICENSE IN License.md",
+  "license": "SEE LICENSE IN LICENSE.md",
   "homepage": "https://github.com/asleep-ai/asleep-sdk-react-native#readme",
   "publishConfig": {
     "access": "public",
@@ -34,12 +34,13 @@
   },
   "files": [
     "build",
-    "src/*.ts",
+    "src",
+    "!src/**/__tests__",
     "ios",
     "android",
     "expo-module.config.json",
     "*.podspec",
-    "License.md",
+    "LICENSE.md",
     "CHANGELOG.md"
   ],
   "devDependencies": {
