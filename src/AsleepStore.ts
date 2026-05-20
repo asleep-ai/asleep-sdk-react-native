@@ -656,7 +656,6 @@ export const initializeAsleepListeners = () => {
     setIsTracking,
     setIsTrackingPaused,
     setError,
-    setDidClose,
     setAnalysisResult,
     setIsAnalyzing,
     setIsSetupInProgress,
@@ -665,12 +664,15 @@ export const initializeAsleepListeners = () => {
 
   // Clears session tracking state. Called from both onTrackingClosed (clean
   // close) and the terminal branch of onTrackingFailed (native SDK tore down
-  // the session without firing onTrackingClosed).
+  // the session without firing onTrackingClosed). Single setState so
+  // subscribers are notified once instead of four times.
   const clearTrackingState = () => {
-    setIsTracking(false);
-    setIsAnalyzing(false);
-    setDidClose(true);
-    store.setTrackingStartTime(null);
+    useAsleepStore.setState({
+      isTracking: false,
+      isAnalyzing: false,
+      didClose: true,
+      trackingStartTime: null,
+    });
   };
 
   // event handlers
@@ -728,11 +730,6 @@ export const initializeAsleepListeners = () => {
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
-    // Most errors are transient (tracking continues). Codes in TERMINAL_TRACKING_ERROR_CODES
-    // indicate the native SDK has internally torn down the session and onTrackingClosed
-    // will not fire (iOS 403/429 closeSessionSilently; iOS interruption recovery exhaustion;
-    // Android emits these via onFail without a clean onFinish after our dedup guard).
-    // Clear local tracking state for those so isTracking does not stay stuck true.
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
       setError(errorString);
