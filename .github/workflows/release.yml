@@ -1,33 +1,274 @@
 name: Release
+
 on:
   workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Semver bump (patch / minor / major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Dry run (skip npm publish and GitHub release)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  contents: read # for checkout
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22.14.0'
 
 jobs:
-  release:
-    name: Release
+  prepare:
+    name: Prepare release branch
     runs-on: ubuntu-latest
     permissions:
-      contents: write # to be able to publish a GitHub release
-      issues: write # to be able to comment on released issues
-      pull-requests: write # to be able to comment on released pull requests
-      id-token: write # to enable use of OIDC for npm provenance
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      branch: ${{ steps.bump.outputs.branch }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - run: corepack enable
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: "22.14.0"
-          cache: "pnpm"
-          registry-url: "https://registry.npmjs.org"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Compute next version and push release branch
+        id: bump
+        run: |
+          set -euo pipefail
+          CURRENT=$(node -p "require('./package.json').version")
+          NEW=$(pnpm dlx semver "$CURRENT" -i ${{ inputs.version_type }})
+          BRANCH="release/v$NEW"
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Bumping $CURRENT -> $NEW on $BRANCH"
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          # -B (not -b) resets the branch if a previous failed run left a stale one
+          git checkout -B "$BRANCH"
+          npm version "$NEW" --no-git-tag-version
+          pnpm install --lockfile-only
+          git add package.json pnpm-lock.yaml
+          git commit -m "chore(release): v$NEW [skip ci]"
+          git push --force-with-lease origin "$BRANCH"
+
+  build:
+    name: Build
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.branch }}
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm semantic-release
+      - run: pnpm build
+
+  merge:
+    name: Merge release PR to main
+    # Waits on release-notes so the release branch (which release-notes checks
+    # out) is not deleted by `gh pr merge --delete-branch` before notes finish.
+    needs: [prepare, build, release-notes]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open and merge release PR
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="${{ needs.prepare.outputs.branch }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+
+          # `|| true` keeps this idempotent on retry: if a PR for the branch already
+          # exists (open or closed), gh exits non-zero and we fall through to merge.
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): v$VERSION" \
+            --body "Automated release PR for v$VERSION." \
+            || true
+
+          gh pr merge "$BRANCH" \
+            --merge \
+            --delete-branch \
+            --subject "chore(release): v$VERSION"
+
+  publish-npm:
+    name: Publish to npm
+    needs: [prepare, build, merge]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Publish with provenance
+        run: npm publish --provenance --access public
+
+  release-notes:
+    name: Generate release notes
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use the release branch (which contains the version bump + all
+          # post-tag commits). On dry runs the branch is still alive; on real
+          # releases the branch has not yet been deleted because `merge` runs
+          # in a different job graph branch.
+          ref: ${{ needs.prepare.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Generate AI release notes
+        id: ai_notes
+        uses: asleep-ai/actions/release-notes@release-notes/v1
+        with:
+          # current-tag: HEAD lets the action auto-derive previous-tag via
+          # `git describe --tags HEAD^`.
+          current-tag: HEAD
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          system-prompt: |
+            Generate bilingual release notes for the Asleep React Native SDK.
+            Output markdown only — no preamble, no trailing commentary.
+            Structure: English block first, then Korean block, separated by a horizontal rule.
+            English block — header '## English' followed by sections
+            '### New Features', '### Improvements', '### Bug Fixes', '### Internal Changes'.
+            Korean block — header '## 한국어' followed by sections
+            '### 신규 기능', '### 개선', '### 버그 수정', '### 내부 변경'.
+            Omit empty sections; do not invent content.
+            Input is a numbered list of commits; each entry contains the PR subject
+            on the first line and the PR description (rationale, compatibility notes,
+            verification) on the following lines. Use the description — not just the
+            subject — when summarising user impact, then rewrite as a user-facing
+            bullet (not verbatim).
+            Wrap code identifiers, UUIDs, paths, and numeric thresholds in backticks.
+            Preserve issue and PR references (#NNN).
+            Ignore `Co-Authored-By:` trailers and merge artefacts.
+            The two blocks must describe the same changes — Korean is a translation of
+            the English content, not independent notes.
+
+      - name: Preview notes in job summary
+        run: |
+          {
+            echo "## Generated release notes preview"
+            echo
+            cat "${{ steps.ai_notes.outputs.path }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ steps.ai_notes.outputs.path }}
+          retention-days: 7
+
+  release-github:
+    name: Create GitHub release
+    needs: [prepare, build, merge, release-notes]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download notes artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: .
+
+      - name: Tag merge commit
+        run: |
+          set -euo pipefail
+          TAG="v${{ needs.prepare.outputs.version }}"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub release with AI notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ needs.prepare.outputs.version }}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --latest
+
+  cleanup:
+    name: Cleanup release branch
+    needs: [prepare, build, merge, release-notes, publish-npm, release-github]
+    # Runs after dry-run completes, or when any job in a real release fails.
+    # On a successful real release the merge job already deleted the branch,
+    # so the delete below is a no-op (|| true).
+    if: ${{ always() && needs.prepare.outputs.branch != '' && (inputs.dry_run || failure()) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete release branch if it still exists
+        run: |
+          BRANCH="${{ needs.prepare.outputs.branch }}"
+          git push origin --delete "$BRANCH" 2>/dev/null || true

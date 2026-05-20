@@ -36,11 +36,9 @@ pnpm ios          # Run on iOS
 
 ### Publishing and Release
 ```bash
-# Manual release via GitHub Actions
-# Go to Actions > Release > Run workflow
-
-# Automatic semantic release
-pnpm semantic-release
+# Trigger release via GitHub Actions
+# UI: Actions -> Release -> Run workflow (pick patch / minor / major)
+gh workflow run release.yml -f version_type=patch
 ```
 
 ## Architecture
@@ -156,7 +154,29 @@ This evidence is why v2.0 (#47) collapses to **`useAsleep` + thin escape hatch +
 - Ensure state consistency across tracking lifecycle
 
 ### Release Process
-- Uses semantic-release with custom configuration
-- All commits trigger patch releases
-- Changelog automatically generated
-- NPM publishing handled by GitHub Actions
+- Manually triggered: `workflow_dispatch` on `.github/workflows/release.yml` with `version_type` (patch / minor / major) — pick per Versioning Policy below
+- Pipeline: prepare (version bump on `release/v<x.y.z>` branch) -> build -> release-notes (bilingual EN/KR via `asleep-ai/actions/release-notes`, also runs on dry-run as a preview) -> auto-merge PR to main -> `npm publish --provenance --access public` (OIDC) + tag + `gh release create --notes-file`
+- AI release notes need an `OPENAI_API_KEY` org-level secret; the action falls back to a plain commit list if it is missing or OpenAI errors
+
+## Versioning Policy
+
+RN SDK semver tracks the bundled native SDK changes so consumers can read the version and infer the upstream delta.
+
+| Change | Commit prefix | RN bump |
+|---|---|---|
+| Native patch (e.g. 3.2.0 → 3.2.1) | `fix(deps): bump <ios\|android> SDK to X.Y.Z` | patch |
+| Native minor (e.g. 3.2.x → 3.3.0) | `feat(deps): bump <ios\|android> SDK to X.Y.Z` | minor |
+| Native major (e.g. 3.x → 4.0.0) | `feat(deps)!: bump <ios\|android> SDK to X.0.0` + `BREAKING CHANGE:` footer | major |
+| JS feature (new public API on `useAsleep`/`AsleepSDK`) | `feat: ...` | minor |
+| JS bug fix | `fix: ...` | patch |
+| Docs / CI / internal chores | `chore: ...` | no release |
+
+Classification rules:
+- If a single PR bundles a native bump **and** calls new native APIs in `AsleepModule.kt` / `AsleepModule.swift`, classify by the **strongest** signal. A patch-level native bump that also exposes a new method on the JS surface is a `feat:`, not a `fix(deps):`.
+- Bundled native SDK versions live in `android/build.gradle` (`ai.asleep:asleepsdk`) and `ios/Asleep.podspec` (`AsleepSDK`). Keep the README's bundled-versions table in sync.
+- iOS releases are gated on the upstream iOS SDK having a real git tag (not a `feature/*` branch); do not bump the podspec to a branch-only version.
+
+Known pitfalls when native bumps:
+- Native error enums (`Asleep.AsleepError` on iOS, `AsleepErrorCode` constants on Android) commonly gain new cases at minor bumps. JS-side switches/handlers MUST include a `default`/fallback arm — exhaustive matches silently miss new cases.
+- Listener / delegate protocols may gain methods with default implementations. These compile without changes but new behavior is invisible unless the RN module forwards them.
+- Manifest / Info.plist / capabilities changes in native SDKs do not automatically flow to consumer apps; review the upstream changelog for any new declarations the example app or docs must mirror.
