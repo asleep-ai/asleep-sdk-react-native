@@ -266,6 +266,10 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
         case .uploadTrackingTerminated(let msg):
             errorInfo["code"] = "UPLOAD_TRACKING_TERMINATED"
             errorInfo["message"] = msg
+        case .interruptionRecoveryFailed(let attemptsCount):
+            errorInfo["code"] = "INTERRUPTION_RECOVERY_FAILED"
+            errorInfo["message"] = "Failed to recover from audio interruption after \(attemptsCount) attempts"
+            errorInfo["attemptsCount"] = attemptsCount
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)

@@ -16,6 +16,15 @@ import AsleepModule from "./AsleepModule";
 
 const emitter = new EventEmitter(AsleepModule);
 
+// Error codes emitted on onTrackingFailed for which the native SDK has already
+// terminated the session and will not deliver onTrackingClosed. JS must clear
+// tracking state itself when one of these arrives. See AGENTS.md "Native Behavior
+// Compensations" for the upstream behavior these guard against.
+const TERMINAL_TRACKING_ERROR_CODES = new Set<string>([
+  "UPLOAD_TRACKING_TERMINATED", // iOS 403/429 closeSessionSilently; Android errorCode 23499
+  "INTERRUPTION_RECOVERY_FAILED", // iOS 3 failed auto-resume attempts (3.2.0+)
+]);
+
 export interface AsleepState {
   didClose: boolean;
   isTracking: boolean;
@@ -647,12 +656,24 @@ export const initializeAsleepListeners = () => {
     setIsTracking,
     setIsTrackingPaused,
     setError,
-    setDidClose,
     setAnalysisResult,
     setIsAnalyzing,
     setIsSetupInProgress,
     setIsSetupComplete,
   } = store;
+
+  // Clears session tracking state. Called from both onTrackingClosed (clean
+  // close) and the terminal branch of onTrackingFailed (native SDK tore down
+  // the session without firing onTrackingClosed). Single setState so
+  // subscribers are notified once instead of four times.
+  const clearTrackingState = () => {
+    useAsleepStore.setState({
+      isTracking: false,
+      isAnalyzing: false,
+      didClose: true,
+      trackingStartTime: null,
+    });
+  };
 
   // event handlers
   const handlers = {
@@ -705,18 +726,17 @@ export const initializeAsleepListeners = () => {
     // Connected: iOS didClose, Android onFinish (AsleepTrackingListener)
     onTrackingClosed: (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
-      setDidClose(true);
-      setIsTracking(false);
-      setIsAnalyzing(false);
-      store.setTrackingStartTime(null);
+      clearTrackingState();
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
-    // Note: This is a transient error event - tracking continues, only logs the error
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
       setError(errorString);
       addLog(`[onTrackingError] error: ${errorString}`);
+      if (error && TERMINAL_TRACKING_ERROR_CODES.has(error.code)) {
+        clearTrackingState();
+      }
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
     onTrackingInterrupted: () => {
@@ -724,9 +744,17 @@ export const initializeAsleepListeners = () => {
       addLog(`[onTrackingInterrupted]`);
     },
     // Connected: iOS didResume, Android NOT IMPLEMENTED
+    // Always clear the error: some iOS recovery paths (e.g. cannotActivateInBackground
+    // retry) reach this handler without a preceding didInterrupt, and the stale error
+    // should still be cleared. Only the paused-state mutation is gated, to dedup the
+    // iOS 3.2.1+ double fire from handleRecovering -> handleResumed.
     onTrackingResumed: () => {
-      setIsTrackingPaused(false);
       setError(null);
+      if (!useAsleepStore.getState().isTrackingPaused) {
+        addLog(`[onTrackingResumed] (no prior pause; error cleared)`);
+        return;
+      }
+      setIsTrackingPaused(false);
       addLog(`[onTrackingResumed]`);
     },
     // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
