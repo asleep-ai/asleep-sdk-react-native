@@ -74,10 +74,10 @@ export type AsleepStat = {
 
 // From getReportList() - maps to SDK SleepSession
 export type AsleepSession = {
-  id: string;  // mapped from sessionId
+  id: string; // mapped from sessionId
   state: string;
-  startTime: string;  // mapped from sessionStartTime
-  endTime?: string;  // mapped from sessionEndTime
+  startTime: string; // mapped from sessionStartTime
+  endTime?: string; // mapped from sessionEndTime
   createdTimezone: string;
   unexpectedEndTime?: string;
   lastReceivedSeqNum?: number;
@@ -159,11 +159,7 @@ export type AsleepAnalysisResult = {
   snoringStages?: number[];
 };
 
-export type AudioSessionOption =
-  | 'duckOthers'
-  | 'allowAirPlay'
-  | 'allowBluetooth'
-  | 'allowBluetoothA2DP';
+export type AudioSessionOption = "duckOthers" | "allowAirPlay" | "allowBluetooth" | "allowBluetoothA2DP";
 
 export type TrackingConfig = {
   android?: {
