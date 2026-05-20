@@ -48,7 +48,7 @@ gh workflow run release.yml -f version_type=patch
 1. **Native Modules** (`ios/AsleepModule.swift`, `android/.../AsleepModule.kt`)
    - Platform-specific implementations wrapping native Asleep SDKs
    - Handle audio recording, permission management, and sleep tracking
-   - iOS SDK version: 3.2.0, Android SDK version: 3.2.0
+   - iOS SDK version: 3.2.0, Android SDK version: 3.2.1
 
 2. **State Management** (`src/AsleepStore.ts`)
    - Zustand store with singleton pattern for consistent state across app
