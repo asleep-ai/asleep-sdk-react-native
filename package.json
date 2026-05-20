@@ -60,6 +60,11 @@
     "react-native": "*",
     "zustand": "^5.0.1"
   },
+  "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    }
+  },
   "packageManager": "pnpm@10.30.3",
   "pnpm": {
     "overrides": {
