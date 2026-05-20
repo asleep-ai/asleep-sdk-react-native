@@ -21,7 +21,7 @@ const emitter = new EventEmitter(AsleepModule);
 // tracking state itself when one of these arrives. See AGENTS.md "Native Behavior
 // Compensations" for the upstream behavior these guard against.
 const TERMINAL_TRACKING_ERROR_CODES = new Set<string>([
-  "UPLOAD_TRACKING_TERMINATED",   // iOS 403/429 closeSessionSilently; Android errorCode 23499
+  "UPLOAD_TRACKING_TERMINATED", // iOS 403/429 closeSessionSilently; Android errorCode 23499
   "INTERRUPTION_RECOVERY_FAILED", // iOS 3 failed auto-resume attempts (3.2.0+)
 ]);
 
