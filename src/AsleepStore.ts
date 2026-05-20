@@ -16,6 +16,15 @@ import AsleepModule from "./AsleepModule";
 
 const emitter = new EventEmitter(AsleepModule);
 
+// Error codes emitted on onTrackingFailed for which the native SDK has already
+// terminated the session and will not deliver onTrackingClosed. JS must clear
+// tracking state itself when one of these arrives. See AGENTS.md "Native Behavior
+// Compensations" for the upstream behavior these guard against.
+const TERMINAL_TRACKING_ERROR_CODES = new Set<string>([
+  "UPLOAD_TRACKING_TERMINATED",   // iOS 403/429 closeSessionSilently; Android errorCode 23499
+  "INTERRUPTION_RECOVERY_FAILED", // iOS 3 failed auto-resume attempts (3.2.0+)
+]);
+
 export interface AsleepState {
   didClose: boolean;
   isTracking: boolean;
@@ -712,11 +721,21 @@ export const initializeAsleepListeners = () => {
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
-    // Note: This is a transient error event - tracking continues, only logs the error
+    // Most errors are transient (tracking continues). Codes in TERMINAL_TRACKING_ERROR_CODES
+    // indicate the native SDK has internally torn down the session and onTrackingClosed
+    // will not fire (iOS 403/429 closeSessionSilently; iOS interruption recovery exhaustion;
+    // Android emits these via onFail without a clean onFinish after our dedup guard).
+    // Clear local tracking state for those so isTracking does not stay stuck true.
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
       setError(errorString);
       addLog(`[onTrackingError] error: ${errorString}`);
+      if (error && TERMINAL_TRACKING_ERROR_CODES.has(error.code)) {
+        setIsTracking(false);
+        setIsAnalyzing(false);
+        setDidClose(true);
+        store.setTrackingStartTime(null);
+      }
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
     onTrackingInterrupted: () => {
@@ -724,7 +743,14 @@ export const initializeAsleepListeners = () => {
       addLog(`[onTrackingInterrupted]`);
     },
     // Connected: iOS didResume, Android NOT IMPLEMENTED
+    // iOS 3.2.1+ fires didResume twice per recovery cycle (handleRecovering then
+    // handleResumed both call interruptedSender.send(false)). Gate on isTrackingPaused
+    // so the second fire is a no-op.
     onTrackingResumed: () => {
+      if (!useAsleepStore.getState().isTrackingPaused) {
+        addLog(`[onTrackingResumed] skipped (not paused)`);
+        return;
+      }
       setIsTrackingPaused(false);
       setError(null);
       addLog(`[onTrackingResumed]`);

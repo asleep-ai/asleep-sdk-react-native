@@ -81,6 +81,14 @@ gh workflow run release.yml -f version_type=patch
 - **Android**: Kotlin module with foreground service for long-running tracking
 - **Permissions**: Microphone access required on both platforms, battery optimization exemption recommended on Android
 
+### Native SDK References (optional, local-only)
+
+When working on native module code, consult the upstream SDK sources if available locally:
+- iOS: `../asleep-sdk-ios-src` (Swift)
+- Android: `../asleep-sdk-android-src` (Kotlin)
+
+These are not part of this repo; use them to confirm native API signatures, error codes, and behavior rather than guessing.
+
 ## Library Boundary Principles
 
 This is a **primitive SDK library**, not a sleep-tracking framework. Apps build products on top of it. The boundary is strict — when in doubt, push concerns OUT of the library.
@@ -180,3 +188,19 @@ Known pitfalls when native bumps:
 - Native error enums (`Asleep.AsleepError` on iOS, `AsleepErrorCode` constants on Android) commonly gain new cases at minor bumps. JS-side switches/handlers MUST include a `default`/fallback arm — exhaustive matches silently miss new cases.
 - Listener / delegate protocols may gain methods with default implementations. These compile without changes but new behavior is invisible unless the RN module forwards them.
 - Manifest / Info.plist / capabilities changes in native SDKs do not automatically flow to consumer apps; review the upstream changelog for any new declarations the example app or docs must mirror.
+
+## Native Behavior Compensations
+
+The wrapper smooths over a few native quirks so JS sees a consistent event model. Do not remove these without confirming the upstream SDK behavior has changed.
+
+| Compensation | Location | Native quirk being compensated for |
+|---|---|---|
+| `failedTerminally` flag in both `AsleepTrackingListener` instances suppresses `onTrackingClosed` after `onFail` | `android/src/main/java/ai/asleep/reactnative/AsleepModule.kt` (both `connectSleepTracking` and `beginSleepTracking` listeners) | Android SDK 3.2.x `AsleepCore.onErrorCodeReceived` fires both `onFail` and `onFinish` for fatal codes. Without this guard JS receives `onTrackingFailed` followed by `onTrackingClosed`, misreading a fatal error as a clean close |
+| `.interruptionRecoveryFailed` case in `didFail` switch maps to `INTERRUPTION_RECOVERY_FAILED` | `ios/AsleepModule.swift` `didFail(error:)` | iOS SDK 3.2.0 added `AsleepError.interruptionRecoveryFailed(attemptsCount:)`. Without the explicit case it falls into `default:` and JS only sees `UNKNOWN_ERROR` for a recoverable-with-foreground scenario |
+| `TERMINAL_TRACKING_ERROR_CODES` set in `onTrackingFailed` handler clears `isTracking`/`isAnalyzing`/`didClose`/`trackingStartTime` | `src/AsleepStore.ts` | iOS 3.2.1 `closeSessionSilently()` on 403/429 (and `interruptionRecoveryFailed` after 3 retries) tears the session down internally without firing `didClose`. JS state would otherwise stay `isTracking: true` forever, blocking subsequent `startTracking()` calls via the duplicate-call guard |
+| `onTrackingResumed` handler gates on `isTrackingPaused` | `src/AsleepStore.ts` | iOS 3.2.1 `RecordingService` fires `interruptedSender.send(false)` from both `handleRecovering()` and `handleResumed()`, producing two consecutive `didResume` events per recovery cycle. Without the gate, listeners (toasts, spinners) flap |
+
+When adding a new compensation:
+1. Cite the upstream SDK file/line and the version it shipped in.
+2. Add a row to the table above with the location and reason.
+3. If the compensation depends on a specific native version range, note it (e.g. "Android SDK >= 3.2.x").

@@ -203,7 +203,13 @@ class AsleepModule : Module() {
                 // Re-establish the tracking listener to receive events from the existing service
                 // This ensures we continue to receive tracking events even after app restart
                 Asleep.connectSleepTracking(object : Asleep.AsleepTrackingListener {
+                    // Native SDK 3.2.x fires onFinish after onFail for fatal errors.
+                    // Suppress the redundant onTrackingClosed event so JS sees a single
+                    // terminal signal (onTrackingFailed) instead of failed + closed.
+                    private var failedTerminally = false
+
                     override fun onFail(errorCode: Int, detail: String) {
+                        failedTerminally = true
                         isTracking = false
                         sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
                         val code = if (errorCode == 23499) "UPLOAD_TRACKING_TERMINATED" else "TRACKING_FAILED"
@@ -217,15 +223,19 @@ class AsleepModule : Module() {
 
                     override fun onFinish(sessionId: String?) {
                         isTracking = false
+                        if (failedTerminally) {
+                            sendEvent("onDebugLog", mapOf("message" to "onFinish suppressed (already failed): $sessionId"))
+                            return
+                        }
                         sendEvent("onTrackingClosed", mapOf("sessionId" to (sessionId ?: "")))
                         sendEvent("onDebugLog", mapOf("message" to "Sleep tracking finished: $sessionId"))
                     }
-                    
+
                     override fun onPerform(sequence: Int) {
                         sendEvent("onTrackingUploaded", mapOf("sequence" to sequence))
                         sendEvent("onDebugLog", mapOf("message" to "Sleep tracking performing: $sequence"))
                     }
-                    
+
                     override fun onStart(sessionId: String) {
                         // This shouldn't be called for reconnection, but handle it just in case
                         isTracking = true
@@ -300,7 +310,13 @@ class AsleepModule : Module() {
                     notificationText = notificationText,
                     notificationIcon = notificationIcon,
                     asleepTrackingListener = object : Asleep.AsleepTrackingListener {
+                        // Native SDK 3.2.x fires onFinish after onFail for fatal errors.
+                        // Suppress the redundant onTrackingClosed event so JS sees a single
+                        // terminal signal (onTrackingFailed) instead of failed + closed.
+                        private var failedTerminally = false
+
                         override fun onFail(errorCode: Int, detail: String) {
+                            failedTerminally = true
                             isTracking = false
                             sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
                             val code = if (errorCode == 23499) "UPLOAD_TRACKING_TERMINATED" else "TRACKING_FAILED"
@@ -312,9 +328,13 @@ class AsleepModule : Module() {
                             ))
                             promise.reject("TRACKING_FAILED", "Sleep tracking failed: $errorCode - $detail", null)
                         }
-                        
+
                         override fun onFinish(sessionId: String?) {
                             isTracking = false
+                            if (failedTerminally) {
+                                sendEvent("onDebugLog", mapOf("message" to "onFinish suppressed (already failed): $sessionId"))
+                                return
+                            }
                             sendEvent("onTrackingClosed", mapOf("sessionId" to (sessionId ?: "")))
                             sendEvent("onDebugLog", mapOf("message" to "Sleep tracking finished: $sessionId"))
                         }
