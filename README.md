@@ -29,19 +29,63 @@ expo install react-native-asleep
 
 ### For Bare React Native Projects
 
-1. Install the package:
+This library uses the Expo Modules API. Bare RN projects need Expo modules installed once; after that, autolinking handles the rest — no `react-native.config.js` or manual native linking.
 
-```bash
-npm install react-native-asleep zustand
+1. **Install Expo modules** (skip if already installed):
+
+   ```bash
+   npx install-expo-modules@latest
+   ```
+
+   It prompts `Install the Expo CLI integration? (Y/n)` — either answer wires the bare modules. See the [Expo bare guide](https://docs.expo.dev/bare/installing-expo-modules/) for details.
+
+2. **Install the package** (`npm install` / `pnpm add` / `yarn add`):
+
+   ```bash
+   npm install react-native-asleep zustand
+   ```
+
+3. **iOS**: in `ios/`, run `bundle install` (once) then `bundle exec pod install`. The project's `Gemfile` avoids host Ruby/CocoaPods conflicts. **Android**: no extra step.
+
+For permissions, see [Permissions](#2-permissions) below.
+
+#### Static framework note
+
+The iOS podspec sets `s.static_framework = true`. **Do not add `use_frameworks!` to your `Podfile`.** If your project already requires it, pin to static linkage:
+
+```ruby
+use_frameworks! :linkage => :static
 ```
 
-2. For iOS, run:
+`:linkage => :dynamic` is known to break Expo SDK 55 builds (see [expo/expo#44487](https://github.com/expo/expo/issues/44487), [#41556](https://github.com/expo/expo/issues/41556)).
 
-```bash
-npx pod-install
+#### Monorepo / workspace projects
+
+If `react-native-asleep` is hoisted to a parent `node_modules`, configure autolinking in your app's `package.json`:
+
+```json
+{
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": ".."
+    }
+  }
+}
 ```
 
-3. Ensure you have [installed and configured the `expo` package](https://docs.expo.dev/bare/installing-expo-modules/).
+#### Reference configuration
+
+The [example app](./example) is the reference setup. Adjacent versions are expected to work but aren't verified.
+
+| Component                   | Version  |
+| --------------------------- | -------- |
+| React Native                | 0.79.2   |
+| Expo                        | 53       |
+| React                       | 19.0.0   |
+| iOS deployment target       | 14.0     |
+| Android `minSdkVersion`     | 24       |
+| Android `compileSdkVersion` | 34       |
+| Android `targetSdkVersion`  | 34       |
 
 ## Setup
 
@@ -53,9 +97,9 @@ npx pod-install
 
 ### 2. Permissions
 
-Add the following permissions to your app:
+#### iOS — declared by your app
 
-#### iOS
+Add the microphone usage description and audio background mode.
 
 **For Expo Managed Projects (app.json):**
 
@@ -83,15 +127,22 @@ Add the following permissions to your app:
 </array>
 ```
 
-#### Android (android/app/src/main/AndroidManifest.xml)
+#### Android — declared by the library
+
+The library declares its own permissions; the manifest merger combines them into your app. No `<uses-permission>` entries are needed in your `AndroidManifest.xml`. For reference, the library declares:
 
 ```xml
+<uses-permission android:name="android.permission.INTERNET" />
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 ```
+
+`RECORD_AUDIO` and `POST_NOTIFICATIONS` are runtime permissions — your app must request them via `PermissionsAndroid` (or equivalent) before starting tracking.
 
 ## Usage
 
