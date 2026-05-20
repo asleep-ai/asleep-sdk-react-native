@@ -155,27 +155,26 @@ jobs:
       - name: Publish with provenance
         run: npm publish --provenance --access public
 
-  release-github:
-    name: Create GitHub release
-    needs: [prepare, build, merge]
-    if: ${{ !inputs.dry_run }}
+  release-notes:
+    name: Generate release notes
+    needs: [prepare, build]
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          # Use the release branch (which contains the version bump + all
+          # post-tag commits). On dry runs the branch is still alive; on real
+          # releases the branch has not yet been deleted because `merge` runs
+          # in a different job graph branch.
+          ref: ${{ needs.prepare.outputs.branch }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate AI release notes
         id: ai_notes
         uses: asleep-ai/actions/release-notes@release-notes/v1
         with:
-          # current-tag: HEAD lets the action's auto-derive resolve the previous
-          # tag via `git describe --tags HEAD^`. We run this BEFORE tagging the
-          # merge commit, so HEAD^ is the last release commit.
+          # current-tag: HEAD lets the action auto-derive previous-tag via
+          # `git describe --tags HEAD^`.
           current-tag: HEAD
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           system-prompt: |
@@ -198,6 +197,41 @@ jobs:
             The two blocks must describe the same changes — Korean is a translation of
             the English content, not independent notes.
 
+      - name: Preview notes in job summary
+        run: |
+          {
+            echo "## Generated release notes preview"
+            echo
+            cat "${{ steps.ai_notes.outputs.path }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ steps.ai_notes.outputs.path }}
+          retention-days: 7
+
+  release-github:
+    name: Create GitHub release
+    needs: [prepare, build, merge, release-notes]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download notes artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: .
+
       - name: Tag merge commit
         run: |
           set -euo pipefail
@@ -214,12 +248,12 @@ jobs:
           TAG="v${{ needs.prepare.outputs.version }}"
           gh release create "$TAG" \
             --title "$TAG" \
-            --notes-file "${{ steps.ai_notes.outputs.path }}" \
+            --notes-file release-notes.md \
             --latest
 
   cleanup:
     name: Cleanup release branch
-    needs: [prepare, build, merge, publish-npm, release-github]
+    needs: [prepare, build, merge, release-notes, publish-npm, release-github]
     # Runs after dry-run completes, or when any job in a real release fails.
     # On a successful real release the merge job already deleted the branch,
     # so the delete below is a no-op (|| true).
