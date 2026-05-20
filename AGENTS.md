@@ -103,7 +103,7 @@ This is a **primitive SDK library**, not a sleep-tracking framework. Apps build 
 - Business workflow: when to start/stop tracking, alarm coordination, retry policy
 - Authentication / cloud sync (Amplify, Firebase, custom backend)
 - UI/UX: alerts, modals, permission-denied screens, error toasts
-- Domain calculations beyond raw SDK output: timeline slot generation, sleep-stage text labels, WASO computation
+- Domain calculations beyond raw SDK output: timeline slot generation, sleep-stage text labels, custom metric aggregations (the SDK already provides `longestWaso`/`wasoCount` in `AsleepStat` and other base metrics — apps add UI-specific layers on top)
 - Cross-feature coordination: Live Activity, Widgets, push notifications
 - Persistent storage (UserStorage, AsyncStorage, MMKV)
 - Analytics / observability — emit events the consumer hooks into, do not log directly
@@ -116,6 +116,7 @@ This is a **primitive SDK library**, not a sleep-tracking framework. Apps build 
 3. **Auto-request permissions inside `startTracking`** — `startTracking` silently calls `requestRequiredPermissions`. This causes "spooky" permission dialogs from the consumer's perspective. Split into `hasRequiredPermissions()` (check) and `requestRequiredPermissions()` (request); `startTracking` assumes permission and throws if missing.
 4. **Parallel API surfaces with state divergence** — the `Asleep` class default export calls `AsleepModule` directly and skips the zustand store, so `useAsleep().isTracking` does not update when `asleep.startTracking()` is called. See #47.
 5. **`addEventListener` only on the class, not in hook output or namespace** — forces consumers into `ref` hacks or store-internal access.
+6. **Wall-clock state and getter exposed publicly** — `trackingStartTime` is stored in the zustand store and `getTrackingDurationMinutes()` is exposed as a public method (`src/AsleepStore.ts:31` and `src/AsleepStore.ts:613`). The actual consumer (sleepstar) maintains its own start-time and computes duration with finer-grained timers, so these public surfaces are unused. Keep `trackingStartTime` internal for restore logic; consider removing the public `getTrackingDurationMinutes` API in v2.0.
 
 ### Real-world consumer pattern (validation)
 
