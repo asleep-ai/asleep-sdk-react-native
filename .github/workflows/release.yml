@@ -169,20 +169,14 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Find previous tag
-        id: prev_tag
-        run: |
-          # Resolved BEFORE we create the new tag, so this returns the last released version.
-          PREV=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
-          echo "tag=$PREV" >> "$GITHUB_OUTPUT"
-          echo "Previous tag: ${PREV:-<none>}"
-
       - name: Generate AI release notes
         id: ai_notes
         uses: asleep-ai/actions/release-notes@release-notes/v1
         with:
+          # current-tag: HEAD lets the action's auto-derive resolve the previous
+          # tag via `git describe --tags HEAD^`. We run this BEFORE tagging the
+          # merge commit, so HEAD^ is the last release commit.
           current-tag: HEAD
-          previous-tag: ${{ steps.prev_tag.outputs.tag }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           system-prompt: |
             Generate bilingual release notes for the Asleep React Native SDK.
