@@ -59,7 +59,7 @@ export interface AsleepState {
   requestAnalysis: () => Promise<AsleepAnalysisResult | null>;
   addEventListener: <K extends keyof AsleepEventType>(
     eventType: K,
-    listener: (data: AsleepEventType[K]) => void
+    listener: (data: AsleepEventType[K]) => void,
   ) => () => void;
   getTrackingDurationMinutes: () => number;
 
@@ -126,30 +126,20 @@ export const useAsleepStore = create<AsleepState>()(
 
         // Prevent duplicate execution if setup is already in progress
         if (isSetupInProgress) {
-          addLog(
-            "[setup] Setup is already in progress. Please try again later."
-          );
+          addLog("[setup] Setup is already in progress. Please try again later.");
           throw new Error("Setup is already in progress.");
         }
 
         // Block setup execution if tracking is in progress
         if (isTracking) {
           addLog("[setup] Cannot execute setup while tracking is in progress.");
-          throw new Error(
-            "Cannot execute setup while tracking is in progress."
-          );
+          throw new Error("Cannot execute setup while tracking is in progress.");
         }
 
         addLog("[setup] Start");
         set({ isSetupInProgress: true, error: null });
 
-        await AsleepModule.setup(
-          config.apiKey,
-          config.baseUrl,
-          config.callbackUrl,
-          config.service,
-          config.enableODA
-        );
+        await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
 
         // Store ODA enabled state
         set({
@@ -175,7 +165,7 @@ export const useAsleepStore = create<AsleepState>()(
           config.apiKey,
           config.userId,
           config.baseUrl,
-          config.callbackUrl
+          config.callbackUrl,
         );
 
         set({ isInitialized: true });
@@ -197,7 +187,7 @@ export const useAsleepStore = create<AsleepState>()(
         const isAlive = await AsleepModule.isSleepTrackingAlive();
 
         set({
-          hasCheckedStatus: true
+          hasCheckedStatus: true,
         });
 
         // If service is alive on Android, restore connection to it
@@ -215,7 +205,7 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog(`[checkAndRestoreTracking] Complete - hasActiveSession: ${isAlive}`);
         return {
-          hasActiveSession: isAlive
+          hasActiveSession: isAlive,
         };
       } catch (error: any) {
         console.error("checkAndRestoreTracking error:", error);
@@ -244,9 +234,9 @@ export const useAsleepStore = create<AsleepState>()(
       // Mark that check was performed (required for startTracking)
       set({ hasCheckedBatteryOptimization: true });
 
-      if (Platform.OS === 'ios') {
+      if (Platform.OS === "ios") {
         addLog("[checkBatteryOptimization] iOS - not applicable");
-        return { exempted: true, platform: 'ios' };
+        return { exempted: true, platform: "ios" };
       }
 
       // Android: Check current status
@@ -255,10 +245,10 @@ export const useAsleepStore = create<AsleepState>()(
 
       return {
         exempted,
-        platform: 'android',
-        message: exempted ?
-          "Battery optimization disabled - ready for tracking" :
-          "Battery optimization must be disabled for reliable tracking"
+        platform: "android",
+        message: exempted
+          ? "Battery optimization disabled - ready for tracking"
+          : "Battery optimization must be disabled for reliable tracking",
       };
     },
 
@@ -274,9 +264,9 @@ export const useAsleepStore = create<AsleepState>()(
     requestBatteryOptimizationExemption: async () => {
       const { addLog } = get();
 
-      if (Platform.OS === 'ios') {
+      if (Platform.OS === "ios") {
         addLog("[requestBatteryOptimizationExemption] iOS - not applicable");
-        return true;  // Not applicable on iOS
+        return true; // Not applicable on iOS
       }
 
       addLog("[requestBatteryOptimizationExemption] Opening battery settings...");
@@ -298,13 +288,7 @@ export const useAsleepStore = create<AsleepState>()(
      */
     startTracking: async (config?: TrackingConfig) => {
       try {
-        const {
-          requestRequiredPermissions,
-          addLog,
-          isODAEnabled,
-          isSetupInProgress,
-          hasCheckedStatus,
-        } = get();
+        const { requestRequiredPermissions, addLog, isODAEnabled, isSetupInProgress, hasCheckedStatus } = get();
 
         // Enforce that checkAndRestoreTracking must be called first
         if (!hasCheckedStatus) {
@@ -318,15 +302,13 @@ export const useAsleepStore = create<AsleepState>()(
           addLog("[startTracking] ERROR: Must check battery optimization first");
           throw new Error(
             "Must call checkBatteryOptimization() before starting tracking. " +
-            "This check is required on both iOS and Android to ensure cross-platform consistency."
+              "This check is required on both iOS and Android to ensure cross-platform consistency.",
           );
         }
 
         // Block startTracking execution if setup is in progress
         if (isSetupInProgress) {
-          addLog(
-            "[startTracking] Cannot start tracking while setup is in progress."
-          );
+          addLog("[startTracking] Cannot start tracking while setup is in progress.");
           throw new Error("Cannot start tracking while setup is in progress.");
         }
 
@@ -341,7 +323,7 @@ export const useAsleepStore = create<AsleepState>()(
         const permission = await requestRequiredPermissions();
         if (!permission) {
           // SDK shouldn't show UI directly - throw specific error message
-          if (Platform.OS === 'android' && Platform.Version >= 33) {
+          if (Platform.OS === "android" && Platform.Version >= 33) {
             throw new Error("Microphone and notification permissions are required for sleep tracking");
           } else {
             throw new Error("Microphone permission is required for sleep tracking");
@@ -349,13 +331,13 @@ export const useAsleepStore = create<AsleepState>()(
         }
 
         // Always verify CURRENT exemption status
-        if (Platform.OS === 'android') {
+        if (Platform.OS === "android") {
           const batteryExempted = await AsleepModule.isBatteryOptimizationExempted();
           if (!batteryExempted) {
             addLog("[startTracking] ERROR: Battery optimization not disabled");
             throw new Error(
               "Battery optimization must be disabled for reliable sleep tracking. " +
-              "Call requestBatteryOptimizationExemption() to guide user to settings."
+                "Call requestBatteryOptimizationExemption() to guide user to settings.",
             );
           }
           addLog("[startTracking] Battery optimization exempted - OK");
@@ -370,9 +352,7 @@ export const useAsleepStore = create<AsleepState>()(
         await AsleepModule.startTracking(config);
 
         if (isODAEnabled) {
-          addLog(
-            "[startTracking] ODA enabled - real-time analysis will start automatically"
-          );
+          addLog("[startTracking] ODA enabled - real-time analysis will start automatically");
         } else {
           addLog("[startTracking] ODA not enabled");
         }
@@ -521,13 +501,13 @@ export const useAsleepStore = create<AsleepState>()(
      */
     requestMicrophonePermission: async () => {
       console.warn(
-        '[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.'
+        "[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
       );
       return get().requestRequiredPermissions();
     },
 
     requestRequiredPermissions: async () => {
-      if (Platform.OS === 'android') {
+      if (Platform.OS === "android") {
         try {
           // Prepare permissions array with RECORD_AUDIO
           const permissions = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
@@ -541,17 +521,18 @@ export const useAsleepStore = create<AsleepState>()(
           const results = await PermissionsAndroid.requestMultiple(permissions);
 
           // Check if all required permissions are granted
-          const audioGranted = results[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] ===
-            PermissionsAndroid.RESULTS.GRANTED;
+          const audioGranted =
+            results[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
 
-          const notificationGranted = Platform.Version >= 33 ?
-            results[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] ===
-            PermissionsAndroid.RESULTS.GRANTED : true;
+          const notificationGranted =
+            Platform.Version >= 33
+              ? results[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] === PermissionsAndroid.RESULTS.GRANTED
+              : true;
 
           // Both must be granted for tracking to work properly
           return audioGranted && notificationGranted;
         } catch (err) {
-          console.warn('Permission request error:', err);
+          console.warn("Permission request error:", err);
           return false;
         }
       }
@@ -590,9 +571,7 @@ export const useAsleepStore = create<AsleepState>()(
         }
         // For iOS, isAnalyzing will be set to false when onAnalysisResult event fires
 
-        addLog(
-          `[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`
-        );
+        addLog(`[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`);
 
         return convertedResult;
       } catch (error: any) {
@@ -602,10 +581,7 @@ export const useAsleepStore = create<AsleepState>()(
       }
     },
 
-    addEventListener: <K extends keyof AsleepEventType>(
-      eventType: K,
-      listener: (data: AsleepEventType[K]) => void
-    ) => {
+    addEventListener: <K extends keyof AsleepEventType>(eventType: K, listener: (data: AsleepEventType[K]) => void) => {
       const subscription = emitter.addListener(eventType, listener);
       return () => subscription.remove();
     },
@@ -613,9 +589,7 @@ export const useAsleepStore = create<AsleepState>()(
     getTrackingDurationMinutes: () => {
       const { trackingStartTime } = get();
       if (!trackingStartTime) return 0;
-      return Math.floor(
-        (Date.now() - trackingStartTime.getTime()) / (1000 * 60)
-      );
+      return Math.floor((Date.now() - trackingStartTime.getTime()) / (1000 * 60));
     },
 
     // internal actions
@@ -630,8 +604,7 @@ export const useAsleepStore = create<AsleepState>()(
     setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
     setTrackingStartTime: (time) => set({ trackingStartTime: time }),
     setIsInitialized: (initialized) => set({ isInitialized: initialized }),
-    setIsSetupInProgress: (inProgress) =>
-      set({ isSetupInProgress: inProgress }),
+    setIsSetupInProgress: (inProgress) => set({ isSetupInProgress: inProgress }),
     setIsSetupComplete: (complete) => set({ isSetupComplete: complete }),
     setHasCheckedStatus: (checked) => set({ hasCheckedStatus: checked }),
     setHasCheckedBatteryOptimization: (checked) => set({ hasCheckedBatteryOptimization: checked }),
@@ -652,7 +625,7 @@ export const useAsleepStore = create<AsleepState>()(
 
       set({ log: formattedLog });
     },
-  }))
+  })),
 );
 
 // Global flag to prevent multiple listener registrations
@@ -705,10 +678,7 @@ export const initializeAsleepListeners = () => {
       if (data && data.sessionId) {
         setSessionId(data.sessionId);
       }
-      addLog(
-        `[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""
-        }`
-      );
+      addLog(`[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""}`);
     },
     // Connected: iOS didUpload, Android onPerform (AsleepTrackingListener)
     // Triggers automatic analysis requests in both ODA and non-ODA modes
@@ -722,8 +692,7 @@ export const initializeAsleepListeners = () => {
           addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
           state.setIsAnalyzing(false);
         });
-      }
-      else if (!state.isODAEnabled && state.isTracking) {
+      } else if (!state.isODAEnabled && state.isTracking) {
         if (data.sequence >= 10 && data.sequence % 10 === 1) {
           state.setIsAnalyzing(true);
           state.requestAnalysis().catch((error) => {
@@ -790,7 +759,7 @@ export const initializeAsleepListeners = () => {
     // Connected: iOS analyzing (session), Android onSleepDataReceived (AsleepSleepDataListener)
     onAnalysisResult: (data: any) => {
       setAnalysisResult(data);
-      setIsAnalyzing(false);  // Analysis is complete, so set to false
+      setIsAnalyzing(false); // Analysis is complete, so set to false
       addLog(`[onAnalysisResult] ${JSON.stringify(data)}`);
     },
   };

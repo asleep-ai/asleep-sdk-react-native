@@ -22,13 +22,7 @@ class Asleep {
 
   setup = async (config: AsleepSetupConfig): Promise<void> => {
     try {
-      await AsleepModule.setup(
-        config.apiKey,
-        config.baseUrl,
-        config.callbackUrl,
-        config.service,
-        config.enableODA
-      );
+      await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
     } catch (error) {
       console.error("setup error:", error);
       throw error;
@@ -41,7 +35,7 @@ class Asleep {
         config.apiKey,
         config.userId,
         config.baseUrl,
-        config.callbackUrl
+        config.callbackUrl,
       );
       return result;
     } catch (error) {
@@ -73,10 +67,7 @@ class Asleep {
     return this.convertKeysToCamelCase(report);
   };
 
-  getReportList = async (
-    fromDate: string,
-    toDate: string
-  ): Promise<AsleepSession[]> => {
+  getReportList = async (fromDate: string, toDate: string): Promise<AsleepSession[]> => {
     const reportList = await AsleepModule.getReportList(fromDate, toDate);
     return reportList.map((session: any) => {
       const converted = this.convertKeysToCamelCase(session);
@@ -98,10 +89,7 @@ class Asleep {
     return AsleepModule.deleteSession(sessionId);
   };
 
-  getAverageReport = async (
-    fromDate: string,
-    toDate: string
-  ): Promise<AsleepAverageReport> => {
+  getAverageReport = async (fromDate: string, toDate: string): Promise<AsleepAverageReport> => {
     const averageReport = await AsleepModule.getAverageReport(fromDate, toDate);
     return this.convertKeysToCamelCase(averageReport);
   };
@@ -111,7 +99,7 @@ class Asleep {
    */
   requestMicrophonePermission = async (): Promise<boolean> => {
     console.warn(
-      '[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.'
+      "[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
     );
     return this.requestRequiredPermissions();
   };
@@ -120,10 +108,7 @@ class Asleep {
     return AsleepModule.requestRequiredPermissions();
   };
 
-  setCustomNotification = async (
-    title: string,
-    text: string
-  ): Promise<void> => {
+  setCustomNotification = async (title: string, text: string): Promise<void> => {
     if (Platform.OS === "android") {
       return AsleepModule.setCustomNotification(title, text);
     } else {
@@ -144,10 +129,7 @@ class Asleep {
     return obj;
   };
 
-  addEventListener<K extends keyof AsleepEventType>(
-    eventType: K,
-    listener: (data: AsleepEventType[K]) => void
-  ) {
+  addEventListener<K extends keyof AsleepEventType>(eventType: K, listener: (data: AsleepEventType[K]) => void) {
     if (!this.listeners[eventType]) {
       this.listeners[eventType] = [];
     }
@@ -250,8 +232,7 @@ export const asleepStore = useAsleepStore;
 export const AsleepSDK = {
   setup: (config: AsleepSetupConfig) => useAsleepStore.getState().setup(config),
 
-  initAsleepConfig: (config: AsleepConfig) =>
-    useAsleepStore.getState().initAsleepConfig(config),
+  initAsleepConfig: (config: AsleepConfig) => useAsleepStore.getState().initAsleepConfig(config),
 
   checkAndRestoreTracking: () => useAsleepStore.getState().checkAndRestoreTracking(),
 
@@ -263,23 +244,17 @@ export const AsleepSDK = {
 
   stopTracking: () => useAsleepStore.getState().stopTracking(),
 
-  getReport: (sessionId: string) =>
-    useAsleepStore.getState().getReport(sessionId),
+  getReport: (sessionId: string) => useAsleepStore.getState().getReport(sessionId),
 
-  getReportList: (fromDate: string, toDate: string) =>
-    useAsleepStore.getState().getReportList(fromDate, toDate),
+  getReportList: (fromDate: string, toDate: string) => useAsleepStore.getState().getReportList(fromDate, toDate),
 
-  getAverageReport: (fromDate: string, toDate: string) =>
-    useAsleepStore.getState().getAverageReport(fromDate, toDate),
+  getAverageReport: (fromDate: string, toDate: string) => useAsleepStore.getState().getAverageReport(fromDate, toDate),
 
-  deleteSession: (sessionId: string) =>
-    useAsleepStore.getState().deleteSession(sessionId),
+  deleteSession: (sessionId: string) => useAsleepStore.getState().deleteSession(sessionId),
 
-  requestMicrophonePermission: () =>
-    useAsleepStore.getState().requestMicrophonePermission(),
+  requestMicrophonePermission: () => useAsleepStore.getState().requestMicrophonePermission(),
 
-  requestRequiredPermissions: () =>
-    useAsleepStore.getState().requestRequiredPermissions(),
+  requestRequiredPermissions: () => useAsleepStore.getState().requestRequiredPermissions(),
 
   requestAnalysis: () => useAsleepStore.getState().requestAnalysis(),
 
@@ -301,8 +276,7 @@ export const AsleepSDK = {
 
   enableLog: (print: boolean) => useAsleepStore.getState().enableLog(print),
 
-  setCustomNotification: (title: string, text: string) =>
-    useAsleepStore.getState().setCustomNotification(title, text),
+  setCustomNotification: (title: string, text: string) => useAsleepStore.getState().setCustomNotification(title, text),
 
   clearError: () => useAsleepStore.getState().clearError(),
 
