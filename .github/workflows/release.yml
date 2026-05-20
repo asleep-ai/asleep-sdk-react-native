@@ -25,6 +25,9 @@ concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  NODE_VERSION: '22.14.0'
+
 jobs:
   prepare:
     name: Prepare release branch
@@ -44,10 +47,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.14.0'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
-
-      - run: pnpm install --frozen-lockfile
 
       - name: Compute next version and push release branch
         id: bump
@@ -62,12 +63,13 @@ jobs:
 
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git checkout -b "$BRANCH"
+          # -B (not -b) resets the branch if a previous failed run left a stale one
+          git checkout -B "$BRANCH"
           npm version "$NEW" --no-git-tag-version
           pnpm install --lockfile-only
           git add package.json pnpm-lock.yaml
           git commit -m "chore(release): v$NEW [skip ci]"
-          git push origin "$BRANCH"
+          git push --force-with-lease origin "$BRANCH"
 
   build:
     name: Build
@@ -82,7 +84,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.14.0'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
@@ -111,13 +113,14 @@ jobs:
           BRANCH="${{ needs.prepare.outputs.branch }}"
           VERSION="${{ needs.prepare.outputs.version }}"
 
-          if ! gh pr view "$BRANCH" --json url >/dev/null 2>&1; then
-            gh pr create \
-              --base main \
-              --head "$BRANCH" \
-              --title "chore(release): v$VERSION" \
-              --body "Automated release PR for v$VERSION."
-          fi
+          # `|| true` keeps this idempotent on retry: if a PR for the branch already
+          # exists (open or closed), gh exits non-zero and we fall through to merge.
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): v$VERSION" \
+            --body "Automated release PR for v$VERSION." \
+            || true
 
           gh pr merge "$BRANCH" \
             --merge \
@@ -141,7 +144,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.14.0'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
