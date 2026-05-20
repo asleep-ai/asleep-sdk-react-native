@@ -169,6 +169,28 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Find previous tag
+        id: prev_tag
+        run: |
+          # Resolved BEFORE we create the new tag, so this returns the last released version.
+          PREV=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
+          echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: ${PREV:-<none>}"
+
+      - name: Generate AI release notes
+        id: ai_notes
+        uses: asleep-ai/actions/release-notes@release-notes/v1
+        with:
+          current-tag: HEAD
+          previous-tag: ${{ steps.prev_tag.outputs.tag }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          system-prompt: |
+            Output markdown only.
+            Two blocks: '## English' (sections: '### New Features', '### Improvements', '### Bug Fixes', '### Internal Changes'),
+            then '## 한국어' (sections: '### 신규 기능', '### 개선', '### 버그 수정', '### 내부 변경'),
+            separated by a horizontal rule. Omit empty sections.
+            Korean is a translation of the English content.
+
       - name: Tag merge commit
         run: |
           set -euo pipefail
@@ -178,14 +200,14 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
 
-      - name: Create GitHub release with auto-generated notes
+      - name: Create GitHub release with AI notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ needs.prepare.outputs.version }}"
           gh release create "$TAG" \
             --title "$TAG" \
-            --generate-notes \
+            --notes-file "${{ steps.ai_notes.outputs.path }}" \
             --latest
 
   cleanup:
