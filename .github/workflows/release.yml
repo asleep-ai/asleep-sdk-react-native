@@ -93,7 +93,9 @@ jobs:
 
   merge:
     name: Merge release PR to main
-    needs: [prepare, build]
+    # Waits on release-notes so the release branch (which release-notes checks
+    # out) is not deleted by `gh pr merge --delete-branch` before notes finish.
+    needs: [prepare, build, release-notes]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
