@@ -2,9 +2,9 @@
 
 Advanced sleep tracking SDK for React Native applications, powered by Asleep's AI technology.
 
-## ⚠️ Important Notice
+## Status
 
-This is an experimental version of the SDK and is not recommended for production use. Please be aware that it may contain bugs and breaking changes.
+This SDK is under active development. The API may evolve between minor versions until v2.0 — pin to exact versions and review the [CHANGELOG](./CHANGELOG.md) before upgrading.
 
 ## Overview
 
