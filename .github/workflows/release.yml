@@ -124,8 +124,9 @@ jobs:
             --body "Automated release PR for v$VERSION." \
             || true
 
+          # `--squash` matches repo settings (merge commits are disabled).
           gh pr merge "$BRANCH" \
-            --merge \
+            --squash \
             --delete-branch \
             --subject "chore(release): v$VERSION"
 
