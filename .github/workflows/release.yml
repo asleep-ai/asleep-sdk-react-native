@@ -186,16 +186,23 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           system-prompt: |
             Generate bilingual release notes for the Asleep React Native SDK.
-            Output markdown only — no preamble, no trailing explanation.
+            Output markdown only — no preamble, no trailing commentary.
             Structure: English block first, then Korean block, separated by a horizontal rule.
             English block — header '## English' followed by sections
             '### New Features', '### Improvements', '### Bug Fixes', '### Internal Changes'.
             Korean block — header '## 한국어' followed by sections
             '### 신규 기능', '### 개선', '### 버그 수정', '### 내부 변경'.
-            Omit empty sections in each block.
-            Rewrite each commit as a user-facing bullet (not verbatim).
-            The two blocks must describe the same changes — Korean is a translation of the English content,
-            not independent notes.
+            Omit empty sections; do not invent content.
+            Input is a numbered list of commits; each entry contains the PR subject
+            on the first line and the PR description (rationale, compatibility notes,
+            verification) on the following lines. Use the description — not just the
+            subject — when summarising user impact, then rewrite as a user-facing
+            bullet (not verbatim).
+            Wrap code identifiers, UUIDs, paths, and numeric thresholds in backticks.
+            Preserve issue and PR references (#NNN).
+            Ignore `Co-Authored-By:` trailers and merge artefacts.
+            The two blocks must describe the same changes — Korean is a translation of
+            the English content, not independent notes.
 
       - name: Tag merge commit
         run: |
