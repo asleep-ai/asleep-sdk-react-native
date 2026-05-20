@@ -663,6 +663,16 @@ export const initializeAsleepListeners = () => {
     setIsSetupComplete,
   } = store;
 
+  // Clears session tracking state. Called from both onTrackingClosed (clean
+  // close) and the terminal branch of onTrackingFailed (native SDK tore down
+  // the session without firing onTrackingClosed).
+  const clearTrackingState = () => {
+    setIsTracking(false);
+    setIsAnalyzing(false);
+    setDidClose(true);
+    store.setTrackingStartTime(null);
+  };
+
   // event handlers
   const handlers = {
     // Connected: iOS userDidJoin, Android onSuccess (AsleepConfigListener)
@@ -714,10 +724,7 @@ export const initializeAsleepListeners = () => {
     // Connected: iOS didClose, Android onFinish (AsleepTrackingListener)
     onTrackingClosed: (data: { sessionId: string }) => {
       setSessionId(data.sessionId);
-      setDidClose(true);
-      setIsTracking(false);
-      setIsAnalyzing(false);
-      store.setTrackingStartTime(null);
+      clearTrackingState();
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
@@ -731,10 +738,7 @@ export const initializeAsleepListeners = () => {
       setError(errorString);
       addLog(`[onTrackingError] error: ${errorString}`);
       if (error && TERMINAL_TRACKING_ERROR_CODES.has(error.code)) {
-        setIsTracking(false);
-        setIsAnalyzing(false);
-        setDidClose(true);
-        store.setTrackingStartTime(null);
+        clearTrackingState();
       }
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
