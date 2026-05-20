@@ -112,7 +112,7 @@ This is a **primitive SDK library**, not a sleep-tracking framework. Apps build 
 ### Anti-patterns currently in the codebase (to fix in v2.0)
 
 1. **UI calls from the library** — `Alert.alert("Microphone permission denied")` in `src/index.ts:56`. The library must not invoke `Alert`, `Modal`, or any UI surface. Throw a typed error and let the app render its own UX.
-2. **Direct `console.error` / `console.warn`** — bypasses the consumer's logging system (Sentry, Logger). The library should throw or emit events; consumers decide whether and how to log.
+2. **Redundant `console.error` alongside `throw`** — many catch blocks log via `console.error` and re-throw the same error (~9 occurrences in `src/AsleepStore.ts`). The throw already surfaces the error; the duplicate log clutters consumer output and bypasses observability systems like Sentry. Strip the log, keep the throw. (Note: `console.warn` for deprecations and `__DEV__`-gated warnings are fine — that matches React/RN convention.)
 3. **Auto-request permissions inside `startTracking`** — `startTracking` silently calls `requestRequiredPermissions`. This causes "spooky" permission dialogs from the consumer's perspective. Split into `hasRequiredPermissions()` (check) and `requestRequiredPermissions()` (request); `startTracking` assumes permission and throws if missing.
 4. **Parallel API surfaces with state divergence** — the `Asleep` class default export calls `AsleepModule` directly and skips the zustand store, so `useAsleep().isTracking` does not update when `asleep.startTracking()` is called. See #47.
 5. **`addEventListener` only on the class, not in hook output or namespace** — forces consumers into `ref` hacks or store-internal access.
@@ -140,7 +140,12 @@ This evidence is why v2.0 (#47) collapses to **`useAsleep` + thin escape hatch +
 - All async operations should be wrapped in try-catch blocks
 - Errors are automatically stored in the state and accessible via the `error` property
 - Use the `addLog` function for debug logging when `enableLog(true)` is set
-- **Do not call `console.error` / `console.warn` directly from library code** — throw or emit events instead (see Library Boundary Principles)
+- **`console.*` discipline** (matches RN library convention — React, Reanimated, React Navigation, etc. all follow this):
+  - Do NOT pair `console.error` with `throw` of the same error — the throw alone surfaces it; the duplicate log clutters consumer output
+  - Do NOT use `console.error` as the only error handling — throw or emit so consumers can react
+  - Do NOT use `console.log` in normal operation flow — use the opt-in `addLog` action when `enableLog(true)`
+  - OK to use `console.warn` for one-shot deprecation notices (`[lib] X is deprecated, use Y`)
+  - OK to use `__DEV__`-gated warnings for developer education (lint-like checks)
 - **Do not call `Alert.alert` or any UI primitive** — the library is headless; the consumer renders UX
 
 ### Testing Changes
