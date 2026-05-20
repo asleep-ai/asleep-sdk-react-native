@@ -744,16 +744,17 @@ export const initializeAsleepListeners = () => {
       addLog(`[onTrackingInterrupted]`);
     },
     // Connected: iOS didResume, Android NOT IMPLEMENTED
-    // iOS 3.2.1+ fires didResume twice per recovery cycle (handleRecovering then
-    // handleResumed both call interruptedSender.send(false)). Gate on isTrackingPaused
-    // so the second fire is a no-op.
+    // Always clear the error: some iOS recovery paths (e.g. cannotActivateInBackground
+    // retry) reach this handler without a preceding didInterrupt, and the stale error
+    // should still be cleared. Only the paused-state mutation is gated, to dedup the
+    // iOS 3.2.1+ double fire from handleRecovering -> handleResumed.
     onTrackingResumed: () => {
+      setError(null);
       if (!useAsleepStore.getState().isTrackingPaused) {
-        addLog(`[onTrackingResumed] skipped (not paused)`);
+        addLog(`[onTrackingResumed] (no prior pause; error cleared)`);
         return;
       }
       setIsTrackingPaused(false);
-      setError(null);
       addLog(`[onTrackingResumed]`);
     },
     // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
