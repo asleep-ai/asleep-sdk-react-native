@@ -50,16 +50,16 @@ gh workflow run release.yml -f version_type=patch
    - Handle audio recording, permission management, and sleep tracking
    - iOS SDK version: 3.2.0, Android SDK version: 3.2.1
 
-2. **State Management** (`src/AsleepStore.ts`)
-   - Zustand store with singleton pattern for consistent state across app
+2. **State Management** (`src/AsleepStore.ts` + `src/store/createStore.ts`)
+   - Vanilla store (singleton) built on `useSyncExternalStore`. No external state library dependency
    - Handles all SDK state including tracking status, session management, and error handling
    - Provides event listener initialization and cleanup
 
-3. **API Surface** (`src/index.ts`) — currently 4 parallel surfaces, being consolidated in v2.0 (see #47):
-   - `useAsleep` hook — primary surface for React components (the only one consumers actually use; see Library Boundary Principles below)
-   - `AsleepSDK` singleton — dead code in practice, slated for removal
-   - default `asleep` class instance — has bugs (bypasses zustand store), slated for removal
-   - `asleepStore` raw zustand — leaks implementation detail, slated for removal
+3. **API Surface** (`src/index.ts`) — v2.0 lean surface:
+   - `useAsleep` hook — primary surface for React components; subscribes to the internal store and returns a flat object of state + actions
+   - `Asleep` namespace — thin imperative escape hatch for non-React contexts. Exposes only `getState`, `subscribe`, `addEventListener`
+   - Types are re-exported as named exports (`AsleepReport`, `AsleepSession`, etc.)
+   - Removed in v2.0: `default export`, `Asleep` class, `AsleepSDK` namespace, `asleepStore` raw export
 
 4. **Type Definitions** (`src/Asleep.types.ts`)
    - TypeScript interfaces for all API responses and configurations
@@ -97,7 +97,7 @@ This is a **primitive SDK library**, not a sleep-tracking framework. Apps build 
 
 - Native module bridge (iOS Swift / Android Kotlin → JS)
 - SDK lifecycle: `setup`, `initAsleepConfig`, `startTracking`, `stopTracking`, `checkAndRestoreTracking`
-- State synchronization between native and JS (via internal zustand store)
+- State synchronization between native and JS (via internal vanilla store)
 - Raw data exposure: `sessionId`, `analysisResult`, `AsleepReport`, `AsleepSession`, `AsleepAverageReport`
 - Permission *methods* (check + request as separate operations)
 - Background lifecycle plumbing (Android foreground service, iOS background audio mode)
@@ -115,14 +115,18 @@ This is a **primitive SDK library**, not a sleep-tracking framework. Apps build 
 - Analytics / observability — emit events the consumer hooks into, do not log directly
 - Application state (tracking start time as wall-clock, user preferences, feature flags)
 
-### Anti-patterns currently in the codebase (to fix in v2.0)
+### Fixed in v2.0
 
-1. **UI calls from the library** — `Alert.alert("Microphone permission denied")` in `src/index.ts:56`. The library must not invoke `Alert`, `Modal`, or any UI surface. Throw a typed error and let the app render its own UX.
-2. **Redundant `console.error` alongside `throw`** — many catch blocks log via `console.error` and re-throw the same error (~9 occurrences in `src/AsleepStore.ts`). The throw already surfaces the error; the duplicate log clutters consumer output and bypasses observability systems like Sentry. Strip the log, keep the throw. (Note: `console.warn` for deprecations and `__DEV__`-gated warnings are fine — that matches React/RN convention.)
-3. **Auto-request permissions inside `startTracking`** — `startTracking` silently calls `requestRequiredPermissions`. This causes "spooky" permission dialogs from the consumer's perspective. Split into `hasRequiredPermissions()` (check) and `requestRequiredPermissions()` (request); `startTracking` assumes permission and throws if missing.
-4. **Parallel API surfaces with state divergence** — the `Asleep` class default export calls `AsleepModule` directly and skips the zustand store, so `useAsleep().isTracking` does not update when `asleep.startTracking()` is called. See #47.
-5. **`addEventListener` only on the class, not in hook output or namespace** — forces consumers into `ref` hacks or store-internal access.
-6. **Wall-clock state and getter exposed publicly** — `trackingStartTime` is stored in the zustand store and `getTrackingDurationMinutes()` is exposed as a public method (`src/AsleepStore.ts:31` and `src/AsleepStore.ts:613`). The actual consumer (sleepstar) maintains its own start-time and computes duration with finer-grained timers, so these public surfaces are unused. Keep `trackingStartTime` internal for restore logic; consider removing the public `getTrackingDurationMinutes` API in v2.0.
+- **UI calls removed** — `Alert.alert("Microphone permission denied")` no longer appears anywhere in the library. `startTracking` now throws a typed `Error` with a platform-aware message; the consumer renders the UX.
+- **Parallel API surfaces collapsed** — `Asleep` class, default export, `AsleepSDK` namespace, and `asleepStore` raw export are removed. Single public surface: `useAsleep` + thin `Asleep` escape hatch.
+- **`addEventListener` reachable from both surfaces** — added to `useAsleep` return value and `Asleep.addEventListener`. The `latestAnalysisResultRef` hack consumers used is no longer required.
+- **External state lib removed** — zustand peer dependency dropped. Internal store uses `useSyncExternalStore` directly. See `src/store/createStore.ts`.
+
+### Still pending (v2.x follow-ups)
+
+1. **Redundant `console.error` alongside `throw`** — many catch blocks log via `console.error` and re-throw the same error (~9 occurrences in `src/AsleepStore.ts`). The throw already surfaces the error; the duplicate log clutters consumer output and bypasses observability systems like Sentry. Strip the log, keep the throw. (Note: `console.warn` for deprecations and `__DEV__`-gated warnings are fine — that matches React/RN convention.)
+2. **Auto-request permissions inside `startTracking`** — `startTracking` silently calls `requestRequiredPermissions`. This causes "spooky" permission dialogs from the consumer's perspective. Split into `hasRequiredPermissions()` (check) and `requestRequiredPermissions()` (request); `startTracking` assumes permission and throws if missing.
+3. **Wall-clock state and getter exposed publicly** — `trackingStartTime` is in the store and `getTrackingDurationMinutes()` is exposed via `useAsleep`. The actual consumer (sleepstar) maintains its own start-time and computes duration with finer-grained timers, so these public surfaces are unused. Keep `trackingStartTime` internal for restore logic; consider removing the public getter in v2.x.
 
 ### Real-world consumer pattern (validation)
 

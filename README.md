@@ -244,63 +244,32 @@ const SleepTracker = () => {
 
 ### Advanced Usage
 
-#### Using AsleepSDK for Non-React Components
+#### Using the `Asleep` escape hatch for non-React contexts
 
-For use outside React components or for singleton access:
-
-```typescript
-import { AsleepSDK } from "react-native-asleep";
-
-class SleepManager {
-  async initializeSDK() {
-    try {
-      await AsleepSDK.initAsleepConfig({
-        apiKey: "YOUR_API_KEY",
-      });
-
-      // Initialize event listeners
-      AsleepSDK.initialize();
-
-      console.log("SDK initialized");
-    } catch (error) {
-      console.error("SDK initialization failed:", error);
-    }
-  }
-
-  async startSleepTracking() {
-    await AsleepSDK.startTracking();
-  }
-
-  async stopSleepTracking() {
-    return await AsleepSDK.stopTracking();
-  }
-
-  getCurrentStatus() {
-    return {
-      isTracking: AsleepSDK.isTracking(),
-      userId: AsleepSDK.getUserId(),
-      sessionId: AsleepSDK.getSessionId(),
-    };
-  }
-}
-```
-
-#### Direct Store Access
+For background callbacks, push handlers, or other places where you cannot use React hooks, the `Asleep` namespace exposes a minimal imperative API:
 
 ```typescript
-import { useAsleepStore } from "react-native-asleep";
+import { Asleep } from "react-native-asleep";
 
-// Get current state
-const currentState = useAsleepStore.getState();
+// Read current state
+const { isTracking, userId, sessionId } = Asleep.getState();
 
-// Subscribe to specific state changes
-const unsubscribe = useAsleepStore.subscribe(
-  (state) => state.isTracking,
-  (isTracking) => {
-    console.log("Tracking status changed:", isTracking);
-  }
-);
+// Subscribe to state changes (returns unsubscribe)
+const unsubscribe = Asleep.subscribe(() => {
+  const { isTracking } = Asleep.getState();
+  console.log("Tracking status changed:", isTracking);
+});
+
+// Subscribe to SDK events (returns unsubscribe)
+const off = Asleep.addEventListener("onAnalysisResult", (data) => {
+  console.log("New analysis:", data);
+});
+
+// Call any action from non-React code
+await Asleep.getState().startTracking();
 ```
+
+> **Note**: prefer `useAsleep` inside React components — `Asleep` is intentionally a thin escape hatch, not a parallel API.
 
 ## API Reference
 
@@ -415,10 +384,16 @@ useEffect(() => {
 #### Implementation
 
 ```typescript
-import { AsleepSDK } from 'react-native-asleep';
+import { useAsleep } from 'react-native-asleep';
+
+const {
+  checkBatteryOptimization,
+  requestBatteryOptimizationExemption,
+  startTracking,
+} = useAsleep();
 
 // Required before starting tracking on BOTH platforms
-const batteryStatus = await AsleepSDK.checkBatteryOptimization();
+const batteryStatus = await checkBatteryOptimization();
 
 if (!batteryStatus.exempted && Platform.OS === 'android') {
   // Prompt user to disable battery optimization
@@ -430,7 +405,7 @@ if (!batteryStatus.exempted && Platform.OS === 'android') {
       {
         text: 'Open Settings',
         onPress: async () => {
-          await AsleepSDK.requestBatteryOptimizationExemption();
+          await requestBatteryOptimizationExemption();
         }
       }
     ]
@@ -438,7 +413,7 @@ if (!batteryStatus.exempted && Platform.OS === 'android') {
 }
 
 // Now safe to start tracking
-await AsleepSDK.startTracking();
+await startTracking();
 ```
 
 #### Why This Matters

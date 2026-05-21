@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { Alert } from "react-native";
-import { useAsleep, AsleepSession, AsleepSDK } from "../src";
+import { useAsleep, AsleepSession } from "../src";
 import { create } from "zustand";
 
 // Zustand store interface
@@ -37,6 +37,8 @@ export const useTracking = () => {
     userId: asleepUserId,
     sessionId,
     checkAndRestoreTracking,
+    checkBatteryOptimization,
+    requestBatteryOptimizationExemption,
     startTracking,
     stopTracking,
     initAsleepConfig,
@@ -170,7 +172,7 @@ export const useTracking = () => {
       // IMPORTANT: Check battery optimization on BOTH platforms
       // This ensures iOS developers test battery optimization handling,
       // preventing issues for their Android users in production
-      const batteryStatus = await AsleepSDK.checkBatteryOptimization();
+      const batteryStatus = await checkBatteryOptimization();
       console.log(`🔋 Battery optimization check - Platform: ${batteryStatus.platform}, Exempted: ${batteryStatus.exempted}`);
 
       // Only prompt on Android when not exempted
@@ -184,7 +186,7 @@ export const useTracking = () => {
             {
               text: "Open Settings",
               onPress: async () => {
-                const result = await AsleepSDK.requestBatteryOptimizationExemption();
+                const result = await requestBatteryOptimizationExemption();
                 if (!result) {
                   console.log("🔋 Battery settings opened, user needs to disable optimization");
                 }
