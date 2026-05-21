@@ -82,6 +82,19 @@ const resetStore = () => {
   setPlatform("ios", 17);
 };
 
+// Library-boundary guard: the store must never bypass consumer observability
+// by writing to console.error. Errors should flow through the store's `error`
+// field and through thrown exceptions only. Any test that triggers a console.error
+// call indicates a regression of the v2.0 console.* cleanup.
+let consoleErrorSpy: jest.SpyInstance;
+beforeEach(() => {
+  consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+});
+afterEach(() => {
+  expect(consoleErrorSpy).not.toHaveBeenCalled();
+  consoleErrorSpy.mockRestore();
+});
+
 describe("AsleepStore initial state", () => {
   beforeEach(resetStore);
 

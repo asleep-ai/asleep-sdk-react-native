@@ -157,7 +157,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       });
       addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
     } catch (error: any) {
-      console.error("setup error:", error);
       set({ error: error.message, isSetupInProgress: false });
       throw error;
     }
@@ -179,7 +178,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       addLog("[initAsleepConfig] Success");
       return result;
     } catch (error: any) {
-      console.error("initAsleepConfig error:", error);
       set({ error: error.message });
       throw error;
     }
@@ -215,7 +213,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
         hasActiveSession: isAlive,
       };
     } catch (error: any) {
-      console.error("checkAndRestoreTracking error:", error);
       set({ error: error.message });
       throw error;
     }
@@ -366,7 +363,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
 
       addLog("[startTracking] Success");
     } catch (error: any) {
-      console.error("startTracking error:", error);
       set({
         error: error.message,
         isTracking: false,
@@ -393,7 +389,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
 
       addLog(`[stopTracking] Success - result: ${result}`);
     } catch (error: any) {
-      console.error("stopTracking error:", error);
       set({ error: error.message });
       throw error;
     }
@@ -435,7 +430,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
 
       return convertedReport as AsleepReport;
     } catch (error: any) {
-      console.error("getReport error:", error);
       set({ error: error.message });
       return null;
     }
@@ -465,7 +459,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       addLog("[getReportList] Success");
       return convertedList;
     } catch (error: any) {
-      console.error("getReportList error:", error);
       set({ error: error.message });
       return [];
     }
@@ -480,7 +473,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
 
       addLog("[deleteSession] Success");
     } catch (error: any) {
-      console.error("deleteSession error:", error);
       set({ error: error.message });
       throw error;
     }
@@ -497,7 +489,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       addLog("[getAverageReport] Success");
       return convertedReport;
     } catch (error: any) {
-      console.error("getAverageReport error:", error);
       set({ error: error.message });
       return null;
     }
@@ -582,7 +573,6 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
 
       return convertedResult;
     } catch (error: any) {
-      console.error("requestAnalysis error:", error);
       set({ error: error.message, isAnalyzing: false });
       return null;
     }
