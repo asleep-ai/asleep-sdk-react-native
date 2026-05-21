@@ -507,23 +507,71 @@ describe("event handlers (initializeAsleepListeners)", () => {
     expect(s.sessionId).toBe("sess-1");
   });
 
-  // The +1 in these tests is addLog: every event handler also writes to the
-  // `log` field. The point of the batched setState in onTrackingCreated /
-  // onTrackingClosed is to compress the multiple state writes into one — the
-  // separate addLog notification is intrinsic to the logging design.
-  it("onTrackingCreated produces 2 notifications (1 batched state + 1 log)", () => {
+  // With enableLog(false) (the default), addLog is a no-op for state. Every
+  // event handler that batches its state writes produces exactly ONE subscriber
+  // notification, so useAsleep consumers do not re-render multiple times per
+  // SDK event.
+  const expectSingleNotificationFor = (event: string, payload: unknown, setup?: () => void) => {
+    setup?.();
     const listener = jest.fn();
-    useAsleepStore.subscribe(listener);
-    mockEmitter.__emit("onTrackingCreated", { sessionId: "sess-1" });
-    expect(listener).toHaveBeenCalledTimes(2);
+    const off = useAsleepStore.subscribe(listener);
+    mockEmitter.__emit(event, payload);
+    off();
+    expect(listener).toHaveBeenCalledTimes(1);
+  };
+
+  it("onTrackingCreated → single notification", () => {
+    expectSingleNotificationFor("onTrackingCreated", { sessionId: "sess-1" });
   });
 
-  it("onTrackingClosed produces 2 notifications (1 batched state + 1 log)", () => {
-    useAsleepStore.setState({ isTracking: true, isAnalyzing: true, trackingStartTime: new Date() });
+  it("onTrackingClosed → single notification", () => {
+    expectSingleNotificationFor("onTrackingClosed", { sessionId: "final" }, () => {
+      useAsleepStore.setState({ isTracking: true, isAnalyzing: true, trackingStartTime: new Date() });
+    });
+  });
+
+  it("onTrackingFailed (terminal) → single notification", () => {
+    expectSingleNotificationFor("onTrackingFailed", { code: "UPLOAD_TRACKING_TERMINATED", error: "x" }, () => {
+      useAsleepStore.setState({ isTracking: true });
+    });
+  });
+
+  it("onTrackingResumed (was paused) → single notification", () => {
+    expectSingleNotificationFor("onTrackingResumed", undefined, () => {
+      useAsleepStore.setState({ isTrackingPaused: true, error: "stale" });
+    });
+  });
+
+  it("onSetupDidComplete → single notification", () => {
+    expectSingleNotificationFor("onSetupDidComplete", undefined);
+  });
+
+  it("onSetupDidFail → single notification", () => {
+    expectSingleNotificationFor("onSetupDidFail", { error: "boom" });
+  });
+
+  it("onAnalysisResult → single notification", () => {
+    expectSingleNotificationFor("onAnalysisResult", { id: "a", state: "ANALYZING" }, () => {
+      useAsleepStore.setState({ isAnalyzing: true });
+    });
+  });
+
+  it("onMicPermissionDenied → zero notifications (no state change with log gated)", () => {
     const listener = jest.fn();
-    useAsleepStore.subscribe(listener);
-    mockEmitter.__emit("onTrackingClosed", { sessionId: "final" });
-    expect(listener).toHaveBeenCalledTimes(2);
+    const off = useAsleepStore.subscribe(listener);
+    mockEmitter.__emit("onMicPermissionDenied", undefined);
+    off();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("enableLog(true) opts the log writes back in (one extra notify per event)", () => {
+    useAsleepStore.getState().enableLog(true);
+    const listener = jest.fn();
+    const off = useAsleepStore.subscribe(listener);
+    mockEmitter.__emit("onMicPermissionDenied", undefined);
+    off();
+    expect(listener).toHaveBeenCalledTimes(1);
+    useAsleepStore.getState().enableLog(false);
   });
 
   it("onTrackingClosed clears tracking state and stores sessionId", () => {

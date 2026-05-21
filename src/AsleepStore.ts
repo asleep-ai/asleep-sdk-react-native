@@ -607,19 +607,20 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
   setHasCheckedBatteryOptimization: (checked) => set({ hasCheckedBatteryOptimization: checked }),
 
   addLog: (log: string) => {
+    // No-op when debug logging is disabled (the default). This is the noise
+    // source for useAsleep subscribers: every native event handler calls
+    // addLog, so writing to state unconditionally meant each event produced
+    // an extra subscriber notification on top of any data update. Now the
+    // cost is zero unless the consumer explicitly opts in via enableLog(true).
     const { showDebugLog } = get();
+    if (!showDebugLog) return;
     const now = new Date();
     const dateString = `${now.getHours().toString().padStart(2, "0")}:${now
       .getMinutes()
       .toString()
       .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-
     const formattedLog = `[${dateString}]${log}`;
-
-    if (showDebugLog) {
-      console.log(`[Asleep]${formattedLog}`);
-    }
-
+    console.log(`[Asleep]${formattedLog}`);
     set({ log: formattedLog });
   },
 }));
@@ -638,29 +639,7 @@ export const initializeAsleepListeners = (): (() => void) => {
   }
 
   const store = useAsleepStore.getState();
-  const {
-    addLog,
-    setUserId,
-    setIsTrackingPaused,
-    setError,
-    setAnalysisResult,
-    setIsAnalyzing,
-    setIsSetupInProgress,
-    setIsSetupComplete,
-  } = store;
-
-  // Clears session tracking state. Called from both onTrackingClosed (clean
-  // close) and the terminal branch of onTrackingFailed (native SDK tore down
-  // the session without firing onTrackingClosed). Single setState so
-  // subscribers are notified once instead of four times.
-  const clearTrackingState = () => {
-    useAsleepStore.setState({
-      isTracking: false,
-      isAnalyzing: false,
-      didClose: true,
-      trackingStartTime: null,
-    });
-  };
+  const { addLog, setUserId, setIsTrackingPaused, setError, setIsSetupInProgress } = store;
 
   // event handlers
   const handlers = {
@@ -724,11 +703,13 @@ export const initializeAsleepListeners = (): (() => void) => {
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
-      setError(errorString);
+      const terminal = !!(error && TERMINAL_TRACKING_ERROR_CODES.has(error.code));
+      useAsleepStore.setState(
+        terminal
+          ? { error: errorString, isTracking: false, isAnalyzing: false, didClose: true, trackingStartTime: null }
+          : { error: errorString },
+      );
       addLog(`[onTrackingError] error: ${errorString}`);
-      if (error && TERMINAL_TRACKING_ERROR_CODES.has(error.code)) {
-        clearTrackingState();
-      }
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
     onTrackingInterrupted: () => {
@@ -741,13 +722,9 @@ export const initializeAsleepListeners = (): (() => void) => {
     // should still be cleared. Only the paused-state mutation is gated, to dedup the
     // iOS 3.2.1+ double fire from handleRecovering -> handleResumed.
     onTrackingResumed: () => {
-      setError(null);
-      if (!useAsleepStore.getState().isTrackingPaused) {
-        addLog(`[onTrackingResumed] (no prior pause; error cleared)`);
-        return;
-      }
-      setIsTrackingPaused(false);
-      addLog(`[onTrackingResumed]`);
+      const wasPaused = useAsleepStore.getState().isTrackingPaused;
+      useAsleepStore.setState(wasPaused ? { error: null, isTrackingPaused: false } : { error: null });
+      addLog(wasPaused ? `[onTrackingResumed]` : `[onTrackingResumed] (no prior pause; error cleared)`);
     },
     // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
     onMicPermissionDenied: () => {
@@ -759,16 +736,13 @@ export const initializeAsleepListeners = (): (() => void) => {
     },
     // Connected: iOS setupDidComplete, Android onComplete (AsleepSetupListener)
     onSetupDidComplete: () => {
-      setIsSetupInProgress(false);
-      setIsSetupComplete(true);
+      useAsleepStore.setState({ isSetupInProgress: false, isSetupComplete: true });
       addLog(`[onSetupDidComplete]`);
     },
     // Connected: iOS setupDidFail, Android onFail (AsleepSetupListener)
     onSetupDidFail: (data: any) => {
       const errorString = JSON.stringify(data);
-      setError(errorString);
-      setIsSetupInProgress(false);
-      setIsSetupComplete(false);
+      useAsleepStore.setState({ error: errorString, isSetupInProgress: false, isSetupComplete: false });
       addLog(`[onSetupDidFail] error: ${errorString}`);
     },
     // Connected: iOS setupInProgress, Android onProgress (AsleepSetupListener)
@@ -778,8 +752,7 @@ export const initializeAsleepListeners = (): (() => void) => {
     },
     // Connected: iOS analyzing (session), Android onSleepDataReceived (AsleepSleepDataListener)
     onAnalysisResult: (data: any) => {
-      setAnalysisResult(data);
-      setIsAnalyzing(false); // Analysis is complete, so set to false
+      useAsleepStore.setState({ analysisResult: data, isAnalyzing: false });
       addLog(`[onAnalysisResult] ${JSON.stringify(data)}`);
     },
   };
