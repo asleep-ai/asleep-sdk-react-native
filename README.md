@@ -282,7 +282,7 @@ Returns an object with the following properties and methods:
 - `userId: string | null` - Current user ID
 - `sessionId: string | null` - Current session ID
 - `isTracking: boolean` - Whether tracking is active
-- `error: string | null` - Last error message
+- `error: AsleepError | null` - Last failure as a structured `AsleepError` (extends `Error`; has `code`, `message`, `cause`). Automatically cleared on the next successful action.
 - `didClose: boolean` - Whether the last session was closed
 - `log: string` - Latest log message
 
@@ -291,7 +291,7 @@ Returns an object with the following properties and methods:
 - `initAsleepConfig(config: AsleepConfig): Promise<void>` - Initialize SDK
 - `startTracking(): Promise<void>` - Start sleep tracking
 - `stopTracking(): Promise<void>` - Stop sleep tracking
-- `getReport(sessionId: string): Promise<AsleepReport | null>` - Get sleep report
+- `getReport(sessionId: string): Promise<AsleepReport>` - Get sleep report. Throws `AsleepError` on failure (with `code: "GET_REPORT_FAILED"` for transport errors).
 - `getReportList(fromDate: string, toDate: string): Promise<AsleepSession[]>` - Get list of reports
 - `enableLog(enabled: boolean): void` - Enable/disable debug logging
 - `setCustomNotification(title: string, text: string): Promise<void>` - Set custom notification (Android only)
@@ -343,14 +343,20 @@ interface AsleepSession {
 
 ## Event Handling
 
-The SDK automatically handles events through the zustand store. Events are processed internally and state is updated accordingly. You can monitor state changes using useEffect:
+The SDK automatically handles native events through its internal store. Events are processed and state is updated atomically: **each native event produces exactly one re-render** for consumers of `useAsleep()`.
 
 ```typescript
 const { userId, sessionId, isTracking, error } = useAsleep();
 
 useEffect(() => {
   if (error) {
-    console.error("SDK Error:", error);
+    // `error` is an AsleepError instance — branch on `code`, display `message`,
+    // forward `cause` to your observability tool.
+    if (error.code === "UPLOAD_TRACKING_TERMINATED") {
+      showServerErrorScreen(error.message);
+    } else {
+      logToSentry(error);
+    }
   }
 }, [error]);
 
@@ -360,6 +366,23 @@ useEffect(() => {
   }
 }, [sessionId]);
 ```
+
+### Error contract
+
+Every failure surfaces as an `AsleepError` (which extends `Error`):
+
+```typescript
+class AsleepError extends Error {
+  readonly code: string;     // stable machine identifier, e.g. "SETUP_FAILED"
+  readonly message: string;  // human-readable description (inherited)
+  readonly cause?: unknown;  // original throwable / native event payload
+}
+```
+
+- **Action methods** (`setup`, `startTracking`, `stopTracking`, `deleteSession`, `initAsleepConfig`) throw `AsleepError` on failure AND set `useAsleep().error`. Use whichever surface fits the call site.
+- **Query methods** (`getReport`, `getReportList`, `getAverageReport`, `requestAnalysis`) throw `AsleepError` on failure (no silent `null` returns). Wrap in `try/catch`.
+- **Native event failures** (`onTrackingFailed`, `onSetupDidFail`, `onUserJoinFailed`) populate `useAsleep().error` with an `AsleepError` whose `code` matches the native error code and whose `cause` carries the full event payload.
+- Every successful action clears `useAsleep().error` back to `null` so the reactive value never lags behind reality.
 
 ## Best Practices
 

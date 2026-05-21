@@ -6,6 +6,7 @@
  * (sleepstar), so we want them to stay green across the refactor.
  */
 import type { MockAsleepModule, MockEventEmitter } from "./_helpers/factories.test";
+import { AsleepError } from "../Asleep.types";
 
 // jest.mock factories are hoisted above imports. They reference variables
 // prefixed with `mock` (jest allows that) and lazily initialize them so the
@@ -154,13 +155,23 @@ describe("setup()", () => {
     await expect(useAsleepStore.getState().setup({ apiKey: "k" })).rejects.toThrow(/while tracking/);
   });
 
-  it("stores error and clears isSetupInProgress on native failure", async () => {
+  it("stores AsleepError and clears isSetupInProgress on native failure", async () => {
     mockModule.setup.mockRejectedValueOnce(new Error("boom"));
     await expect(useAsleepStore.getState().setup({ apiKey: "k" })).rejects.toThrow("boom");
     const s = useAsleepStore.getState();
-    expect(s.error).toBe("boom");
+    expect(s.error).toBeInstanceOf(AsleepError);
+    expect(s.error?.message).toBe("boom");
+    expect(s.error?.code).toBe("SETUP_FAILED");
     expect(s.isSetupInProgress).toBe(false);
     expect(s.isSetupComplete).toBe(false);
+  });
+
+  it("clears error on next successful setup", async () => {
+    mockModule.setup.mockRejectedValueOnce(new Error("boom"));
+    await expect(useAsleepStore.getState().setup({ apiKey: "k" })).rejects.toThrow("boom");
+    expect(useAsleepStore.getState().error).not.toBeNull();
+    await useAsleepStore.getState().setup({ apiKey: "k" });
+    expect(useAsleepStore.getState().error).toBeNull();
   });
 });
 
@@ -178,10 +189,13 @@ describe("initAsleepConfig()", () => {
     expect(mockModule.initAsleepConfig).toHaveBeenCalledWith("k", "u", "https://b", "https://c");
   });
 
-  it("stores error and re-throws on native failure", async () => {
+  it("stores AsleepError and re-throws on native failure", async () => {
     mockModule.initAsleepConfig.mockRejectedValueOnce(new Error("init failed"));
     await expect(useAsleepStore.getState().initAsleepConfig({ apiKey: "k" })).rejects.toThrow("init failed");
-    expect(useAsleepStore.getState().error).toBe("init failed");
+    const err = useAsleepStore.getState().error;
+    expect(err).toBeInstanceOf(AsleepError);
+    expect(err?.code).toBe("INIT_CONFIG_FAILED");
+    expect(err?.message).toBe("init failed");
   });
 });
 
@@ -353,11 +367,22 @@ describe("getReport()", () => {
     expect(report?.missingDataRatio).toBe(0);
   });
 
-  it("returns null and stores error on failure", async () => {
+  it("throws AsleepError and stores it on failure", async () => {
     mockModule.getReport.mockRejectedValueOnce(new Error("fetch failed"));
-    const report = await useAsleepStore.getState().getReport("any");
-    expect(report).toBeNull();
-    expect(useAsleepStore.getState().error).toBe("fetch failed");
+    await expect(useAsleepStore.getState().getReport("any")).rejects.toThrow("fetch failed");
+    const err = useAsleepStore.getState().error;
+    expect(err).toBeInstanceOf(AsleepError);
+    expect(err?.code).toBe("GET_REPORT_FAILED");
+    expect(err?.message).toBe("fetch failed");
+  });
+
+  it("clears stale error on a subsequent successful getReport", async () => {
+    mockModule.getReport.mockRejectedValueOnce(new Error("first"));
+    await expect(useAsleepStore.getState().getReport("a")).rejects.toThrow();
+    expect(useAsleepStore.getState().error).not.toBeNull();
+    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
+    await useAsleepStore.getState().getReport("a");
+    expect(useAsleepStore.getState().error).toBeNull();
   });
 });
 
@@ -538,7 +563,7 @@ describe("event handlers (initializeAsleepListeners)", () => {
 
   it("onTrackingResumed (was paused) → single notification", () => {
     expectSingleNotificationFor("onTrackingResumed", undefined, () => {
-      useAsleepStore.setState({ isTrackingPaused: true, error: "stale" });
+      useAsleepStore.setState({ isTrackingPaused: true, error: new AsleepError("STALE", "stale") });
     });
   });
 
@@ -585,20 +610,23 @@ describe("event handlers (initializeAsleepListeners)", () => {
     expect(s.sessionId).toBe("final-sess");
   });
 
-  it("onTrackingFailed with terminal code clears tracking state", () => {
+  it("onTrackingFailed with terminal code clears tracking state and stores typed error", () => {
     useAsleepStore.setState({ isTracking: true, isAnalyzing: true });
     mockEmitter.__emit("onTrackingFailed", { code: "UPLOAD_TRACKING_TERMINATED", error: "x" });
     const s = useAsleepStore.getState();
     expect(s.isTracking).toBe(false);
     expect(s.isAnalyzing).toBe(false);
     expect(s.didClose).toBe(true);
-    expect(s.error).toContain("UPLOAD_TRACKING_TERMINATED");
+    expect(s.error).toBeInstanceOf(AsleepError);
+    expect(s.error?.code).toBe("UPLOAD_TRACKING_TERMINATED");
+    expect((s.error?.cause as { error: string } | undefined)?.error).toBe("x");
   });
 
   it("onTrackingFailed with INTERRUPTION_RECOVERY_FAILED also clears state", () => {
     useAsleepStore.setState({ isTracking: true });
     mockEmitter.__emit("onTrackingFailed", { code: "INTERRUPTION_RECOVERY_FAILED", error: "x" });
     expect(useAsleepStore.getState().isTracking).toBe(false);
+    expect(useAsleepStore.getState().error?.code).toBe("INTERRUPTION_RECOVERY_FAILED");
   });
 
   it("onTrackingFailed with non-terminal code keeps tracking flag", () => {
@@ -606,11 +634,15 @@ describe("event handlers (initializeAsleepListeners)", () => {
     mockEmitter.__emit("onTrackingFailed", { code: "SOMETHING_ELSE", error: "minor" });
     const s = useAsleepStore.getState();
     expect(s.isTracking).toBe(true);
-    expect(s.error).toContain("minor");
+    expect(s.error?.code).toBe("SOMETHING_ELSE");
+    expect(s.error?.message).toBe("minor");
   });
 
   it("onTrackingResumed clears error unconditionally", () => {
-    useAsleepStore.setState({ error: "old error", isTrackingPaused: false });
+    useAsleepStore.setState({
+      error: new AsleepError("OLD", "old error"),
+      isTrackingPaused: false,
+    });
     mockEmitter.__emit("onTrackingResumed", undefined);
     expect(useAsleepStore.getState().error).toBeNull();
   });

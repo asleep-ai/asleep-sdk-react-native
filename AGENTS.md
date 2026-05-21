@@ -98,7 +98,7 @@ This is a **primitive SDK library**, not a sleep-tracking framework. Apps build 
 - Native module bridge (iOS Swift / Android Kotlin → JS)
 - SDK lifecycle: `setup`, `initAsleepConfig`, `startTracking`, `stopTracking`, `checkAndRestoreTracking`
 - State synchronization between native and JS (via internal vanilla store)
-- Raw data exposure: `sessionId`, `analysisResult`, `AsleepReport`, `AsleepSession`, `AsleepAverageReport`
+- Raw data exposure: `sessionId`, `analysisResult`, `AsleepReport`, `AsleepSession`, `AsleepAverageReport`, `AsleepError`
 - Permission *methods* (check + request as separate operations)
 - Background lifecycle plumbing (Android foreground service, iOS background audio mode)
 - Stable hook API (`useAsleep`) + a thin escape hatch for non-React contexts
@@ -117,11 +117,13 @@ This is a **primitive SDK library**, not a sleep-tracking framework. Apps build 
 
 ### Fixed in v2.0
 
-- **UI calls removed** — `Alert.alert("Microphone permission denied")` no longer appears anywhere in the library. `startTracking` now throws a typed `Error` with a platform-aware message; the consumer renders the UX.
+- **UI calls removed** — `Alert.alert("Microphone permission denied")` no longer appears anywhere in the library. `startTracking` now throws an `AsleepError` with a platform-aware message; the consumer renders the UX.
 - **Parallel API surfaces collapsed** — `Asleep` class, default export, `AsleepSDK` namespace, and `asleepStore` raw export are removed. Single public surface: `useAsleep` + thin `Asleep` escape hatch.
 - **`addEventListener` reachable from both surfaces** — added to `useAsleep` return value and `Asleep.addEventListener`. The `latestAnalysisResultRef` hack consumers used is no longer required.
 - **External state lib removed** — zustand peer dependency dropped. Internal store uses `useSyncExternalStore` directly. See `src/store/createStore.ts`.
 - **Redundant `console.error` purged** — every catch block in `AsleepStore.ts` previously logged via `console.error` AND re-threw the same error. The duplicate log cluttered consumer output and bypassed Sentry. All 10 occurrences removed; the throw alone surfaces the error and the store's `error` field exposes it to the UI. A `console.error` spy in `AsleepStore.test.ts` fails the suite if any future change reintroduces the pattern. `console.warn` for deprecations / `__DEV__`-gated warnings and `console.log` gated by `enableLog()` are kept (RN convention).
+- **Notification spam eliminated** — `addLog` is now a no-op for state when `enableLog(false)` (the default), and every event handler batches its writes into a single `setState`. Each native SDK event produces exactly one subscriber notification — `useAsleep` consumers re-render once per logical event, not N+1 times per data update.
+- **Errors are structured `AsleepError`** — every store mutation that fails, every action that throws, and every `onTrackingFailed` / `onSetupDidFail` / `onUserJoinFailed` payload normalizes into an `AsleepError` instance with `code` (stable machine identifier), `message` (human-readable), and `cause` (original payload). The class extends `Error` so `instanceof`, `try/catch`, jest `.toThrow()`, and Sentry all work without special-casing. Query methods (`getReport`, `getReportList`, `getAverageReport`, `requestAnalysis`) now THROW on failure instead of silently returning `null` / `[]`. Every success path clears the stored error so the reactive `useAsleep().error` field never shows a stale failure after a successful retry.
 
 ### Still pending (v2.x follow-ups)
 

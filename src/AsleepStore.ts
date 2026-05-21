@@ -10,6 +10,7 @@ import {
   AsleepAnalysisResult,
   TrackingConfig,
 } from "./Asleep.types";
+import { AsleepError } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
 import { createStore } from "./store/createStore";
 
@@ -24,11 +25,35 @@ const TERMINAL_TRACKING_ERROR_CODES = new Set<string>([
   "INTERRUPTION_RECOVERY_FAILED", // iOS 3 failed auto-resume attempts (3.2.0+)
 ]);
 
+/**
+ * Wrap an arbitrary throwable or native event payload into AsleepError.
+ * Preserves the original via `cause`, falls back to `defaultCode` when the
+ * source has no `code` field, and never loses the message even for primitives.
+ * If the source is already an AsleepError it is returned untouched.
+ */
+const normalizeError = (source: unknown, defaultCode: string): AsleepError => {
+  if (source instanceof AsleepError) return source;
+  if (source && typeof source === "object") {
+    const s = source as { code?: unknown; message?: unknown; error?: unknown };
+    const code = typeof s.code === "string" ? s.code : defaultCode;
+    const message =
+      typeof s.message === "string"
+        ? s.message
+        : typeof s.error === "string"
+          ? s.error
+          : source instanceof Error
+            ? source.message
+            : "Unknown error";
+    return new AsleepError(code, message, source);
+  }
+  return new AsleepError(defaultCode, String(source ?? "Unknown error"), source);
+};
+
 export interface AsleepState {
   didClose: boolean;
   isTracking: boolean;
   isTrackingPaused: boolean;
-  error: string | null;
+  error: AsleepError | null;
   userId: string | null;
   sessionId: string | null;
   showDebugLog: boolean;
@@ -55,16 +80,16 @@ export interface AsleepState {
   requestBatteryOptimizationExemption: () => Promise<boolean>;
   startTracking: (config?: TrackingConfig) => Promise<void>;
   stopTracking: () => Promise<void>;
-  getReport: (sessionId: string) => Promise<AsleepReport | null>;
+  getReport: (sessionId: string) => Promise<AsleepReport>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
-  getAverageReport: (fromDate: string, toDate: string) => Promise<AsleepAverageReport | null>;
+  getAverageReport: (fromDate: string, toDate: string) => Promise<AsleepAverageReport>;
   deleteSession: (sessionId: string) => Promise<void>;
   requestMicrophonePermission: () => Promise<boolean>; // deprecated
   requestRequiredPermissions: () => Promise<boolean>;
   setCustomNotification: (title: string, text: string) => Promise<void>;
   enableLog: (print: boolean) => void;
   clearError: () => void;
-  requestAnalysis: () => Promise<AsleepAnalysisResult | null>;
+  requestAnalysis: () => Promise<AsleepAnalysisResult>;
   addEventListener: <K extends keyof AsleepEventType>(
     eventType: K,
     listener: (data: AsleepEventType[K]) => void,
@@ -72,7 +97,7 @@ export interface AsleepState {
   getTrackingDurationMinutes: () => number;
 
   // internal actions
-  setError: (error: string | null) => void;
+  setError: (error: AsleepError | null) => void;
   setUserId: (userId: string | null) => void;
   setSessionId: (sessionId: string | null) => void;
   setIsTracking: (isTracking: boolean) => void;
@@ -148,17 +173,21 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
 
       await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
 
-      // Store ODA enabled state
+      // Store ODA enabled state. Clearing `error` on success keeps the
+      // reactive `useAsleep().error` field aligned with the actual SDK status
+      // (no stale failure messages after a successful retry).
       set({
         isODAEnabled: config.enableODA || false,
         isInitialized: true,
         isSetupInProgress: false,
         isSetupComplete: true,
+        error: null,
       });
       addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
-    } catch (error: any) {
-      set({ error: error.message, isSetupInProgress: false });
-      throw error;
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "SETUP_FAILED");
+      set({ error: asleepError, isSetupInProgress: false });
+      throw asleepError;
     }
   },
 
@@ -174,12 +203,13 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
         config.callbackUrl,
       );
 
-      set({ isInitialized: true });
+      set({ isInitialized: true, error: null });
       addLog("[initAsleepConfig] Success");
       return result;
-    } catch (error: any) {
-      set({ error: error.message });
-      throw error;
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "INIT_CONFIG_FAILED");
+      set({ error: asleepError });
+      throw asleepError;
     }
   },
 
@@ -212,9 +242,10 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       return {
         hasActiveSession: isAlive,
       };
-    } catch (error: any) {
-      set({ error: error.message });
-      throw error;
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "CHECK_AND_RESTORE_FAILED");
+      set({ error: asleepError });
+      throw asleepError;
     }
   },
 
@@ -352,6 +383,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
         isTracking: true,
         isAnalyzing: false,
         trackingStartTime: new Date(),
+        error: null,
       });
       await AsleepModule.startTracking(config);
 
@@ -362,14 +394,15 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       }
 
       addLog("[startTracking] Success");
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "START_TRACKING_FAILED");
       set({
-        error: error.message,
+        error: asleepError,
         isTracking: false,
         isAnalyzing: false,
         trackingStartTime: null,
       });
-      throw error;
+      throw asleepError;
     }
   },
 
@@ -385,12 +418,14 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
         isTracking: false,
         isAnalyzing: false,
         trackingStartTime: null,
+        error: null,
       });
 
       addLog(`[stopTracking] Success - result: ${result}`);
-    } catch (error: any) {
-      set({ error: error.message });
-      throw error;
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "STOP_TRACKING_FAILED");
+      set({ error: asleepError });
+      throw asleepError;
     }
   },
 
@@ -403,6 +438,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       const convertedReport = convertKeysToCamelCase(report);
 
       addLog("[getReport] Success");
+      set({ error: null });
 
       // Ensure the report has the expected AsleepReport structure
       // Handle cases where native modules might return data in different formats
@@ -429,9 +465,10 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       }
 
       return convertedReport as AsleepReport;
-    } catch (error: any) {
-      set({ error: error.message });
-      return null;
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "GET_REPORT_FAILED");
+      set({ error: asleepError });
+      throw asleepError;
     }
   },
 
@@ -457,10 +494,12 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       });
 
       addLog("[getReportList] Success");
+      set({ error: null });
       return convertedList;
-    } catch (error: any) {
-      set({ error: error.message });
-      return [];
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "GET_REPORT_LIST_FAILED");
+      set({ error: asleepError });
+      throw asleepError;
     }
   },
 
@@ -472,9 +511,11 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       await AsleepModule.deleteSession(sessionId);
 
       addLog("[deleteSession] Success");
-    } catch (error: any) {
-      set({ error: error.message });
-      throw error;
+      set({ error: null });
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "DELETE_SESSION_FAILED");
+      set({ error: asleepError });
+      throw asleepError;
     }
   },
 
@@ -487,10 +528,12 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       const convertedReport = convertKeysToCamelCase(averageReport);
 
       addLog("[getAverageReport] Success");
+      set({ error: null });
       return convertedReport;
-    } catch (error: any) {
-      set({ error: error.message });
-      return null;
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "GET_AVERAGE_REPORT_FAILED");
+      set({ error: asleepError });
+      throw asleepError;
     }
   },
 
@@ -555,7 +598,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       const { addLog } = get();
       addLog("[requestAnalysis] Start");
 
-      set({ isAnalyzing: true });
+      set({ isAnalyzing: true, error: null });
 
       const result = await AsleepModule.requestAnalysis();
       const convertedResult = convertKeysToCamelCase(result);
@@ -572,9 +615,10 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       addLog(`[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`);
 
       return convertedResult;
-    } catch (error: any) {
-      set({ error: error.message, isAnalyzing: false });
-      return null;
+    } catch (error: unknown) {
+      const asleepError = normalizeError(error, "REQUEST_ANALYSIS_FAILED");
+      set({ error: asleepError, isAnalyzing: false });
+      throw asleepError;
     }
   },
 
@@ -649,10 +693,10 @@ export const initializeAsleepListeners = (): (() => void) => {
       addLog(`[onUserJoined] userId: ${data.userId}`);
     },
     // Connected: iOS didFailUserJoin, Android onFail (AsleepConfigListener)
-    onUserJoinFailed: (error: any) => {
-      const errorString = JSON.stringify(error);
-      setError(errorString);
-      addLog(`[onUserJoinFailed] error: ${errorString}`);
+    onUserJoinFailed: (payload: any) => {
+      const asleepError = normalizeError(payload, "USER_JOIN_FAILED");
+      setError(asleepError);
+      addLog(`[onUserJoinFailed] code: ${asleepError.code} message: ${asleepError.message}`);
     },
     // Connected: iOS userDidDelete, Android NOT IMPLEMENTED
     onUserDeleted: (data: any) => {
@@ -701,15 +745,15 @@ export const initializeAsleepListeners = (): (() => void) => {
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
-    onTrackingFailed: (error: any) => {
-      const errorString = JSON.stringify(error);
-      const terminal = !!(error && TERMINAL_TRACKING_ERROR_CODES.has(error.code));
+    onTrackingFailed: (payload: any) => {
+      const asleepError = normalizeError(payload, "TRACKING_FAILED");
+      const terminal = TERMINAL_TRACKING_ERROR_CODES.has(asleepError.code);
       useAsleepStore.setState(
         terminal
-          ? { error: errorString, isTracking: false, isAnalyzing: false, didClose: true, trackingStartTime: null }
-          : { error: errorString },
+          ? { error: asleepError, isTracking: false, isAnalyzing: false, didClose: true, trackingStartTime: null }
+          : { error: asleepError },
       );
-      addLog(`[onTrackingError] error: ${errorString}`);
+      addLog(`[onTrackingError] code: ${asleepError.code} message: ${asleepError.message}`);
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
     onTrackingInterrupted: () => {
@@ -740,10 +784,10 @@ export const initializeAsleepListeners = (): (() => void) => {
       addLog(`[onSetupDidComplete]`);
     },
     // Connected: iOS setupDidFail, Android onFail (AsleepSetupListener)
-    onSetupDidFail: (data: any) => {
-      const errorString = JSON.stringify(data);
-      useAsleepStore.setState({ error: errorString, isSetupInProgress: false, isSetupComplete: false });
-      addLog(`[onSetupDidFail] error: ${errorString}`);
+    onSetupDidFail: (payload: any) => {
+      const asleepError = normalizeError(payload, "SETUP_FAILED");
+      useAsleepStore.setState({ error: asleepError, isSetupInProgress: false, isSetupComplete: false });
+      addLog(`[onSetupDidFail] code: ${asleepError.code} message: ${asleepError.message}`);
     },
     // Connected: iOS setupInProgress, Android onProgress (AsleepSetupListener)
     onSetupInProgress: (data: any) => {

@@ -1,3 +1,29 @@
+/**
+ * Structured error used everywhere the SDK reports a failure. Extends Error
+ * so `instanceof Error`, `error.message`, and stack-trace based tooling
+ * (Sentry, Bugsnag, jest matchers) all work without special-casing.
+ *
+ * - `code` is a stable machine identifier — match on this for retry / branch
+ *   logic, never on the message string.
+ * - `message` (inherited) is the human-readable description suitable for logs
+ *   or UX. Not guaranteed to be stable across versions.
+ * - `cause` (inherited from the spec) carries the original throwable / native
+ *   event payload so observability pipelines keep full context.
+ */
+export class AsleepError extends Error {
+  readonly code: string;
+  readonly cause?: unknown;
+
+  constructor(code: string, message: string, cause?: unknown) {
+    super(message);
+    this.name = "AsleepError";
+    this.code = code;
+    this.cause = cause;
+    // Restore prototype chain when targeting ES5 transpile output.
+    Object.setPrototypeOf(this, AsleepError.prototype);
+  }
+}
+
 export type AsleepConfig = {
   apiKey: string;
   userId?: string;
