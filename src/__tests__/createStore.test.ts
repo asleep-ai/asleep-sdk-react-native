@@ -1,8 +1,11 @@
 /**
  * Unit tests for the vanilla store primitives. Covers the imperative surface
- * (getState/setState/subscribe) only — the React hook integration is exercised
- * indirectly through the AsleepStore characterization tests.
+ * (getState/setState/subscribe) and React hook caching behavior via
+ * react-test-renderer (we skip @testing-library because its react-test-renderer
+ * pin diverges from what's installed).
  */
+import { createElement } from "react";
+import TestRenderer, { act } from "react-test-renderer";
 import { createStore } from "../store/createStore";
 
 type Counter = {
@@ -119,6 +122,65 @@ describe("createStore", () => {
     expect(store.getState().count).toBe(10);
     expect(store.getState().label).toBe("batched");
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("hook returns the whole state by default and re-renders on change", () => {
+    const store = makeCounter();
+    const snapshots: number[] = [];
+    const Probe = () => {
+      const s = store();
+      snapshots.push(s.count);
+      return null;
+    };
+    let renderer: ReturnType<typeof TestRenderer.create>;
+    act(() => {
+      renderer = TestRenderer.create(createElement(Probe));
+    });
+    act(() => {
+      store.setState({ count: 1 });
+    });
+    act(() => {
+      store.setState({ count: 2 });
+    });
+    expect(snapshots).toEqual([0, 1, 2]);
+    act(() => {
+      renderer!.unmount();
+    });
+  });
+
+  it("selector returning a new object reference does not loop and stays stable per state", () => {
+    const store = makeCounter();
+    const renders: { count: number }[] = [];
+    const Probe = () => {
+      // Selector intentionally returns a fresh object every call — pre-fix this
+      // would trip React's `getSnapshot should be cached` warning and re-render
+      // forever. The cache keyed on state identity is what makes this safe.
+      const slice = store((s) => ({ count: s.count }));
+      renders.push(slice);
+      return null;
+    };
+    let renderer: ReturnType<typeof TestRenderer.create>;
+    act(() => {
+      renderer = TestRenderer.create(createElement(Probe));
+    });
+    // No state change yet → exactly one initial render snapshot.
+    expect(renders.length).toBe(1);
+
+    act(() => {
+      store.setState({ count: 0 });
+    });
+    // No-op setState (count was already 0) → no re-render.
+    expect(renders.length).toBe(1);
+
+    act(() => {
+      store.setState({ count: 5 });
+    });
+    expect(renders.length).toBe(2);
+    expect(renders[1].count).toBe(5);
+
+    act(() => {
+      renderer!.unmount();
+    });
   });
 
   it("safely handles a listener that unsubscribes a sibling mid-notification", () => {

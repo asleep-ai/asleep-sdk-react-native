@@ -6,7 +6,7 @@
  * Kept as an internal implementation detail so we can drop the external
  * zustand peer dependency.
  */
-import { useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 
 export type StateUpdater<T> = Partial<T> | ((state: T) => Partial<T>);
 
@@ -59,7 +59,20 @@ export const createStore = <T extends object>(creator: StateCreator<T>): UseBoun
   state = creator(setState, getState);
 
   const useBoundStore = (<S>(selector?: Selector<T, S>) => {
-    const getSnapshot = () => (selector ? selector(state) : (state as unknown as S));
+    // Cache the selector result keyed on the underlying state reference. When
+    // a selector returns a fresh object on every call (e.g. `s => ({ x: s.x })`),
+    // useSyncExternalStore would otherwise see a new snapshot every read and
+    // loop forever — the React 18 "getSnapshot should be cached" warning.
+    // Tracking state-identity means we recompute only when the store mutates;
+    // intermediate reads within a render return the same reference.
+    const cache = useRef<{ state: T; value: S } | null>(null);
+    const getSnapshot = () => {
+      if (!selector) return state as unknown as S;
+      if (!cache.current || cache.current.state !== state) {
+        cache.current = { state, value: selector(state) };
+      }
+      return cache.current.value;
+    };
     return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   }) as UseBoundStore<T>;
 
