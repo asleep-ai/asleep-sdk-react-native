@@ -31,10 +31,10 @@ importers:
         specifier: '*'
         version: 55.0.18(@babel/core@7.29.0)(@expo/dom-webview@55.0.5)(react-native@0.79.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0))(react@19.0.0)(typescript@5.9.3)
       react:
-        specifier: '*'
+        specifier: '>=18.2.0'
         version: 19.0.0
       react-native:
-        specifier: '*'
+        specifier: '>=0.74.0'
         version: 0.79.2(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.0.0)
     devDependencies:
       '@types/react':

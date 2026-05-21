@@ -56,9 +56,10 @@
   },
   "peerDependencies": {
     "expo": "*",
-    "react": "*",
-    "react-native": "*",
-    "zustand": "^5.0.1"
+    "expo-modules-core": ">=1.12.0",
+    "react": ">=18.2.0",
+    "react-native": ">=0.74.0",
+    "zustand": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "expo": {
