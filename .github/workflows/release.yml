@@ -155,6 +155,16 @@ jobs:
 
       - run: pnpm build
 
+      # npm CLI 11.5.1+ is required for the OIDC token exchange that backs
+      # Trusted Publishers. Node 22 ships with npm 10, which only signs the
+      # provenance attestation but does not exchange the GitHub OIDC token
+      # for an npm publish credential — leaving the actual PUT unauthenticated
+      # (npm returns 404 in that case, not 401, to avoid leaking package
+      # existence). Upgrading the CLI here keeps the rest of the toolchain
+      # on Node 22 while enabling tokenless publish.
+      - name: Upgrade npm CLI for OIDC publish
+        run: npm install -g npm@latest
+
       - name: Publish with provenance
         run: npm publish --provenance --access public
 
