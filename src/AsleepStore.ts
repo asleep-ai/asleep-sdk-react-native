@@ -578,13 +578,12 @@ export const useAsleepStore = create<AsleepState>()(
       return AsleepModule.requestRequiredPermissions();
     },
 
-    setCustomNotification: async (title: string, text: string) => {
-      if (Platform.OS === "android") {
-        await AsleepModule.setCustomNotification(title, text);
-      } else {
-        if (typeof __DEV__ !== "undefined" && __DEV__)
-          console.warn("[Asleep] setCustomNotification is not supported on this platform");
-      }
+    setCustomNotification: async (_title: string, _text: string) => {
+      // Native method removed; notification config now flows through startTracking options.
+      if (typeof __DEV__ !== "undefined" && __DEV__)
+        console.warn(
+          "[Asleep] setCustomNotification is deprecated and a no-op; pass `{ android: { notification: { title, text, icon } } }` to startTracking() instead",
+        );
     },
 
     enableLog: (print: boolean) => {
@@ -601,14 +600,9 @@ export const useAsleepStore = create<AsleepState>()(
         const result = await AsleepModule.requestAnalysis();
         const convertedResult = convertKeysToCamelCase(result);
 
-        // Platform differences:
-        // Android: Returns the actual analysis result immediately and also sends onAnalysisResult event
-        // iOS: Returns acknowledgment data only, actual result comes through onAnalysisResult event
-        if (Platform.OS === "android" && convertedResult.sleepStages) {
-          // Android returns the actual session data
-          set({ analysisResult: convertedResult, isAnalyzing: false });
-        }
-        // For iOS, isAnalyzing will be set to false when onAnalysisResult event fires
+        // analysisResult and isAnalyzing are owned by the onAnalysisResult event handler on both
+        // platforms. Android resolves the promise with the full session AND fires the event;
+        // iOS resolves with an ack only. Writing state here would double-update on Android.
 
         addLog(`[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`);
 
@@ -803,9 +797,11 @@ export const initializeAsleepListeners = (): (() => void) => {
       addLog(`[onSetupInProgress] progress: ${data.progress}%`);
     },
     // Connected: iOS analyzing (session), Android onSleepDataReceived (AsleepSleepDataListener)
+    // Android serializes snake_case; normalize so both platforms match AsleepAnalysisResult.
     onAnalysisResult: (data: any) => {
-      useAsleepStore.setState({ analysisResult: data, isAnalyzing: false });
-      addLog(`[onAnalysisResult] ${JSON.stringify(data)}`);
+      const normalized = convertKeysToCamelCase(data);
+      useAsleepStore.setState({ analysisResult: normalized, isAnalyzing: false });
+      addLog(`[onAnalysisResult] ${JSON.stringify(normalized)}`);
     },
   };
 

@@ -271,17 +271,15 @@ class AsleepModule : Module() {
                     PackageManager.PERMISSION_GRANTED
                 }
                 if (audioPermission != PackageManager.PERMISSION_GRANTED || fgsPermission != PackageManager.PERMISSION_GRANTED) {
-                    ActivityCompat.requestPermissions(
-                        appContext.currentActivity!!,
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
-                            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.FOREGROUND_SERVICE_MICROPHONE)
-                        } else {
-                            sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
-                            arrayOf(Manifest.permission.RECORD_AUDIO)
-                        },
-                        MICROPHONE_PERMISSION_REQUEST_CODE
+                    // beginSleepTracking would crash with SecurityException at
+                    // startForeground(type=microphone) on API 34+. Reject so JS requests via
+                    // requestRequiredPermissions() and retries.
+                    promise.reject(
+                        "PERMISSION_REQUIRED",
+                        "Microphone permission must be granted before startTracking; request it via requestRequiredPermissions() first",
+                        null
                     )
+                    return@AsyncFunction
                 }
 
 
