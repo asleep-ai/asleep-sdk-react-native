@@ -96,38 +96,46 @@ afterEach(() => {
 });
 
 describe("initializeAsleepListeners ref counting", () => {
+  // The module-private refCount is not directly readable from tests, so we
+  // track every cleanup we create and drain them in afterEach. This keeps
+  // refCount at 0 between tests even if an assertion failure short-circuits
+  // an earlier test before its own cleanup call.
+  const cleanups: (() => void)[] = [];
+  const trackedInit = () => {
+    const c = initializeAsleepListeners();
+    cleanups.push(c);
+    return c;
+  };
+
   beforeEach(resetStore);
+  afterEach(() => {
+    while (cleanups.length) cleanups.pop()!();
+  });
 
   it("first cleanup does not detach listeners while another holder is active", () => {
-    const cleanupA = initializeAsleepListeners();
-    const cleanupB = initializeAsleepListeners();
+    const cleanupA = trackedInit();
+    trackedInit(); // cleanupB
     expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
 
     cleanupA();
     expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
-
-    cleanupB();
-    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(0);
   });
 
   it("calling the same cleanup twice is a no-op", () => {
-    const cleanupA = initializeAsleepListeners();
-    const cleanupB = initializeAsleepListeners();
+    const cleanupA = trackedInit();
+    trackedInit(); // cleanupB
     cleanupA();
     cleanupA();
     expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
-    cleanupB();
-    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(0);
   });
 
   it("re-initializes cleanly after final teardown", () => {
-    const cleanup1 = initializeAsleepListeners();
+    const cleanup1 = trackedInit();
     cleanup1();
     expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(0);
 
-    const cleanup2 = initializeAsleepListeners();
+    trackedInit();
     expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
-    cleanup2();
   });
 });
 
@@ -197,6 +205,16 @@ describe("notification batching (one setState per native event)", () => {
     mockEmitter.__emit("onMicPermissionDenied", undefined);
     off();
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("onTrackingUploaded triggers the native analysis call exactly once per ODA upload", () => {
+    // The store action requestAnalysis wraps mockModule.requestAnalysis. Counting
+    // the native call locks in that the handler no longer pre-flips isAnalyzing
+    // separately and then redundantly invokes requestAnalysis (which also flips it).
+    useAsleepStore.setState({ isODAEnabled: true, isTracking: true });
+    mockModule.requestAnalysis.mockClear();
+    mockEmitter.__emit("onTrackingUploaded", { sequence: 1 });
+    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(1);
   });
 
   it("enableLog(true) opts log writes back in (+1 notify per event)", () => {

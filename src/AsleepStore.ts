@@ -16,6 +16,13 @@ import AsleepModule from "./AsleepModule";
 
 const emitter = new EventEmitter(AsleepModule);
 
+// `__DEV__` is injected by Metro/Babel and jest-expo as a global boolean.
+// Each call site uses a `typeof` guard so the module can also be imported in
+// plain Node, custom bundlers, or unconfigured jest setups without raising
+// ReferenceError. Metro still constant-folds the literal at build time, so
+// the entire branch is dead-code-eliminated in production bundles.
+const isDev = (): boolean => typeof __DEV__ !== "undefined" && __DEV__;
+
 // Error codes emitted on onTrackingFailed for which the native SDK has already
 // terminated the session and will not deliver onTrackingClosed. JS must clear
 // tracking state itself when one of these arrives. See AGENTS.md "Native Behavior
@@ -402,6 +409,10 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     getReport: async (sessionId: string) => {
+      // Snapshot the error before the await so we only clear it on success
+      // if no concurrent failure (e.g. onTrackingFailed firing during the
+      // network round-trip) wrote a different error in the meantime.
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[getReport] sessionId: ${sessionId}`);
@@ -411,9 +422,9 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog("[getReport] Success");
         // Guard so a successful query after a clean run does not spam an empty
-        // notification (zustand's set always allocates a new state object, so
-        // an unconditional `set({ error: null })` would notify every render).
-        if (get().error !== null) set({ error: null });
+        // notification, and so we never clobber an unrelated tracking error
+        // that arrived during the await.
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
 
         // Ensure the report has the expected AsleepReport structure
         // Handle cases where native modules might return data in different formats
@@ -447,6 +458,7 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     getReportList: async (fromDate: string, toDate: string) => {
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[getReportList] fromDate: ${fromDate}, toDate: ${toDate}`);
@@ -468,7 +480,7 @@ export const useAsleepStore = create<AsleepState>()(
         });
 
         addLog("[getReportList] Success");
-        if (get().error !== null) set({ error: null });
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedList;
       } catch (error: any) {
         set({ error: error.message });
@@ -477,6 +489,7 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     deleteSession: async (sessionId: string) => {
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[deleteSession] sessionId: ${sessionId}`);
@@ -484,7 +497,7 @@ export const useAsleepStore = create<AsleepState>()(
         await AsleepModule.deleteSession(sessionId);
 
         addLog("[deleteSession] Success");
-        if (get().error !== null) set({ error: null });
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
       } catch (error: any) {
         set({ error: error.message });
         throw error;
@@ -492,6 +505,7 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     getAverageReport: async (fromDate: string, toDate: string) => {
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[getAverageReport] fromDate: ${fromDate}, toDate: ${toDate}`);
@@ -500,7 +514,7 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(averageReport);
 
         addLog("[getAverageReport] Success");
-        if (get().error !== null) set({ error: null });
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedReport;
       } catch (error: any) {
         set({ error: error.message });
@@ -512,7 +526,7 @@ export const useAsleepStore = create<AsleepState>()(
      * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
      */
     requestMicrophonePermission: async () => {
-      if (__DEV__) {
+      if (isDev()) {
         console.warn(
           "[Asleep] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
         );
@@ -546,7 +560,7 @@ export const useAsleepStore = create<AsleepState>()(
           // Both must be granted for tracking to work properly
           return audioGranted && notificationGranted;
         } catch (err) {
-          if (__DEV__) console.warn("[Asleep] Permission request error:", err);
+          if (isDev()) console.warn("[Asleep] Permission request error:", err);
           return false;
         }
       }
@@ -558,7 +572,7 @@ export const useAsleepStore = create<AsleepState>()(
       if (Platform.OS === "android") {
         await AsleepModule.setCustomNotification(title, text);
       } else {
-        if (__DEV__) console.warn("[Asleep] setCustomNotification is not supported on this platform");
+        if (isDev()) console.warn("[Asleep] setCustomNotification is not supported on this platform");
       }
     },
 
