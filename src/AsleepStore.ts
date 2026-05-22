@@ -16,6 +16,16 @@ import AsleepModule from "./AsleepModule";
 
 const emitter = new EventEmitter(AsleepModule);
 
+// All dev-only warnings below are gated with an inline
+// `typeof __DEV__ !== "undefined" && __DEV__` check rather than a helper
+// function. Metro's inline plugin substitutes the bare `__DEV__` identifier
+// for the literal at build time, then constant-folds `typeof <literal>` and
+// the `&&` so the entire branch is dead-code-eliminated in production
+// bundles. Wrapping the check in a function (e.g. `if (isDev())`) defeats
+// that DCE because Metro does not constant-fold through call expressions.
+// The `typeof` guard also keeps the module importable from plain Node,
+// custom bundlers, or unconfigured jest setups without a ReferenceError.
+
 // Error codes emitted on onTrackingFailed for which the native SDK has already
 // terminated the session and will not deliver onTrackingClosed. JS must clear
 // tracking state itself when one of these arrives. See AGENTS.md "Native Behavior
@@ -150,16 +160,18 @@ export const useAsleepStore = create<AsleepState>()(
 
         await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
 
-        // Store ODA enabled state
+        // Store ODA enabled state. Clearing `error` on success keeps the
+        // reactive `useAsleep().error` field aligned with the actual SDK status
+        // (no stale failure messages after a successful retry).
         set({
           isODAEnabled: config.enableODA || false,
           isInitialized: true,
           isSetupInProgress: false,
           isSetupComplete: true,
+          error: null,
         });
         addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
       } catch (error: any) {
-        console.error("setup error:", error);
         set({ error: error.message, isSetupInProgress: false });
         throw error;
       }
@@ -177,11 +189,10 @@ export const useAsleepStore = create<AsleepState>()(
           config.callbackUrl,
         );
 
-        set({ isInitialized: true });
+        set({ isInitialized: true, error: null });
         addLog("[initAsleepConfig] Success");
         return result;
       } catch (error: any) {
-        console.error("initAsleepConfig error:", error);
         set({ error: error.message });
         throw error;
       }
@@ -217,7 +228,6 @@ export const useAsleepStore = create<AsleepState>()(
           hasActiveSession: isAlive,
         };
       } catch (error: any) {
-        console.error("checkAndRestoreTracking error:", error);
         set({ error: error.message });
         throw error;
       }
@@ -357,6 +367,7 @@ export const useAsleepStore = create<AsleepState>()(
           isTracking: true,
           isAnalyzing: false,
           trackingStartTime: new Date(),
+          error: null,
         });
         await AsleepModule.startTracking(config);
 
@@ -368,7 +379,6 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog("[startTracking] Success");
       } catch (error: any) {
-        console.error("startTracking error:", error);
         set({
           error: error.message,
           isTracking: false,
@@ -391,17 +401,21 @@ export const useAsleepStore = create<AsleepState>()(
           isTracking: false,
           isAnalyzing: false,
           trackingStartTime: null,
+          error: null,
         });
 
         addLog(`[stopTracking] Success - result: ${result}`);
       } catch (error: any) {
-        console.error("stopTracking error:", error);
         set({ error: error.message });
         throw error;
       }
     },
 
     getReport: async (sessionId: string) => {
+      // Snapshot the error before the await so we only clear it on success
+      // if no concurrent failure (e.g. onTrackingFailed firing during the
+      // network round-trip) wrote a different error in the meantime.
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[getReport] sessionId: ${sessionId}`);
@@ -410,6 +424,10 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(report);
 
         addLog("[getReport] Success");
+        // Guard so a successful query after a clean run does not spam an empty
+        // notification, and so we never clobber an unrelated tracking error
+        // that arrived during the await.
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
 
         // Ensure the report has the expected AsleepReport structure
         // Handle cases where native modules might return data in different formats
@@ -437,13 +455,18 @@ export const useAsleepStore = create<AsleepState>()(
 
         return convertedReport as AsleepReport;
       } catch (error: any) {
-        console.error("getReport error:", error);
+        // Silent return on failure is a public-API quirk preserved for v1.x
+        // compat (v2.0 throws). Surface a dev-only warn so the consumer's
+        // Metro log still shows the failure when they're debugging without
+        // observing `useAsleep().error` directly.
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getReport failed:", error);
         set({ error: error.message });
         return null;
       }
     },
 
     getReportList: async (fromDate: string, toDate: string) => {
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[getReportList] fromDate: ${fromDate}, toDate: ${toDate}`);
@@ -465,15 +488,17 @@ export const useAsleepStore = create<AsleepState>()(
         });
 
         addLog("[getReportList] Success");
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedList;
       } catch (error: any) {
-        console.error("getReportList error:", error);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getReportList failed:", error);
         set({ error: error.message });
         return [];
       }
     },
 
     deleteSession: async (sessionId: string) => {
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[deleteSession] sessionId: ${sessionId}`);
@@ -481,14 +506,15 @@ export const useAsleepStore = create<AsleepState>()(
         await AsleepModule.deleteSession(sessionId);
 
         addLog("[deleteSession] Success");
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
       } catch (error: any) {
-        console.error("deleteSession error:", error);
         set({ error: error.message });
         throw error;
       }
     },
 
     getAverageReport: async (fromDate: string, toDate: string) => {
+      const errorBefore = get().error;
       try {
         const { addLog } = get();
         addLog(`[getAverageReport] fromDate: ${fromDate}, toDate: ${toDate}`);
@@ -497,9 +523,10 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(averageReport);
 
         addLog("[getAverageReport] Success");
+        if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedReport;
       } catch (error: any) {
-        console.error("getAverageReport error:", error);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getAverageReport failed:", error);
         set({ error: error.message });
         return null;
       }
@@ -509,9 +536,11 @@ export const useAsleepStore = create<AsleepState>()(
      * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
      */
     requestMicrophonePermission: async () => {
-      console.warn(
-        "[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
-      );
+      if (typeof __DEV__ !== "undefined" && __DEV__) {
+        console.warn(
+          "[Asleep] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
+        );
+      }
       return get().requestRequiredPermissions();
     },
 
@@ -541,7 +570,7 @@ export const useAsleepStore = create<AsleepState>()(
           // Both must be granted for tracking to work properly
           return audioGranted && notificationGranted;
         } catch (err) {
-          console.warn("Permission request error:", err);
+          if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] Permission request error:", err);
           return false;
         }
       }
@@ -553,7 +582,8 @@ export const useAsleepStore = create<AsleepState>()(
       if (Platform.OS === "android") {
         await AsleepModule.setCustomNotification(title, text);
       } else {
-        console.warn("setCustomNotification is not supported on this platform");
+        if (typeof __DEV__ !== "undefined" && __DEV__)
+          console.warn("[Asleep] setCustomNotification is not supported on this platform");
       }
     },
 
@@ -566,7 +596,7 @@ export const useAsleepStore = create<AsleepState>()(
         const { addLog } = get();
         addLog("[requestAnalysis] Start");
 
-        set({ isAnalyzing: true });
+        set({ isAnalyzing: true, error: null });
 
         const result = await AsleepModule.requestAnalysis();
         const convertedResult = convertKeysToCamelCase(result);
@@ -584,7 +614,7 @@ export const useAsleepStore = create<AsleepState>()(
 
         return convertedResult;
       } catch (error: any) {
-        console.error("requestAnalysis error:", error);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] requestAnalysis failed:", error);
         set({ error: error.message, isAnalyzing: false });
         return null;
       }
@@ -619,63 +649,48 @@ export const useAsleepStore = create<AsleepState>()(
     setHasCheckedBatteryOptimization: (checked) => set({ hasCheckedBatteryOptimization: checked }),
 
     addLog: (log: string) => {
+      // Zero-cost when the consumer has not opted into debug logging. Without
+      // this guard, every native event handler would cause a spurious
+      // subscriber notification on top of any actual data update.
       const { showDebugLog } = get();
+      if (!showDebugLog) return;
       const now = new Date();
       const dateString = `${now.getHours().toString().padStart(2, "0")}:${now
         .getMinutes()
         .toString()
         .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-
       const formattedLog = `[${dateString}]${log}`;
-
-      if (showDebugLog) {
-        console.log(`[Asleep]${formattedLog}`);
-      }
-
+      console.log(`[Asleep]${formattedLog}`);
       set({ log: formattedLog });
     },
   })),
 );
 
-// Global flag to prevent multiple listener registrations
-let listenersInitialized = false;
-let cleanupFunction: (() => void) | null = null;
+// Ref-counted registration. Each caller (useAsleep effect, background context,
+// etc.) increments on entry and decrements via the returned cleanup. Native
+// listeners only attach on 0→1 and detach on the final 1→0, so concurrent
+// consumers cannot tear each other's subscriptions down.
+let refCount = 0;
+let teardown: (() => void) | null = null;
 
-// initialize event listeners
-export const initializeAsleepListeners = () => {
-  // If listeners are already initialized, return the existing cleanup function
-  if (listenersInitialized && cleanupFunction) {
-    return cleanupFunction;
+export const initializeAsleepListeners = (): (() => void) => {
+  // Cold start when no teardown is installed. `teardown` is the single source
+  // of truth for "listeners are currently attached"; refCount is just an
+  // increment-only counter for cleanup balancing. Always incrementing
+  // (instead of assigning =1 on cold start) keeps the count correct even if
+  // a future change introduces an async seam between this check and the
+  // listener registration below.
+  if (teardown) {
+    refCount++;
+    return makeCleanup();
   }
 
   const store = useAsleepStore.getState();
-  const {
-    addLog,
-    setUserId,
-    setSessionId,
-    setIsTracking,
-    setIsTrackingPaused,
-    setError,
-    setAnalysisResult,
-    setIsAnalyzing,
-    setIsSetupInProgress,
-    setIsSetupComplete,
-  } = store;
+  const { addLog, setUserId, setIsTrackingPaused, setIsSetupInProgress } = store;
 
-  // Clears session tracking state. Called from both onTrackingClosed (clean
-  // close) and the terminal branch of onTrackingFailed (native SDK tore down
-  // the session without firing onTrackingClosed). Single setState so
-  // subscribers are notified once instead of four times.
-  const clearTrackingState = () => {
-    useAsleepStore.setState({
-      isTracking: false,
-      isAnalyzing: false,
-      didClose: true,
-      trackingStartTime: null,
-    });
-  };
-
-  // event handlers
+  // event handlers — each native SDK event corresponds to one logical state
+  // transaction. Use a single useAsleepStore.setState per handler so consumers
+  // subscribed via useAsleep re-render once per event, not once per field.
   const handlers = {
     // Connected: iOS userDidJoin, Android onSuccess (AsleepConfigListener)
     onUserJoined: (data: any) => {
@@ -685,7 +700,7 @@ export const initializeAsleepListeners = () => {
     // Connected: iOS didFailUserJoin, Android onFail (AsleepConfigListener)
     onUserJoinFailed: (error: any) => {
       const errorString = JSON.stringify(error);
-      setError(errorString);
+      useAsleepStore.setState({ error: errorString });
       addLog(`[onUserJoinFailed] error: ${errorString}`);
     },
     // Connected: iOS userDidDelete, Android NOT IMPLEMENTED
@@ -695,10 +710,10 @@ export const initializeAsleepListeners = () => {
     },
     // Connected: iOS didCreate, Android onStart (AsleepTrackingListener)
     onTrackingCreated: (data: any) => {
-      setIsTracking(true);
-      if (data && data.sessionId) {
-        setSessionId(data.sessionId);
-      }
+      useAsleepStore.setState({
+        isTracking: true,
+        ...(data?.sessionId ? { sessionId: data.sessionId } : {}),
+      });
       addLog(`[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""}`);
     },
     // Connected: iOS didUpload, Android onPerform (AsleepTrackingListener)
@@ -706,37 +721,47 @@ export const initializeAsleepListeners = () => {
     onTrackingUploaded: (data: any) => {
       addLog(`[onTrackingUploaded] sequence: ${data.sequence}`);
 
+      // requestAnalysis() flips isAnalyzing internally; no separate setter
+      // needed before invoking it (avoids a duplicate subscriber notification).
       const state = useAsleepStore.getState();
-      if (state.isODAEnabled && state.isTracking) {
-        state.setIsAnalyzing(true);
+      const triggerAnalysis = () =>
         state.requestAnalysis().catch((error) => {
           addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
           state.setIsAnalyzing(false);
         });
+
+      if (state.isODAEnabled && state.isTracking) {
+        triggerAnalysis();
       } else if (!state.isODAEnabled && state.isTracking) {
         if (data.sequence >= 10 && data.sequence % 10 === 1) {
-          state.setIsAnalyzing(true);
-          state.requestAnalysis().catch((error) => {
-            addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
-            state.setIsAnalyzing(false);
-          });
+          triggerAnalysis();
         }
       }
     },
     // Connected: iOS didClose, Android onFinish (AsleepTrackingListener)
     onTrackingClosed: (data: { sessionId: string }) => {
-      setSessionId(data.sessionId);
-      clearTrackingState();
+      useAsleepStore.setState({
+        sessionId: data.sessionId,
+        isTracking: false,
+        isAnalyzing: false,
+        didClose: true,
+        trackingStartTime: null,
+      });
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
+    // Terminal codes (UPLOAD_TRACKING_TERMINATED / INTERRUPTION_RECOVERY_FAILED)
+    // mean the native SDK already tore the session down — clear tracking state
+    // in the same setState as the error write so subscribers see one event.
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
-      setError(errorString);
+      const terminal = !!(error && TERMINAL_TRACKING_ERROR_CODES.has(error.code));
+      useAsleepStore.setState(
+        terminal
+          ? { error: errorString, isTracking: false, isAnalyzing: false, didClose: true, trackingStartTime: null }
+          : { error: errorString },
+      );
       addLog(`[onTrackingError] error: ${errorString}`);
-      if (error && TERMINAL_TRACKING_ERROR_CODES.has(error.code)) {
-        clearTrackingState();
-      }
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
     onTrackingInterrupted: () => {
@@ -749,13 +774,9 @@ export const initializeAsleepListeners = () => {
     // should still be cleared. Only the paused-state mutation is gated, to dedup the
     // iOS 3.2.1+ double fire from handleRecovering -> handleResumed.
     onTrackingResumed: () => {
-      setError(null);
-      if (!useAsleepStore.getState().isTrackingPaused) {
-        addLog(`[onTrackingResumed] (no prior pause; error cleared)`);
-        return;
-      }
-      setIsTrackingPaused(false);
-      addLog(`[onTrackingResumed]`);
+      const wasPaused = useAsleepStore.getState().isTrackingPaused;
+      useAsleepStore.setState(wasPaused ? { error: null, isTrackingPaused: false } : { error: null });
+      addLog(wasPaused ? `[onTrackingResumed]` : `[onTrackingResumed] (no prior pause; error cleared)`);
     },
     // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
     onMicPermissionDenied: () => {
@@ -767,16 +788,13 @@ export const initializeAsleepListeners = () => {
     },
     // Connected: iOS setupDidComplete, Android onComplete (AsleepSetupListener)
     onSetupDidComplete: () => {
-      setIsSetupInProgress(false);
-      setIsSetupComplete(true);
+      useAsleepStore.setState({ isSetupInProgress: false, isSetupComplete: true });
       addLog(`[onSetupDidComplete]`);
     },
     // Connected: iOS setupDidFail, Android onFail (AsleepSetupListener)
     onSetupDidFail: (data: any) => {
       const errorString = JSON.stringify(data);
-      setError(errorString);
-      setIsSetupInProgress(false);
-      setIsSetupComplete(false);
+      useAsleepStore.setState({ error: errorString, isSetupInProgress: false, isSetupComplete: false });
       addLog(`[onSetupDidFail] error: ${errorString}`);
     },
     // Connected: iOS setupInProgress, Android onProgress (AsleepSetupListener)
@@ -786,30 +804,36 @@ export const initializeAsleepListeners = () => {
     },
     // Connected: iOS analyzing (session), Android onSleepDataReceived (AsleepSleepDataListener)
     onAnalysisResult: (data: any) => {
-      setAnalysisResult(data);
-      setIsAnalyzing(false); // Analysis is complete, so set to false
+      useAsleepStore.setState({ analysisResult: data, isAnalyzing: false });
       addLog(`[onAnalysisResult] ${JSON.stringify(data)}`);
     },
   };
 
   // register all event listeners
   const subscriptions: (() => void)[] = [];
-
   Object.entries(handlers).forEach(([eventType, handler]) => {
     const subscription = emitter.addListener(eventType, handler);
     subscriptions.push(() => subscription.remove());
   });
 
-  // Mark listeners as initialized
-  listenersInitialized = true;
-
-  // Create cleanup function
-  cleanupFunction = () => {
+  refCount++;
+  teardown = () => {
     subscriptions.forEach((unsubscribe) => unsubscribe());
-    listenersInitialized = false;
-    cleanupFunction = null;
+    teardown = null;
   };
 
-  // return cleanup function
-  return cleanupFunction;
+  return makeCleanup();
+};
+
+const makeCleanup = (): (() => void) => {
+  // Idempotent per-caller cleanup. The `called` flag is closure-private so
+  // calling the returned function twice (e.g. Strict Mode double-effect)
+  // decrements the shared ref count only once.
+  let called = false;
+  return () => {
+    if (called) return;
+    called = true;
+    refCount--;
+    if (refCount === 0 && teardown) teardown();
+  };
 };
