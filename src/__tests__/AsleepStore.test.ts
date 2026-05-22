@@ -217,6 +217,31 @@ describe("notification batching (one setState per native event)", () => {
     expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(1);
   });
 
+  it("onTrackingUploaded triggers analysis on non-ODA modulo cadence (sequence 11, 21, …)", () => {
+    // Non-ODA path: analysis fires when sequence >= 10 and sequence % 10 === 1.
+    // Lock the modulo so a future rebase cannot quietly drop the cadence.
+    useAsleepStore.setState({ isODAEnabled: false, isTracking: true });
+    mockModule.requestAnalysis.mockClear();
+
+    mockEmitter.__emit("onTrackingUploaded", { sequence: 11 });
+    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(1);
+
+    mockEmitter.__emit("onTrackingUploaded", { sequence: 12 });
+    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(1); // no trigger off-cadence
+
+    mockEmitter.__emit("onTrackingUploaded", { sequence: 21 });
+    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(2);
+  });
+
+  it("onTrackingFailed with a non-terminal code preserves isTracking and only stores the error", () => {
+    useAsleepStore.setState({ isTracking: true, isAnalyzing: true });
+    mockEmitter.__emit("onTrackingFailed", { code: "RECOVERABLE_GLITCH", error: "minor" });
+    const s = useAsleepStore.getState();
+    expect(s.isTracking).toBe(true);
+    expect(s.isAnalyzing).toBe(true);
+    expect(s.error).toContain("minor");
+  });
+
   it("enableLog(true) opts log writes back in (+1 notify per event)", () => {
     useAsleepStore.getState().enableLog(true);
     const listener = jest.fn();
@@ -258,6 +283,25 @@ describe("success error clear is guarded — no spurious notifications", () => {
     off();
     expect(listener).toHaveBeenCalledTimes(1);
     expect(useAsleepStore.getState().error).toBeNull();
+  });
+
+  it("getReport success does NOT clobber an unrelated error that arrived during the await", async () => {
+    // Seed an initial state error (the snapshot the guard captures).
+    useAsleepStore.setState({ error: "old report error" });
+    // Resolve the native call only after we inject an interleaved error.
+    let resolveGet: (value: unknown) => void;
+    mockModule.getReport.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveGet = resolve;
+      }),
+    );
+    const getPromise = useAsleepStore.getState().getReport("a");
+    // Simulate a concurrent native failure landing while the await is in flight.
+    useAsleepStore.setState({ error: "tracking failed mid-flight" });
+    resolveGet!({ timezone: "", session: {} });
+    await getPromise;
+    // The capture-and-compare guard must leave the interleaved error untouched.
+    expect(useAsleepStore.getState().error).toBe("tracking failed mid-flight");
   });
 });
 

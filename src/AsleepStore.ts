@@ -16,12 +16,15 @@ import AsleepModule from "./AsleepModule";
 
 const emitter = new EventEmitter(AsleepModule);
 
-// `__DEV__` is injected by Metro/Babel and jest-expo as a global boolean.
-// Each call site uses a `typeof` guard so the module can also be imported in
-// plain Node, custom bundlers, or unconfigured jest setups without raising
-// ReferenceError. Metro still constant-folds the literal at build time, so
-// the entire branch is dead-code-eliminated in production bundles.
-const isDev = (): boolean => typeof __DEV__ !== "undefined" && __DEV__;
+// All dev-only warnings below are gated with an inline
+// `typeof __DEV__ !== "undefined" && __DEV__` check rather than a helper
+// function. Metro's inline plugin substitutes the bare `__DEV__` identifier
+// for the literal at build time, then constant-folds `typeof <literal>` and
+// the `&&` so the entire branch is dead-code-eliminated in production
+// bundles. Wrapping the check in a function (e.g. `if (isDev())`) defeats
+// that DCE because Metro does not constant-fold through call expressions.
+// The `typeof` guard also keeps the module importable from plain Node,
+// custom bundlers, or unconfigured jest setups without a ReferenceError.
 
 // Error codes emitted on onTrackingFailed for which the native SDK has already
 // terminated the session and will not deliver onTrackingClosed. JS must clear
@@ -456,7 +459,7 @@ export const useAsleepStore = create<AsleepState>()(
         // compat (v2.0 throws). Surface a dev-only warn so the consumer's
         // Metro log still shows the failure when they're debugging without
         // observing `useAsleep().error` directly.
-        if (isDev()) console.warn("[Asleep] getReport failed:", error);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getReport failed:", error);
         set({ error: error.message });
         return null;
       }
@@ -488,7 +491,7 @@ export const useAsleepStore = create<AsleepState>()(
         if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedList;
       } catch (error: any) {
-        if (isDev()) console.warn("[Asleep] getReportList failed:", error);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getReportList failed:", error);
         set({ error: error.message });
         return [];
       }
@@ -523,7 +526,7 @@ export const useAsleepStore = create<AsleepState>()(
         if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedReport;
       } catch (error: any) {
-        if (isDev()) console.warn("[Asleep] getAverageReport failed:", error);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getAverageReport failed:", error);
         set({ error: error.message });
         return null;
       }
@@ -533,7 +536,7 @@ export const useAsleepStore = create<AsleepState>()(
      * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
      */
     requestMicrophonePermission: async () => {
-      if (isDev()) {
+      if (typeof __DEV__ !== "undefined" && __DEV__) {
         console.warn(
           "[Asleep] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
         );
@@ -567,7 +570,7 @@ export const useAsleepStore = create<AsleepState>()(
           // Both must be granted for tracking to work properly
           return audioGranted && notificationGranted;
         } catch (err) {
-          if (isDev()) console.warn("[Asleep] Permission request error:", err);
+          if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] Permission request error:", err);
           return false;
         }
       }
@@ -579,7 +582,8 @@ export const useAsleepStore = create<AsleepState>()(
       if (Platform.OS === "android") {
         await AsleepModule.setCustomNotification(title, text);
       } else {
-        if (isDev()) console.warn("[Asleep] setCustomNotification is not supported on this platform");
+        if (typeof __DEV__ !== "undefined" && __DEV__)
+          console.warn("[Asleep] setCustomNotification is not supported on this platform");
       }
     },
 
@@ -610,7 +614,7 @@ export const useAsleepStore = create<AsleepState>()(
 
         return convertedResult;
       } catch (error: any) {
-        if (isDev()) console.warn("[Asleep] requestAnalysis failed:", error);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] requestAnalysis failed:", error);
         set({ error: error.message, isAnalyzing: false });
         return null;
       }
@@ -670,7 +674,13 @@ let refCount = 0;
 let teardown: (() => void) | null = null;
 
 export const initializeAsleepListeners = (): (() => void) => {
-  if (refCount > 0 && teardown) {
+  // Cold start when no teardown is installed. `teardown` is the single source
+  // of truth for "listeners are currently attached"; refCount is just an
+  // increment-only counter for cleanup balancing. Always incrementing
+  // (instead of assigning =1 on cold start) keeps the count correct even if
+  // a future change introduces an async seam between this check and the
+  // listener registration below.
+  if (teardown) {
     refCount++;
     return makeCleanup();
   }
@@ -806,7 +816,7 @@ export const initializeAsleepListeners = (): (() => void) => {
     subscriptions.push(() => subscription.remove());
   });
 
-  refCount = 1;
+  refCount++;
   teardown = () => {
     subscriptions.forEach((unsubscribe) => unsubscribe());
     teardown = null;
