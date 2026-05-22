@@ -452,6 +452,11 @@ export const useAsleepStore = create<AsleepState>()(
 
         return convertedReport as AsleepReport;
       } catch (error: any) {
+        // Silent return on failure is a public-API quirk preserved for v1.x
+        // compat (v2.0 throws). Surface a dev-only warn so the consumer's
+        // Metro log still shows the failure when they're debugging without
+        // observing `useAsleep().error` directly.
+        if (isDev()) console.warn("[Asleep] getReport failed:", error);
         set({ error: error.message });
         return null;
       }
@@ -483,6 +488,7 @@ export const useAsleepStore = create<AsleepState>()(
         if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedList;
       } catch (error: any) {
+        if (isDev()) console.warn("[Asleep] getReportList failed:", error);
         set({ error: error.message });
         return [];
       }
@@ -517,6 +523,7 @@ export const useAsleepStore = create<AsleepState>()(
         if (get().error !== null && get().error === errorBefore) set({ error: null });
         return convertedReport;
       } catch (error: any) {
+        if (isDev()) console.warn("[Asleep] getAverageReport failed:", error);
         set({ error: error.message });
         return null;
       }
@@ -603,6 +610,7 @@ export const useAsleepStore = create<AsleepState>()(
 
         return convertedResult;
       } catch (error: any) {
+        if (isDev()) console.warn("[Asleep] requestAnalysis failed:", error);
         set({ error: error.message, isAnalyzing: false });
         return null;
       }

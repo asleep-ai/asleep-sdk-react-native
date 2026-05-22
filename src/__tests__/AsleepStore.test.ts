@@ -353,6 +353,20 @@ describe("__DEV__ gated warnings", () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  it("query methods that silently return null/[] surface a dev-only warn", async () => {
+    setDev(true);
+    mockModule.getReport.mockRejectedValueOnce(new Error("net down"));
+    await useAsleepStore.getState().getReport("any");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("getReport failed"), expect.any(Error));
+  });
+
+  it("query method warn is silent in production", async () => {
+    setDev(false);
+    mockModule.getReport.mockRejectedValueOnce(new Error("net down"));
+    await useAsleepStore.getState().getReport("any");
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
   it("requestMicrophonePermission deprecation is dev-gated", async () => {
     setDev(false);
     await useAsleepStore.getState().requestMicrophonePermission();
