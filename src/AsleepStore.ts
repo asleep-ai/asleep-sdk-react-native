@@ -150,16 +150,18 @@ export const useAsleepStore = create<AsleepState>()(
 
         await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
 
-        // Store ODA enabled state
+        // Store ODA enabled state. Clearing `error` on success keeps the
+        // reactive `useAsleep().error` field aligned with the actual SDK status
+        // (no stale failure messages after a successful retry).
         set({
           isODAEnabled: config.enableODA || false,
           isInitialized: true,
           isSetupInProgress: false,
           isSetupComplete: true,
+          error: null,
         });
         addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
       } catch (error: any) {
-        console.error("setup error:", error);
         set({ error: error.message, isSetupInProgress: false });
         throw error;
       }
@@ -177,11 +179,10 @@ export const useAsleepStore = create<AsleepState>()(
           config.callbackUrl,
         );
 
-        set({ isInitialized: true });
+        set({ isInitialized: true, error: null });
         addLog("[initAsleepConfig] Success");
         return result;
       } catch (error: any) {
-        console.error("initAsleepConfig error:", error);
         set({ error: error.message });
         throw error;
       }
@@ -217,7 +218,6 @@ export const useAsleepStore = create<AsleepState>()(
           hasActiveSession: isAlive,
         };
       } catch (error: any) {
-        console.error("checkAndRestoreTracking error:", error);
         set({ error: error.message });
         throw error;
       }
@@ -357,6 +357,7 @@ export const useAsleepStore = create<AsleepState>()(
           isTracking: true,
           isAnalyzing: false,
           trackingStartTime: new Date(),
+          error: null,
         });
         await AsleepModule.startTracking(config);
 
@@ -368,7 +369,6 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog("[startTracking] Success");
       } catch (error: any) {
-        console.error("startTracking error:", error);
         set({
           error: error.message,
           isTracking: false,
@@ -391,11 +391,11 @@ export const useAsleepStore = create<AsleepState>()(
           isTracking: false,
           isAnalyzing: false,
           trackingStartTime: null,
+          error: null,
         });
 
         addLog(`[stopTracking] Success - result: ${result}`);
       } catch (error: any) {
-        console.error("stopTracking error:", error);
         set({ error: error.message });
         throw error;
       }
@@ -410,6 +410,7 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(report);
 
         addLog("[getReport] Success");
+        set({ error: null });
 
         // Ensure the report has the expected AsleepReport structure
         // Handle cases where native modules might return data in different formats
@@ -437,7 +438,6 @@ export const useAsleepStore = create<AsleepState>()(
 
         return convertedReport as AsleepReport;
       } catch (error: any) {
-        console.error("getReport error:", error);
         set({ error: error.message });
         return null;
       }
@@ -465,9 +465,9 @@ export const useAsleepStore = create<AsleepState>()(
         });
 
         addLog("[getReportList] Success");
+        set({ error: null });
         return convertedList;
       } catch (error: any) {
-        console.error("getReportList error:", error);
         set({ error: error.message });
         return [];
       }
@@ -481,8 +481,8 @@ export const useAsleepStore = create<AsleepState>()(
         await AsleepModule.deleteSession(sessionId);
 
         addLog("[deleteSession] Success");
+        set({ error: null });
       } catch (error: any) {
-        console.error("deleteSession error:", error);
         set({ error: error.message });
         throw error;
       }
@@ -497,9 +497,9 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(averageReport);
 
         addLog("[getAverageReport] Success");
+        set({ error: null });
         return convertedReport;
       } catch (error: any) {
-        console.error("getAverageReport error:", error);
         set({ error: error.message });
         return null;
       }
@@ -509,9 +509,11 @@ export const useAsleepStore = create<AsleepState>()(
      * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
      */
     requestMicrophonePermission: async () => {
-      console.warn(
-        "[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
-      );
+      if (__DEV__) {
+        console.warn(
+          "[Asleep] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
+        );
+      }
       return get().requestRequiredPermissions();
     },
 
@@ -541,7 +543,7 @@ export const useAsleepStore = create<AsleepState>()(
           // Both must be granted for tracking to work properly
           return audioGranted && notificationGranted;
         } catch (err) {
-          console.warn("Permission request error:", err);
+          if (__DEV__) console.warn("[Asleep] Permission request error:", err);
           return false;
         }
       }
@@ -553,7 +555,7 @@ export const useAsleepStore = create<AsleepState>()(
       if (Platform.OS === "android") {
         await AsleepModule.setCustomNotification(title, text);
       } else {
-        console.warn("setCustomNotification is not supported on this platform");
+        if (__DEV__) console.warn("[Asleep] setCustomNotification is not supported on this platform");
       }
     },
 
@@ -566,7 +568,7 @@ export const useAsleepStore = create<AsleepState>()(
         const { addLog } = get();
         addLog("[requestAnalysis] Start");
 
-        set({ isAnalyzing: true });
+        set({ isAnalyzing: true, error: null });
 
         const result = await AsleepModule.requestAnalysis();
         const convertedResult = convertKeysToCamelCase(result);
@@ -584,7 +586,6 @@ export const useAsleepStore = create<AsleepState>()(
 
         return convertedResult;
       } catch (error: any) {
-        console.error("requestAnalysis error:", error);
         set({ error: error.message, isAnalyzing: false });
         return null;
       }
@@ -619,63 +620,43 @@ export const useAsleepStore = create<AsleepState>()(
     setHasCheckedBatteryOptimization: (checked) => set({ hasCheckedBatteryOptimization: checked }),
 
     addLog: (log: string) => {
+      // No-op when debug logging is disabled (the default). Every event handler
+      // calls addLog; writing to state unconditionally meant each event also
+      // notified subscribers with a log change on top of any data update.
+      // Now the cost is zero unless the consumer opts in via enableLog(true).
       const { showDebugLog } = get();
+      if (!showDebugLog) return;
       const now = new Date();
       const dateString = `${now.getHours().toString().padStart(2, "0")}:${now
         .getMinutes()
         .toString()
         .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
-
       const formattedLog = `[${dateString}]${log}`;
-
-      if (showDebugLog) {
-        console.log(`[Asleep]${formattedLog}`);
-      }
-
+      console.log(`[Asleep]${formattedLog}`);
       set({ log: formattedLog });
     },
   })),
 );
 
-// Global flag to prevent multiple listener registrations
-let listenersInitialized = false;
-let cleanupFunction: (() => void) | null = null;
+// Ref-counted registration. Each caller (useAsleep effect, background context,
+// etc.) increments on entry and decrements via the returned cleanup. Native
+// listeners only attach on 0→1 and detach on the final 1→0, so concurrent
+// consumers cannot tear each other's subscriptions down.
+let refCount = 0;
+let teardown: (() => void) | null = null;
 
-// initialize event listeners
-export const initializeAsleepListeners = () => {
-  // If listeners are already initialized, return the existing cleanup function
-  if (listenersInitialized && cleanupFunction) {
-    return cleanupFunction;
+export const initializeAsleepListeners = (): (() => void) => {
+  if (refCount > 0 && teardown) {
+    refCount++;
+    return makeCleanup();
   }
 
   const store = useAsleepStore.getState();
-  const {
-    addLog,
-    setUserId,
-    setSessionId,
-    setIsTracking,
-    setIsTrackingPaused,
-    setError,
-    setAnalysisResult,
-    setIsAnalyzing,
-    setIsSetupInProgress,
-    setIsSetupComplete,
-  } = store;
+  const { addLog, setUserId, setIsTrackingPaused, setIsSetupInProgress } = store;
 
-  // Clears session tracking state. Called from both onTrackingClosed (clean
-  // close) and the terminal branch of onTrackingFailed (native SDK tore down
-  // the session without firing onTrackingClosed). Single setState so
-  // subscribers are notified once instead of four times.
-  const clearTrackingState = () => {
-    useAsleepStore.setState({
-      isTracking: false,
-      isAnalyzing: false,
-      didClose: true,
-      trackingStartTime: null,
-    });
-  };
-
-  // event handlers
+  // event handlers — each native SDK event corresponds to one logical state
+  // transaction. Use a single useAsleepStore.setState per handler so consumers
+  // subscribed via useAsleep re-render once per event, not once per field.
   const handlers = {
     // Connected: iOS userDidJoin, Android onSuccess (AsleepConfigListener)
     onUserJoined: (data: any) => {
@@ -685,7 +666,7 @@ export const initializeAsleepListeners = () => {
     // Connected: iOS didFailUserJoin, Android onFail (AsleepConfigListener)
     onUserJoinFailed: (error: any) => {
       const errorString = JSON.stringify(error);
-      setError(errorString);
+      useAsleepStore.setState({ error: errorString });
       addLog(`[onUserJoinFailed] error: ${errorString}`);
     },
     // Connected: iOS userDidDelete, Android NOT IMPLEMENTED
@@ -695,10 +676,7 @@ export const initializeAsleepListeners = () => {
     },
     // Connected: iOS didCreate, Android onStart (AsleepTrackingListener)
     onTrackingCreated: (data: any) => {
-      setIsTracking(true);
-      if (data && data.sessionId) {
-        setSessionId(data.sessionId);
-      }
+      useAsleepStore.setState(data?.sessionId ? { isTracking: true, sessionId: data.sessionId } : { isTracking: true });
       addLog(`[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""}`);
     },
     // Connected: iOS didUpload, Android onPerform (AsleepTrackingListener)
@@ -725,18 +703,28 @@ export const initializeAsleepListeners = () => {
     },
     // Connected: iOS didClose, Android onFinish (AsleepTrackingListener)
     onTrackingClosed: (data: { sessionId: string }) => {
-      setSessionId(data.sessionId);
-      clearTrackingState();
+      useAsleepStore.setState({
+        sessionId: data.sessionId,
+        isTracking: false,
+        isAnalyzing: false,
+        didClose: true,
+        trackingStartTime: null,
+      });
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
+    // Terminal codes (UPLOAD_TRACKING_TERMINATED / INTERRUPTION_RECOVERY_FAILED)
+    // mean the native SDK already tore the session down — clear tracking state
+    // in the same setState as the error write so subscribers see one event.
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
-      setError(errorString);
+      const terminal = !!(error && TERMINAL_TRACKING_ERROR_CODES.has(error.code));
+      useAsleepStore.setState(
+        terminal
+          ? { error: errorString, isTracking: false, isAnalyzing: false, didClose: true, trackingStartTime: null }
+          : { error: errorString },
+      );
       addLog(`[onTrackingError] error: ${errorString}`);
-      if (error && TERMINAL_TRACKING_ERROR_CODES.has(error.code)) {
-        clearTrackingState();
-      }
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
     onTrackingInterrupted: () => {
@@ -749,13 +737,9 @@ export const initializeAsleepListeners = () => {
     // should still be cleared. Only the paused-state mutation is gated, to dedup the
     // iOS 3.2.1+ double fire from handleRecovering -> handleResumed.
     onTrackingResumed: () => {
-      setError(null);
-      if (!useAsleepStore.getState().isTrackingPaused) {
-        addLog(`[onTrackingResumed] (no prior pause; error cleared)`);
-        return;
-      }
-      setIsTrackingPaused(false);
-      addLog(`[onTrackingResumed]`);
+      const wasPaused = useAsleepStore.getState().isTrackingPaused;
+      useAsleepStore.setState(wasPaused ? { error: null, isTrackingPaused: false } : { error: null });
+      addLog(wasPaused ? `[onTrackingResumed]` : `[onTrackingResumed] (no prior pause; error cleared)`);
     },
     // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
     onMicPermissionDenied: () => {
@@ -767,16 +751,13 @@ export const initializeAsleepListeners = () => {
     },
     // Connected: iOS setupDidComplete, Android onComplete (AsleepSetupListener)
     onSetupDidComplete: () => {
-      setIsSetupInProgress(false);
-      setIsSetupComplete(true);
+      useAsleepStore.setState({ isSetupInProgress: false, isSetupComplete: true });
       addLog(`[onSetupDidComplete]`);
     },
     // Connected: iOS setupDidFail, Android onFail (AsleepSetupListener)
     onSetupDidFail: (data: any) => {
       const errorString = JSON.stringify(data);
-      setError(errorString);
-      setIsSetupInProgress(false);
-      setIsSetupComplete(false);
+      useAsleepStore.setState({ error: errorString, isSetupInProgress: false, isSetupComplete: false });
       addLog(`[onSetupDidFail] error: ${errorString}`);
     },
     // Connected: iOS setupInProgress, Android onProgress (AsleepSetupListener)
@@ -786,30 +767,39 @@ export const initializeAsleepListeners = () => {
     },
     // Connected: iOS analyzing (session), Android onSleepDataReceived (AsleepSleepDataListener)
     onAnalysisResult: (data: any) => {
-      setAnalysisResult(data);
-      setIsAnalyzing(false); // Analysis is complete, so set to false
+      useAsleepStore.setState({ analysisResult: data, isAnalyzing: false });
       addLog(`[onAnalysisResult] ${JSON.stringify(data)}`);
     },
   };
 
   // register all event listeners
   const subscriptions: (() => void)[] = [];
-
   Object.entries(handlers).forEach(([eventType, handler]) => {
     const subscription = emitter.addListener(eventType, handler);
     subscriptions.push(() => subscription.remove());
   });
 
-  // Mark listeners as initialized
-  listenersInitialized = true;
-
-  // Create cleanup function
-  cleanupFunction = () => {
+  refCount = 1;
+  teardown = () => {
     subscriptions.forEach((unsubscribe) => unsubscribe());
-    listenersInitialized = false;
-    cleanupFunction = null;
+    teardown = null;
   };
 
-  // return cleanup function
-  return cleanupFunction;
+  return makeCleanup();
+};
+
+let cleanupCalled: WeakSet<() => void>;
+const makeCleanup = (): (() => void) => {
+  // Per-caller cleanup that is idempotent (calling twice is a no-op) and
+  // only decrements the ref count once.
+  cleanupCalled ??= new WeakSet();
+  const cleanup = () => {
+    if (cleanupCalled.has(cleanup)) return;
+    cleanupCalled.add(cleanup);
+    refCount--;
+    if (refCount === 0 && teardown) {
+      teardown();
+    }
+  };
+  return cleanup;
 };
