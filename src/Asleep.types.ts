@@ -159,6 +159,14 @@ export type AsleepAnalysisResult = {
   snoringStages?: number[];
 };
 
+// iOS resolves requestAnalysis with an ack while the real payload arrives via the
+// onAnalysisResult event. Android resolves with the full AsleepAnalysisResult and also
+// fires the event. Consumers reading the promise return value should narrow on `status`.
+export type AsleepAnalysisAck = {
+  status: "requested";
+  timestamp: number;
+};
+
 export type AudioSessionOption = "duckOthers" | "allowAirPlay" | "allowBluetooth" | "allowBluetoothA2DP";
 
 export type TrackingConfig = {

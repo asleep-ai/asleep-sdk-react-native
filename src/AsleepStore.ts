@@ -10,6 +10,7 @@ import {
   AsleepSession,
   AsleepAverageReport,
   AsleepAnalysisResult,
+  AsleepAnalysisAck,
   TrackingConfig,
 } from "./Asleep.types";
 import AsleepModule from "./AsleepModule";
@@ -75,7 +76,7 @@ export interface AsleepState {
   setCustomNotification: (title: string, text: string) => Promise<void>;
   enableLog: (print: boolean) => void;
   clearError: () => void;
-  requestAnalysis: () => Promise<AsleepAnalysisResult | null>;
+  requestAnalysis: () => Promise<AsleepAnalysisResult | AsleepAnalysisAck | null>;
   addEventListener: <K extends keyof AsleepEventType>(
     eventType: K,
     listener: (data: AsleepEventType[K]) => void,
@@ -592,7 +593,7 @@ export const useAsleepStore = create<AsleepState>()(
 
     requestAnalysis: async () => {
       try {
-        const { addLog } = get();
+        const { addLog, showDebugLog } = get();
         addLog("[requestAnalysis] Start");
 
         set({ isAnalyzing: true, error: null });
@@ -604,7 +605,7 @@ export const useAsleepStore = create<AsleepState>()(
         // platforms. Android resolves the promise with the full session AND fires the event;
         // iOS resolves with an ack only. Writing state here would double-update on Android.
 
-        addLog(`[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`);
+        if (showDebugLog) addLog(`[requestAnalysis] Request sent - ${JSON.stringify(convertedResult)}`);
 
         return convertedResult;
       } catch (error: any) {
@@ -801,7 +802,9 @@ export const initializeAsleepListeners = (): (() => void) => {
     onAnalysisResult: (data: any) => {
       const normalized = convertKeysToCamelCase(data);
       useAsleepStore.setState({ analysisResult: normalized, isAnalyzing: false });
-      addLog(`[onAnalysisResult] ${JSON.stringify(normalized)}`);
+      if (useAsleepStore.getState().showDebugLog) {
+        addLog(`[onAnalysisResult] ${JSON.stringify(normalized)}`);
+      }
     },
   };
 

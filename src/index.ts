@@ -298,5 +298,6 @@ export type {
   AsleepNeverSleptSession,
   AsleepStat,
   AsleepAnalysisResult,
+  AsleepAnalysisAck,
   TrackingConfig,
 } from "./Asleep.types";
