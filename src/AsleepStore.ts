@@ -410,7 +410,10 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(report);
 
         addLog("[getReport] Success");
-        set({ error: null });
+        // Guard so a successful query after a clean run does not spam an empty
+        // notification (zustand's set always allocates a new state object, so
+        // an unconditional `set({ error: null })` would notify every render).
+        if (get().error !== null) set({ error: null });
 
         // Ensure the report has the expected AsleepReport structure
         // Handle cases where native modules might return data in different formats
@@ -465,7 +468,7 @@ export const useAsleepStore = create<AsleepState>()(
         });
 
         addLog("[getReportList] Success");
-        set({ error: null });
+        if (get().error !== null) set({ error: null });
         return convertedList;
       } catch (error: any) {
         set({ error: error.message });
@@ -481,7 +484,7 @@ export const useAsleepStore = create<AsleepState>()(
         await AsleepModule.deleteSession(sessionId);
 
         addLog("[deleteSession] Success");
-        set({ error: null });
+        if (get().error !== null) set({ error: null });
       } catch (error: any) {
         set({ error: error.message });
         throw error;
@@ -497,7 +500,7 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(averageReport);
 
         addLog("[getAverageReport] Success");
-        set({ error: null });
+        if (get().error !== null) set({ error: null });
         return convertedReport;
       } catch (error: any) {
         set({ error: error.message });
@@ -620,10 +623,9 @@ export const useAsleepStore = create<AsleepState>()(
     setHasCheckedBatteryOptimization: (checked) => set({ hasCheckedBatteryOptimization: checked }),
 
     addLog: (log: string) => {
-      // No-op when debug logging is disabled (the default). Every event handler
-      // calls addLog; writing to state unconditionally meant each event also
-      // notified subscribers with a log change on top of any data update.
-      // Now the cost is zero unless the consumer opts in via enableLog(true).
+      // Zero-cost when the consumer has not opted into debug logging. Without
+      // this guard, every native event handler would cause a spurious
+      // subscriber notification on top of any actual data update.
       const { showDebugLog } = get();
       if (!showDebugLog) return;
       const now = new Date();
@@ -676,7 +678,10 @@ export const initializeAsleepListeners = (): (() => void) => {
     },
     // Connected: iOS didCreate, Android onStart (AsleepTrackingListener)
     onTrackingCreated: (data: any) => {
-      useAsleepStore.setState(data?.sessionId ? { isTracking: true, sessionId: data.sessionId } : { isTracking: true });
+      useAsleepStore.setState({
+        isTracking: true,
+        ...(data?.sessionId ? { sessionId: data.sessionId } : {}),
+      });
       addLog(`[onTrackingCreated]${data?.sessionId ? ` sessionId: ${data.sessionId}` : ""}`);
     },
     // Connected: iOS didUpload, Android onPerform (AsleepTrackingListener)
@@ -684,20 +689,20 @@ export const initializeAsleepListeners = (): (() => void) => {
     onTrackingUploaded: (data: any) => {
       addLog(`[onTrackingUploaded] sequence: ${data.sequence}`);
 
+      // requestAnalysis() flips isAnalyzing internally; no separate setter
+      // needed before invoking it (avoids a duplicate subscriber notification).
       const state = useAsleepStore.getState();
-      if (state.isODAEnabled && state.isTracking) {
-        state.setIsAnalyzing(true);
+      const triggerAnalysis = () =>
         state.requestAnalysis().catch((error) => {
           addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
           state.setIsAnalyzing(false);
         });
+
+      if (state.isODAEnabled && state.isTracking) {
+        triggerAnalysis();
       } else if (!state.isODAEnabled && state.isTracking) {
         if (data.sequence >= 10 && data.sequence % 10 === 1) {
-          state.setIsAnalyzing(true);
-          state.requestAnalysis().catch((error) => {
-            addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
-            state.setIsAnalyzing(false);
-          });
+          triggerAnalysis();
         }
       }
     },
@@ -788,18 +793,15 @@ export const initializeAsleepListeners = (): (() => void) => {
   return makeCleanup();
 };
 
-let cleanupCalled: WeakSet<() => void>;
 const makeCleanup = (): (() => void) => {
-  // Per-caller cleanup that is idempotent (calling twice is a no-op) and
-  // only decrements the ref count once.
-  cleanupCalled ??= new WeakSet();
-  const cleanup = () => {
-    if (cleanupCalled.has(cleanup)) return;
-    cleanupCalled.add(cleanup);
+  // Idempotent per-caller cleanup. The `called` flag is closure-private so
+  // calling the returned function twice (e.g. Strict Mode double-effect)
+  // decrements the shared ref count only once.
+  let called = false;
+  return () => {
+    if (called) return;
+    called = true;
     refCount--;
-    if (refCount === 0 && teardown) {
-      teardown();
-    }
+    if (refCount === 0 && teardown) teardown();
   };
-  return cleanup;
 };

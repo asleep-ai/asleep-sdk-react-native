@@ -210,6 +210,39 @@ describe("notification batching (one setState per native event)", () => {
   });
 });
 
+describe("success error clear is guarded — no spurious notifications", () => {
+  beforeEach(resetStore);
+
+  it("getReport success does NOT notify subscribers when error was already null", async () => {
+    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
+    const listener = jest.fn();
+    const off = useAsleepStore.subscribe(listener);
+    await useAsleepStore.getState().getReport("a");
+    off();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("getReportList success is silent when error was already null", async () => {
+    mockModule.getReportList.mockResolvedValueOnce([]);
+    const listener = jest.fn();
+    const off = useAsleepStore.subscribe(listener);
+    await useAsleepStore.getState().getReportList("a", "b");
+    off();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("getReport success DOES notify exactly once when there was a stale error", async () => {
+    useAsleepStore.setState({ error: "stale" });
+    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
+    const listener = jest.fn();
+    const off = useAsleepStore.subscribe(listener);
+    await useAsleepStore.getState().getReport("a");
+    off();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAsleepStore.getState().error).toBeNull();
+  });
+});
+
 describe("success path clears stale error", () => {
   beforeEach(resetStore);
 
