@@ -1,6 +1,6 @@
 import { EventEmitter } from "expo-modules-core";
 import { useEffect } from "react";
-import { Alert, Platform } from "react-native";
+import { Alert } from "react-native";
 import {
   AsleepConfig,
   AsleepSetupConfig,
@@ -108,12 +108,11 @@ class Asleep {
     return AsleepModule.requestRequiredPermissions();
   };
 
-  setCustomNotification = async (title: string, text: string): Promise<void> => {
-    if (Platform.OS === "android") {
-      return AsleepModule.setCustomNotification(title, text);
-    } else {
-      console.warn("setCustomNotification is not supported on this platform");
-    }
+  setCustomNotification = async (_title: string, _text: string): Promise<void> => {
+    // Native method removed; notification config now flows through startTracking options.
+    console.warn(
+      "[Asleep] setCustomNotification is deprecated and a no-op; pass `{ android: { notification: { title, text, icon } } }` to startTracking() instead",
+    );
   };
 
   private convertKeysToCamelCase = (obj: any): any => {
@@ -299,5 +298,6 @@ export type {
   AsleepNeverSleptSession,
   AsleepStat,
   AsleepAnalysisResult,
+  AsleepAnalysisAck,
   TrackingConfig,
 } from "./Asleep.types";

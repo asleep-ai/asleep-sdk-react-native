@@ -264,24 +264,24 @@ class AsleepModule : Module() {
         AsyncFunction("startTracking") { config: Map<String, Any>?, promise: Promise ->
             try {
                 val audioPermission = ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.RECORD_AUDIO)
-                val fgsPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // FOREGROUND_SERVICE_MICROPHONE was introduced in API 34 (UPSIDE_DOWN_CAKE).
+                // Gating on TIRAMISU (API 33) would false-deny on Android 13 where the permission
+                // doesn't exist yet.
+                val fgsPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.FOREGROUND_SERVICE_MICROPHONE)
                 } else {
-                    sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
                     PackageManager.PERMISSION_GRANTED
                 }
                 if (audioPermission != PackageManager.PERMISSION_GRANTED || fgsPermission != PackageManager.PERMISSION_GRANTED) {
-                    ActivityCompat.requestPermissions(
-                        appContext.currentActivity!!,
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
-                            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.FOREGROUND_SERVICE_MICROPHONE)
-                        } else {
-                            sendEvent("onDebugLog", mapOf("message" to "Requesting permissions"))
-                            arrayOf(Manifest.permission.RECORD_AUDIO)
-                        },
-                        MICROPHONE_PERMISSION_REQUEST_CODE
+                    // beginSleepTracking would crash with SecurityException at
+                    // startForeground(type=microphone) on API 34+. Reject so JS requests via
+                    // requestRequiredPermissions() and retries.
+                    promise.reject(
+                        "PERMISSION_REQUIRED",
+                        "Microphone permission must be granted before startTracking; request it via requestRequiredPermissions() first",
+                        null
                     )
+                    return@AsyncFunction
                 }
 
 

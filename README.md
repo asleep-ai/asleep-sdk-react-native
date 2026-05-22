@@ -8,16 +8,7 @@ This SDK is under active development. The API may evolve between minor versions 
 
 ## Overview
 
-The Asleep SDK for React Native provides comprehensive sleep tracking capabilities using advanced AI algorithms. It can detect sleep patterns, stages, and provide detailed analytics through audio analysis without requiring any wearable devices.
-
-### Key Features
-
-- **Non-invasive Sleep Tracking**: Uses device microphone for sleep analysis
-- **Real-time Monitoring**: Live tracking status and progress updates
-- **Detailed Sleep Reports**: Comprehensive sleep analysis and metrics
-- **Zustand State Management**: Singleton pattern for consistent state across your app
-- **Cross-platform Support**: Works on both iOS and Android
-- **Event-driven Architecture**: Real-time callbacks for tracking events
+Non-invasive sleep tracking via the device microphone — no wearables required. Detects sleep stages and produces detailed reports. Works on iOS and Android, exposes a single React hook plus typed data models.
 
 ## Installation
 
@@ -45,9 +36,9 @@ This library uses the Expo Modules API. Bare RN projects need Expo modules insta
    npm install react-native-asleep zustand
    ```
 
-3. **iOS**: in `ios/`, run `bundle install` (once) then `bundle exec pod install`. The project's `Gemfile` avoids host Ruby/CocoaPods conflicts. **Android**: no extra step.
+   `zustand` is a peer dependency through v1.x and will be removed in v2.0.
 
-For permissions, see [Permissions](#2-permissions) below.
+3. **iOS**: in `ios/`, run `bundle install` (once) then `bundle exec pod install`. The project's `Gemfile` avoids host Ruby/CocoaPods conflicts. **Android**: no extra step.
 
 #### Static framework note
 
@@ -142,354 +133,98 @@ The library declares its own permissions; the manifest merger combines them into
 <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 ```
 
-`RECORD_AUDIO` and `POST_NOTIFICATIONS` are runtime permissions — your app must request them via `PermissionsAndroid` (or equivalent) before starting tracking.
+`RECORD_AUDIO` and `POST_NOTIFICATIONS` are runtime permissions — request them via `useAsleep().requestRequiredPermissions()` (or `PermissionsAndroid`) before starting tracking.
 
-## Usage
+## Quick Start
 
-### Basic Implementation
-
-```typescript
-import React, { useEffect } from "react";
+```tsx
+import { useEffect } from "react";
+import { Button, View } from "react-native";
 import { useAsleep } from "react-native-asleep";
-import { View, Text, Button } from "react-native";
 
-const SleepTracker = () => {
+function SleepTracker() {
   const {
-    userId,
-    sessionId,
     isTracking,
+    sessionId,
     error,
     initAsleepConfig,
+    checkAndRestoreTracking,
+    checkBatteryOptimization,
+    requestRequiredPermissions,
     startTracking,
     stopTracking,
-    getReport,
-    enableLog,
   } = useAsleep();
 
+  // Required order before startTracking: configure -> restore any in-progress session -> battery check
   useEffect(() => {
-    const initSDK = async () => {
-      try {
-        // Enable debug logging (optional)
-        enableLog(true);
-
-        // Initialize SDK with your API key
-        await initAsleepConfig({
-          apiKey: "YOUR_API_KEY",
-          userId: "optional-user-id", // Optional: SDK generates one if not provided
-        });
-
-        console.log("SDK initialized successfully");
-      } catch (error) {
-        console.error("Failed to initialize SDK:", error);
-      }
-    };
-
-    initSDK();
+    (async () => {
+      await initAsleepConfig({ apiKey: "YOUR_API_KEY" });
+      await checkAndRestoreTracking();
+      await checkBatteryOptimization();
+    })();
   }, []);
 
-  const handleStartTracking = async () => {
-    try {
-      await startTracking();
-      console.log("Sleep tracking started");
-    } catch (error) {
-      console.error("Failed to start tracking:", error);
-    }
-  };
-
-  const handleStopTracking = async () => {
-    try {
-      await stopTracking();
-      console.log("Sleep tracking stopped");
-    } catch (error) {
-      console.error("Failed to stop tracking:", error);
-    }
-  };
-
-  const handleGetReport = async () => {
-    if (!sessionId) return;
-
-    try {
-      const report = await getReport(sessionId);
-      console.log("Sleep report:", report);
-    } catch (error) {
-      console.error("Failed to get report:", error);
-    }
+  const handleStart = async () => {
+    await requestRequiredPermissions();
+    await startTracking({
+      android: { notification: { title: "Sleep tracking", text: "Recording..." } },
+    });
   };
 
   return (
     <View>
-      <Text>User ID: {userId}</Text>
-      <Text>Session ID: {sessionId}</Text>
-      <Text>Status: {isTracking ? "Tracking" : "Not Tracking"}</Text>
-
-      <Button
-        title="Start Tracking"
-        onPress={handleStartTracking}
-        disabled={isTracking}
-      />
-      <Button
-        title="Stop Tracking"
-        onPress={handleStopTracking}
-        disabled={!isTracking}
-      />
-      <Button
-        title="Get Report"
-        onPress={handleGetReport}
-        disabled={!sessionId}
-      />
+      <Button title={isTracking ? "Stop" : "Start"} onPress={isTracking ? stopTracking : handleStart} />
     </View>
   );
-};
-```
-
-### Advanced Usage
-
-#### Using AsleepSDK for Non-React Components
-
-For use outside React components or for singleton access:
-
-```typescript
-import { AsleepSDK } from "react-native-asleep";
-
-class SleepManager {
-  async initializeSDK() {
-    try {
-      await AsleepSDK.initAsleepConfig({
-        apiKey: "YOUR_API_KEY",
-      });
-
-      // Initialize event listeners
-      AsleepSDK.initialize();
-
-      console.log("SDK initialized");
-    } catch (error) {
-      console.error("SDK initialization failed:", error);
-    }
-  }
-
-  async startSleepTracking() {
-    await AsleepSDK.startTracking();
-  }
-
-  async stopSleepTracking() {
-    return await AsleepSDK.stopTracking();
-  }
-
-  getCurrentStatus() {
-    return {
-      isTracking: AsleepSDK.isTracking(),
-      userId: AsleepSDK.getUserId(),
-      sessionId: AsleepSDK.getSessionId(),
-    };
-  }
 }
 ```
 
-#### Direct Store Access
+For ODA (On-Device Analysis) mode, call `setup()` instead of `initAsleepConfig()`. See [`example/App.tsx`](./example/App.tsx) for the full flow including report fetch and event-driven state.
 
-```typescript
-import { useAsleepStore } from "react-native-asleep";
+## API surface
 
-// Get current state
-const currentState = useAsleepStore.getState();
+The library exports a single React hook plus types:
 
-// Subscribe to specific state changes
-const unsubscribe = useAsleepStore.subscribe(
-  (state) => state.isTracking,
-  (isTracking) => {
-    console.log("Tracking status changed:", isTracking);
-  }
-);
+```ts
+import { useAsleep, type AsleepReport, type AsleepSession, type AsleepAverageReport } from "react-native-asleep";
 ```
 
-## API Reference
+`useAsleep()` returns reactive state (`isTracking`, `sessionId`, `error`, `analysisResult`, ...) and bound actions (`startTracking`, `stopTracking`, `getReport`, `getReportList`, `requestAnalysis`, ...). Hover the return type in your editor for the full surface; the type definitions in [`src/Asleep.types.ts`](./src/Asleep.types.ts) are the source of truth and stay in sync with the native modules.
 
-### useAsleep Hook
+## Tracking lifecycle and platform compensations
 
-Returns an object with the following properties and methods:
+The library handles a number of platform quirks internally so JS sees a consistent event model:
 
-#### State Properties
+- iOS 3.2.1 `closeSessionSilently()` on 403/429 tears down a session without firing `didClose` — the wrapper detects terminal error codes and resets `isTracking` / `isAnalyzing` itself.
+- Android SDK 3.2.x emits both `onFail` and `onFinish` for fatal codes — the wrapper suppresses the spurious `onTrackingClosed` so JS doesn't misread a fatal error as a clean close.
+- iOS interruption recovery may emit duplicate `didResume` events — the wrapper deduplicates while still clearing `error`.
 
-- `userId: string | null` - Current user ID
-- `sessionId: string | null` - Current session ID
-- `isTracking: boolean` - Whether tracking is active
-- `error: string | null` - Last error message
-- `didClose: boolean` - Whether the last session was closed
-- `log: string` - Latest log message
+See [AGENTS.md](./AGENTS.md#native-behavior-compensations) for the full table including upstream SDK versions and rationale.
 
-#### Methods
+## Best practices
 
-- `initAsleepConfig(config: AsleepConfig): Promise<void>` - Initialize SDK
-- `startTracking(): Promise<void>` - Start sleep tracking
-- `stopTracking(): Promise<void>` - Stop sleep tracking
-- `getReport(sessionId: string): Promise<AsleepReport | null>` - Get sleep report
-- `getReportList(fromDate: string, toDate: string): Promise<AsleepSession[]>` - Get list of reports
-- `enableLog(enabled: boolean): void` - Enable/disable debug logging
-- `setCustomNotification(title: string, text: string): Promise<void>` - Set custom notification (Android only)
-
-### AsleepConfig
-
-Configuration object for SDK initialization:
-
-```typescript
-interface AsleepConfig {
-  apiKey: string; // Required: Your API key
-  userId?: string; // Optional: User identifier
-  baseUrl?: string; // Optional: Custom API base URL
-  callbackUrl?: string; // Optional: Webhook callback URL
-}
-```
-
-### AsleepReport
-
-Sleep analysis report structure:
-
-```typescript
-interface AsleepReport {
-  sessionId: string;
-  sleepEfficiency: number;
-  sleepLatency: number;
-  sleepTime: number;
-  wakeTime: number;
-  lightSleepTime: number;
-  deepSleepTime: number;
-  remSleepTime: number;
-  // ... additional metrics
-}
-```
-
-### AsleepSession
-
-Session information structure:
-
-```typescript
-interface AsleepSession {
-  sessionId: string;
-  startTime: string;
-  endTime: string;
-  state: string;
-  // ... additional session data
-}
-```
-
-## Event Handling
-
-The SDK automatically handles events through the zustand store. Events are processed internally and state is updated accordingly. You can monitor state changes using useEffect:
-
-```typescript
-const { userId, sessionId, isTracking, error } = useAsleep();
-
-useEffect(() => {
-  if (error) {
-    console.error("SDK Error:", error);
-  }
-}, [error]);
-
-useEffect(() => {
-  if (sessionId) {
-    console.log("New session created:", sessionId);
-  }
-}, [sessionId]);
-```
-
-## Best Practices
-
-### 1. SDK Initialization
-
-- Initialize the SDK early in your app lifecycle
-- Handle initialization errors gracefully
-- Store API key securely (use environment variables)
-
-### 2. Permission Handling
-
-- Request microphone permission before starting tracking
-- Provide clear explanation to users about why permission is needed
-- Handle permission denial gracefully
-
-### 3. Battery Optimization (Required)
-
-#### Cross-Platform Requirement
-
-**IMPORTANT**: Battery optimization check is required on both iOS and Android platforms. This ensures iOS developers properly handle battery optimization, preventing issues for their Android users in production.
-
-#### Implementation
-
-```typescript
-import { AsleepSDK } from 'react-native-asleep';
-
-// Required before starting tracking on BOTH platforms
-const batteryStatus = await AsleepSDK.checkBatteryOptimization();
-
-if (!batteryStatus.exempted && Platform.OS === 'android') {
-  // Prompt user to disable battery optimization
-  Alert.alert(
-    'Battery Optimization Required',
-    'Sleep tracking requires battery optimization to be disabled for uninterrupted 6-8 hour sessions.',
-    [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Open Settings',
-        onPress: async () => {
-          await AsleepSDK.requestBatteryOptimizationExemption();
-        }
-      }
-    ]
-  );
-}
-
-// Now safe to start tracking
-await AsleepSDK.startTracking();
-```
-
-#### Why This Matters
-
-- **Android**: Battery optimization can interrupt long-running sleep tracking sessions
-- **iOS**: While not technically needed, the check ensures consistent cross-platform code
-- **Developer Experience**: iOS developers testing only on iOS might miss Android requirements
-- **User Experience**: Prevents tracking failures for Android users of iOS-developed apps
-
-### 4. Error Handling
-
-- Always wrap SDK calls in try-catch blocks
-- Monitor the error state for real-time error updates
-- Provide user-friendly error messages
-
-### 5. State Management
-
-- Use the built-in zustand store for consistent state
-- Subscribe to specific state changes when needed
-- Avoid unnecessary re-renders by selecting specific state slices
-
-## Example App
-
-See the `/example` directory for a complete implementation example.
+- **Permission flow**: call `requestRequiredPermissions()` *before* `startTracking()`. As of v1.0.18 the Android native module rejects `startTracking` with `PERMISSION_REQUIRED` when `RECORD_AUDIO` / `FOREGROUND_SERVICE_MICROPHONE` aren't granted.
+- **Battery optimization (Android, required)**: long sessions get killed without an exemption. Call `checkBatteryOptimization()` before `startTracking()`; if not exempted, call `requestBatteryOptimizationExemption()` and follow the system prompt. iOS's no-op call keeps cross-platform code uniform.
+- **Error handling**: read `error` from `useAsleep()` and switch on its `code` for category-specific UI rather than parsing `message` substrings.
 
 ## Troubleshooting
 
-### Common Issues
+- **`PERMISSION_REQUIRED` from `startTracking`**: call `requestRequiredPermissions()` first, then retry.
+- **`MISSING_PREREQUISITE` from `startTracking`**: call `checkAndRestoreTracking()` and `checkBatteryOptimization()` before `startTracking()`.
+- **Tracking ends unexpectedly on Android**: battery optimization is on; call `checkBatteryOptimization()` and follow the prompt.
+- **Network errors**: verify API key and connectivity.
 
-1. **Permission Denied**: Ensure microphone permission is granted
-2. **SDK Not Initialized**: Call `initAsleepConfig` before other methods
-3. **Network Errors**: Check internet connection and API key validity
-4. **Battery Optimization Error**: Call `checkBatteryOptimization()` before `startTracking()` on all platforms
-5. **Android Tracking Interrupted**: Ensure battery optimization is disabled via system settings
+Enable debug logs with `useAsleep().enableLog(true)`.
 
-### Debug Mode
+## Example app
 
-Enable debug logging to see detailed SDK operations:
-
-```typescript
-const { enableLog } = useAsleep();
-enableLog(true);
-```
+See [`example/`](./example) for a full implementation.
 
 ## License
 
-This project is licensed under the MIT License.
+MIT.
 
 ## Support
-
-For issues and support:
 
 - [GitHub Issues](https://github.com/asleep-ai/asleep-sdk-react-native/issues)
 - [Asleep Documentation](https://docs.asleep.ai)
