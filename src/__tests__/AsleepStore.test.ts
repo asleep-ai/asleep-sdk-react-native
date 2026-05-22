@@ -144,15 +144,19 @@ describe("setup()", () => {
     expect(mockModule.setup).toHaveBeenCalledWith("k", "https://b", "https://c", "svc", false);
   });
 
-  it("rejects when setup is already in progress", async () => {
+  it("rejects with OPERATION_IN_PROGRESS when setup is already in progress", async () => {
     useAsleepStore.setState({ isSetupInProgress: true });
-    await expect(useAsleepStore.getState().setup({ apiKey: "k" })).rejects.toThrow(/already in progress/);
+    await expect(useAsleepStore.getState().setup({ apiKey: "k" })).rejects.toMatchObject({
+      code: "OPERATION_IN_PROGRESS",
+    });
     expect(mockModule.setup).not.toHaveBeenCalled();
   });
 
-  it("rejects when tracking is in progress", async () => {
+  it("rejects with INVALID_STATE when tracking is in progress", async () => {
     useAsleepStore.setState({ isTracking: true });
-    await expect(useAsleepStore.getState().setup({ apiKey: "k" })).rejects.toThrow(/while tracking/);
+    await expect(useAsleepStore.getState().setup({ apiKey: "k" })).rejects.toMatchObject({
+      code: "INVALID_STATE",
+    });
   });
 
   it("stores AsleepError and clears isSetupInProgress on native failure", async () => {
@@ -258,38 +262,64 @@ describe("checkBatteryOptimization()", () => {
 describe("startTracking() prerequisites", () => {
   beforeEach(resetStore);
 
-  it("throws when checkAndRestoreTracking has not been called", async () => {
-    await expect(useAsleepStore.getState().startTracking()).rejects.toThrow(/Must call checkAndRestoreTracking/);
+  it("throws MISSING_PREREQUISITE when checkAndRestoreTracking has not been called", async () => {
+    await expect(useAsleepStore.getState().startTracking()).rejects.toMatchObject({
+      code: "MISSING_PREREQUISITE",
+      message: expect.stringMatching(/checkAndRestoreTracking/),
+    });
     expect(mockModule.startTracking).not.toHaveBeenCalled();
   });
 
-  it("throws when checkBatteryOptimization has not been called", async () => {
+  it("throws MISSING_PREREQUISITE when checkBatteryOptimization has not been called", async () => {
     useAsleepStore.setState({ hasCheckedStatus: true });
-    await expect(useAsleepStore.getState().startTracking()).rejects.toThrow(/checkBatteryOptimization/);
+    await expect(useAsleepStore.getState().startTracking()).rejects.toMatchObject({
+      code: "MISSING_PREREQUISITE",
+      message: expect.stringMatching(/checkBatteryOptimization/),
+    });
   });
 
-  it("throws when setup is in progress", async () => {
+  it("throws INVALID_STATE when setup is in progress", async () => {
     useAsleepStore.setState({
       hasCheckedStatus: true,
       hasCheckedBatteryOptimization: true,
       isSetupInProgress: true,
     });
-    await expect(useAsleepStore.getState().startTracking()).rejects.toThrow(/setup is in progress/);
+    await expect(useAsleepStore.getState().startTracking()).rejects.toMatchObject({ code: "INVALID_STATE" });
   });
 
-  it("throws when tracking already in progress", async () => {
+  it("throws OPERATION_IN_PROGRESS when tracking already running", async () => {
     useAsleepStore.setState({
       hasCheckedStatus: true,
       hasCheckedBatteryOptimization: true,
       isTracking: true,
     });
-    await expect(useAsleepStore.getState().startTracking()).rejects.toThrow(/already in progress/);
+    await expect(useAsleepStore.getState().startTracking()).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
   });
 
-  it("throws (no Alert.alert) when permission is denied", async () => {
+  it("throws PERMISSION_DENIED (not Alert) when permission is denied", async () => {
     useAsleepStore.setState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });
     mockModule.requestRequiredPermissions.mockResolvedValueOnce(false);
-    await expect(useAsleepStore.getState().startTracking()).rejects.toThrow(/Microphone/);
+    await expect(useAsleepStore.getState().startTracking()).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+      message: expect.stringMatching(/Microphone/),
+    });
+  });
+
+  it("throws BATTERY_NOT_EXEMPTED on android when battery optimization is on", async () => {
+    setPlatform("android");
+    useAsleepStore.setState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });
+    mockModule.isBatteryOptimizationExempted.mockResolvedValueOnce(false);
+    await expect(useAsleepStore.getState().startTracking()).rejects.toMatchObject({ code: "BATTERY_NOT_EXEMPTED" });
+  });
+
+  it("all precondition throws are AsleepError instances (instanceof checks work)", async () => {
+    try {
+      await useAsleepStore.getState().startTracking();
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AsleepError);
+      expect(e).toBeInstanceOf(Error);
+    }
   });
 
   it("starts tracking when all prerequisites met", async () => {
@@ -466,6 +496,47 @@ describe("addEventListener()", () => {
     expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
     off();
     expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(0);
+  });
+});
+
+describe("__DEV__ gated warnings", () => {
+  // Treat __DEV__ as a normal global; jest preset sets it true by default.
+  const setDev = (value: boolean) => {
+    (globalThis as { __DEV__?: boolean }).__DEV__ = value;
+  };
+
+  let warnSpy: jest.SpyInstance;
+  beforeEach(() => {
+    resetStore();
+    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    setDev(true);
+    warnSpy.mockRestore();
+  });
+
+  it("setCustomNotification on iOS warns in dev with [Asleep] prefix", async () => {
+    setPlatform("ios");
+    setDev(true);
+    await useAsleepStore.getState().setCustomNotification("t", "x");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[Asleep]"));
+  });
+
+  it("setCustomNotification on iOS is silent in production", async () => {
+    setPlatform("ios");
+    setDev(false);
+    await useAsleepStore.getState().setCustomNotification("t", "x");
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("requestMicrophonePermission deprecation warn is also dev-gated", async () => {
+    setDev(false);
+    await useAsleepStore.getState().requestMicrophonePermission();
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    setDev(true);
+    await useAsleepStore.getState().requestMicrophonePermission();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("deprecated"));
   });
 });
 

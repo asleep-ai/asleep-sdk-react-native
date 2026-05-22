@@ -159,13 +159,13 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       // Prevent duplicate execution if setup is already in progress
       if (isSetupInProgress) {
         addLog("[setup] Setup is already in progress. Please try again later.");
-        throw new Error("Setup is already in progress.");
+        throw new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress.");
       }
 
       // Block setup execution if tracking is in progress
       if (isTracking) {
         addLog("[setup] Cannot execute setup while tracking is in progress.");
-        throw new Error("Cannot execute setup while tracking is in progress.");
+        throw new AsleepError("INVALID_STATE", "Cannot execute setup while tracking is in progress.");
       }
 
       addLog("[setup] Start");
@@ -328,14 +328,18 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       // Enforce that checkAndRestoreTracking must be called first
       if (!hasCheckedStatus) {
         addLog("[startTracking] Must call checkAndRestoreTracking() at app startup");
-        throw new Error("Must call checkAndRestoreTracking() at app startup before starting tracking");
+        throw new AsleepError(
+          "MISSING_PREREQUISITE",
+          "Must call checkAndRestoreTracking() at app startup before starting tracking",
+        );
       }
 
       // Enforce battery optimization check on BOTH platforms for consistency
       // This ensures iOS developers handle battery optimization for their Android users
       if (!get().hasCheckedBatteryOptimization) {
         addLog("[startTracking] ERROR: Must check battery optimization first");
-        throw new Error(
+        throw new AsleepError(
+          "MISSING_PREREQUISITE",
           "Must call checkBatteryOptimization() before starting tracking. " +
             "This check is required on both iOS and Android to ensure cross-platform consistency.",
         );
@@ -344,25 +348,25 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       // Block startTracking execution if setup is in progress
       if (isSetupInProgress) {
         addLog("[startTracking] Cannot start tracking while setup is in progress.");
-        throw new Error("Cannot start tracking while setup is in progress.");
+        throw new AsleepError("INVALID_STATE", "Cannot start tracking while setup is in progress.");
       }
 
       // Prevent duplicate execution if already tracking
       if (get().isTracking) {
         addLog("[startTracking] Tracking is already in progress.");
-        throw new Error("Tracking is already in progress.");
+        throw new AsleepError("OPERATION_IN_PROGRESS", "Tracking is already in progress.");
       }
 
       addLog("[startTracking] Start");
 
       const permission = await requestRequiredPermissions();
       if (!permission) {
-        // SDK shouldn't show UI directly - throw specific error message
-        if (Platform.OS === "android" && Platform.Version >= 33) {
-          throw new Error("Microphone and notification permissions are required for sleep tracking");
-        } else {
-          throw new Error("Microphone permission is required for sleep tracking");
-        }
+        // SDK shouldn't show UI directly - throw a typed error and let the consumer render UX.
+        const message =
+          Platform.OS === "android" && Platform.Version >= 33
+            ? "Microphone and notification permissions are required for sleep tracking"
+            : "Microphone permission is required for sleep tracking";
+        throw new AsleepError("PERMISSION_DENIED", message);
       }
 
       // Always verify CURRENT exemption status
@@ -370,7 +374,8 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
         const batteryExempted = await AsleepModule.isBatteryOptimizationExempted();
         if (!batteryExempted) {
           addLog("[startTracking] ERROR: Battery optimization not disabled");
-          throw new Error(
+          throw new AsleepError(
+            "BATTERY_NOT_EXEMPTED",
             "Battery optimization must be disabled for reliable sleep tracking. " +
               "Call requestBatteryOptimizationExemption() to guide user to settings.",
           );
@@ -541,9 +546,11 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
    * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
    */
   requestMicrophonePermission: async () => {
-    console.warn(
-      "[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
-    );
+    if (__DEV__) {
+      console.warn(
+        "[Asleep] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
+      );
+    }
     return get().requestRequiredPermissions();
   },
 
@@ -573,7 +580,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
         // Both must be granted for tracking to work properly
         return audioGranted && notificationGranted;
       } catch (err) {
-        console.warn("Permission request error:", err);
+        if (__DEV__) console.warn("[Asleep] Permission request error:", err);
         return false;
       }
     }
@@ -585,7 +592,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
     if (Platform.OS === "android") {
       await AsleepModule.setCustomNotification(title, text);
     } else {
-      console.warn("setCustomNotification is not supported on this platform");
+      if (__DEV__) console.warn("[Asleep] setCustomNotification is not supported on this platform");
     }
   },
 

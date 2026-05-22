@@ -149,17 +149,27 @@ This evidence is why v2.0 (#47) collapses to **`useAsleep` + thin escape hatch +
 - Check `isSetupInProgress` and `isTracking` flags to prevent duplicate operations
 - Handle platform differences in analysis result handling
 
-### Error Handling
-- All async operations should be wrapped in try-catch blocks
-- Errors are automatically stored in the state and accessible via the `error` property
-- Use the `addLog` function for debug logging when `enableLog(true)` is set
-- **`console.*` discipline** (matches RN library convention — React, Reanimated, React Navigation, etc. all follow this):
-  - Do NOT pair `console.error` with `throw` of the same error — the throw alone surfaces it; the duplicate log clutters consumer output
-  - Do NOT use `console.error` as the only error handling — throw or emit so consumers can react
-  - Do NOT use `console.log` in normal operation flow — use the opt-in `addLog` action when `enableLog(true)`
-  - OK to use `console.warn` for one-shot deprecation notices (`[lib] X is deprecated, use Y`)
-  - OK to use `__DEV__`-gated warnings for developer education (lint-like checks)
-- **Do not call `Alert.alert` or any UI primitive** — the library is headless; the consumer renders UX
+### Error Handling & Signals
+
+The library treats different *kinds* of signals with different mechanisms — Python-style. Pick the mechanism that matches the **signal type**, not by personal preference. When introducing a new failure path, find its row in this table:
+
+| Signal type | Mechanism | Example | Visible to |
+|---|---|---|---|
+| **Runtime failure** (recoverable, caller must handle) | `throw new AsleepError(code, msg, cause)` inside catch | network failure, native bridge reject | caller's `try/catch` + `useAsleep().error` |
+| **Precondition violation** (caller invoked the SDK in a bad state) | `throw new AsleepError("MISSING_PREREQUISITE" / "INVALID_STATE" / "OPERATION_IN_PROGRESS" / "PERMISSION_DENIED" / "BATTERY_NOT_EXEMPTED", msg)` | `startTracking` before `checkBatteryOptimization` | same |
+| **Native event failure** (SDK pushed a failure via the emitter) | normalize the event payload into `AsleepError`, write to store, never `JSON.stringify` | `onTrackingFailed`, `onSetupDidFail`, `onUserJoinFailed` | `useAsleep().error` |
+| **Deprecation notice** | `if (__DEV__) console.warn("[Asleep] X is deprecated; use Y")` | `requestMicrophonePermission` → `requestRequiredPermissions` | dev only |
+| **Platform-not-supported no-op** | `if (__DEV__) console.warn("[Asleep] ...")` and return a sensible default | `setCustomNotification` on iOS | dev only |
+| **Swallowed internal error** (no-throw path, e.g. returning a boolean) | `if (__DEV__) console.warn("[Asleep] ...", err)` before the early return | `PermissionsAndroid.requestMultiple` failure inside `requestRequiredPermissions` | dev only |
+| **Operational log** (lifecycle progress, debug trace) | `addLog(msg)` — gated by `enableLog(true)` opt-in; state write is a no-op when off | every event handler's `[onTrackingCreated] ...` entry | consumer opt-in via `useAsleep().log` |
+
+Hard rules that fall out of the table:
+
+- **Never** call `Alert.alert` or any UI primitive — the library is headless. Throw a typed error and let the app render UX.
+- **Never** `console.error` from a `catch` that also `throw`s — the throw alone is visible; the log bypasses the consumer's observability stack (Sentry, Bugsnag) and clutters dev output. The PR's `console.error` spy in `AsleepStore.test.ts` fails the suite if this regresses.
+- **Never** use raw `Error` for an SDK failure — use `AsleepError` so consumers can branch on `code` and observability tools see the structured `cause`.
+- **Always** prefix `[Asleep]` in any `console.warn` so consumers can filter library noise from Metro.
+- **Always** clear `error: null` on every action's success path so `useAsleep().error` is current truth, not a stale failure log.
 
 ### Testing Changes
 - Test on both iOS and Android platforms
