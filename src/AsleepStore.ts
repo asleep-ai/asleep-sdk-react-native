@@ -435,6 +435,10 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
   },
 
   getReport: async (sessionId: string) => {
+    // Snapshot the error before the await so we only clear it on success if
+    // no concurrent failure (e.g. onTrackingFailed firing during the network
+    // round-trip) replaced it with a different value in the meantime.
+    const errorBefore = get().error;
     try {
       const { addLog } = get();
       addLog(`[getReport] sessionId: ${sessionId}`);
@@ -443,7 +447,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       const convertedReport = convertKeysToCamelCase(report);
 
       addLog("[getReport] Success");
-      set({ error: null });
+      if (get().error !== null && get().error === errorBefore) set({ error: null });
 
       // Ensure the report has the expected AsleepReport structure
       // Handle cases where native modules might return data in different formats
@@ -478,6 +482,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
   },
 
   getReportList: async (fromDate: string, toDate: string) => {
+    const errorBefore = get().error;
     try {
       const { addLog } = get();
       addLog(`[getReportList] fromDate: ${fromDate}, toDate: ${toDate}`);
@@ -499,7 +504,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       });
 
       addLog("[getReportList] Success");
-      set({ error: null });
+      if (get().error !== null && get().error === errorBefore) set({ error: null });
       return convertedList;
     } catch (error: unknown) {
       const asleepError = normalizeError(error, "GET_REPORT_LIST_FAILED");
@@ -509,6 +514,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
   },
 
   deleteSession: async (sessionId: string) => {
+    const errorBefore = get().error;
     try {
       const { addLog } = get();
       addLog(`[deleteSession] sessionId: ${sessionId}`);
@@ -516,7 +522,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       await AsleepModule.deleteSession(sessionId);
 
       addLog("[deleteSession] Success");
-      set({ error: null });
+      if (get().error !== null && get().error === errorBefore) set({ error: null });
     } catch (error: unknown) {
       const asleepError = normalizeError(error, "DELETE_SESSION_FAILED");
       set({ error: asleepError });
@@ -525,6 +531,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
   },
 
   getAverageReport: async (fromDate: string, toDate: string) => {
+    const errorBefore = get().error;
     try {
       const { addLog } = get();
       addLog(`[getAverageReport] fromDate: ${fromDate}, toDate: ${toDate}`);
@@ -533,7 +540,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
       const convertedReport = convertKeysToCamelCase(averageReport);
 
       addLog("[getAverageReport] Success");
-      set({ error: null });
+      if (get().error !== null && get().error === errorBefore) set({ error: null });
       return convertedReport;
     } catch (error: unknown) {
       const asleepError = normalizeError(error, "GET_AVERAGE_REPORT_FAILED");
@@ -546,7 +553,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
    * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
    */
   requestMicrophonePermission: async () => {
-    if (__DEV__) {
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
       console.warn(
         "[Asleep] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
       );
@@ -580,7 +587,7 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
         // Both must be granted for tracking to work properly
         return audioGranted && notificationGranted;
       } catch (err) {
-        if (__DEV__) console.warn("[Asleep] Permission request error:", err);
+        if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] Permission request error:", err);
         return false;
       }
     }
@@ -592,7 +599,8 @@ export const useAsleepStore = createStore<AsleepState>((set, get) => ({
     if (Platform.OS === "android") {
       await AsleepModule.setCustomNotification(title, text);
     } else {
-      if (__DEV__) console.warn("[Asleep] setCustomNotification is not supported on this platform");
+      if (typeof __DEV__ !== "undefined" && __DEV__)
+        console.warn("[Asleep] setCustomNotification is not supported on this platform");
     }
   },
 
@@ -684,7 +692,11 @@ let refCount = 0;
 let teardown: (() => void) | null = null;
 
 export const initializeAsleepListeners = (): (() => void) => {
-  if (refCount > 0 && teardown) {
+  // `teardown` is the single source of truth for "listeners are attached".
+  // refCount is just a balance counter; always incrementing (rather than
+  // assigning =1 on the cold path) keeps the count correct even if a future
+  // change introduces an async seam between this check and registration.
+  if (teardown) {
     refCount++;
     return makeCleanup();
   }
@@ -816,7 +828,7 @@ export const initializeAsleepListeners = (): (() => void) => {
     subscriptions.push(() => subscription.remove());
   });
 
-  refCount = 1;
+  refCount++;
   teardown = () => {
     subscriptions.forEach((unsubscribe) => unsubscribe());
     teardown = null;
