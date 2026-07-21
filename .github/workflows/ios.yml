@@ -1,0 +1,84 @@
+name: iOS
+
+# Compiles the library's Swift against the AsleepSDK version pinned in
+# ios/Asleep.podspec. The main CI job is JS-only, so native regressions
+# (a renamed upstream symbol, a changed protocol signature, an SDK bump that
+# was never built) reach main unnoticed today.
+on:
+  pull_request:
+    paths:
+      - "ios/**"
+      - "*.podspec"
+      - ".github/workflows/ios.yml"
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "*.podspec"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Swift compile
+    # macos-15 is a *standard* runner, free on public repositories.
+    # Do NOT switch to a *-xlarge / 12-core runner: larger runners are billed
+    # even on public repos.
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          cache: "pnpm"
+
+      # The example Podfile resolves expo and react-native through
+      # `node --print require.resolve(...)`, so node_modules has to exist
+      # before pod install runs.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: example/ios/Pods
+          key: pods-${{ hashFiles('example/ios/Podfile.lock', 'ios/Asleep.podspec') }}
+          restore-keys: pods-
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: dd-${{ hashFiles('example/ios/Podfile.lock') }}-${{ hashFiles('ios/**/*.swift') }}
+          restore-keys: dd-${{ hashFiles('example/ios/Podfile.lock') }}-
+
+      # The example app is not under test here — pod install is just how the
+      # dependency graph (ExpoModulesCore, React-Core, AsleepSDK) gets
+      # materialized. Both are local path pods, so `pod lib lint` cannot
+      # resolve them standalone.
+      - name: Install pods
+        run: pod install
+        working-directory: example/ios
+
+      # Builds only the Asleep pod target and its dependencies. Skips the
+      # example app target and the JS bundle, which are slow and unrelated to
+      # whether the library compiles.
+      - name: Compile library
+        run: |
+          xcodebuild build \
+            -project example/ios/Pods/Pods.xcodeproj \
+            -target Asleep \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
