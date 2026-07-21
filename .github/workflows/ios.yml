@@ -34,6 +34,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Pinned, not the runner default. React Native 0.79.2 bundles a copy of
+      # fmt that does not compile on newer clang — Xcode 27 rejects it with
+      # "call to consteval function ... is not a constant expression" in
+      # format-inl.h. The runner default is 16.4 today, but it moves, and an
+      # unpinned toolchain would break this job without a code change.
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -79,6 +87,6 @@ jobs:
           xcodebuild build \
             -project example/ios/Pods/Pods.xcodeproj \
             -target Asleep \
-            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO
