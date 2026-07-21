@@ -36,10 +36,19 @@ const TERMINAL_TRACKING_ERROR_CODES = new Set<string>([
   "INTERRUPTION_RECOVERY_FAILED", // iOS 3 failed auto-resume attempts (3.2.0+)
 ]);
 
+// iOS SDK 3.2.0 stops the recorder without closing the native session when
+// audio engine initialization fails. The session must be stopped and restarted.
+const RECORDING_DEAD_ERROR_CODES = new Set<string>(["AUDIO_INITIALIZATION_FAILED"]);
+
+// iOS SDK 3.2.0 reports this when the audio engine cannot restart in the
+// background. The consumer must call resumeTracking() after returning foreground.
+const RECOVERY_REQUIRED_ERROR_CODES = new Set<string>(["CANNOT_ACTIVATE_IN_BACKGROUND"]);
+
 export interface AsleepState {
   didClose: boolean;
   isTracking: boolean;
   isTrackingPaused: boolean;
+  isRecoveryRequired: boolean;
   error: string | null;
   userId: string | null;
   sessionId: string | null;
@@ -67,6 +76,7 @@ export interface AsleepState {
   requestBatteryOptimizationExemption: () => Promise<boolean>;
   startTracking: (config?: TrackingConfig) => Promise<void>;
   stopTracking: () => Promise<void>;
+  resumeTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport | null>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
   getAverageReport: (fromDate: string, toDate: string) => Promise<AsleepAverageReport | null>;
@@ -120,6 +130,7 @@ export const useAsleepStore = create<AsleepState>()(
     didClose: false,
     isTracking: AsleepModule.isTracking ? AsleepModule.isTracking() : false,
     isTrackingPaused: false,
+    isRecoveryRequired: false,
     error: null,
     userId: null,
     sessionId: null,
@@ -367,6 +378,7 @@ export const useAsleepStore = create<AsleepState>()(
           didClose: false,
           isTracking: true,
           isAnalyzing: false,
+          isRecoveryRequired: false,
           trackingStartTime: new Date(),
           error: null,
         });
@@ -401,6 +413,7 @@ export const useAsleepStore = create<AsleepState>()(
           ...(result ? { sessionId: result } : {}),
           isTracking: false,
           isAnalyzing: false,
+          isRecoveryRequired: false,
           trackingStartTime: null,
           error: null,
         });
@@ -410,6 +423,17 @@ export const useAsleepStore = create<AsleepState>()(
         set({ error: error.message });
         throw error;
       }
+    },
+
+    resumeTracking: async () => {
+      if (Platform.OS !== "ios") {
+        throw Object.assign(new Error("resumeTracking is only supported on iOS."), {
+          name: "AsleepPlatformError",
+          code: "UNSUPPORTED_PLATFORM",
+        });
+      }
+
+      await AsleepModule.resumeTracking();
     },
 
     getReport: async (sessionId: string) => {
@@ -719,6 +743,10 @@ export const initializeAsleepListeners = (): (() => void) => {
       // requestAnalysis() flips isAnalyzing internally; no separate setter
       // needed before invoking it (avoids a duplicate subscriber notification).
       const state = useAsleepStore.getState();
+      // A completed upload is the only positive proof that recording actually came
+      // back — didResume fires before the engine restart is even attempted, so it
+      // cannot be trusted to clear this.
+      if (state.isRecoveryRequired) useAsleepStore.setState({ isRecoveryRequired: false });
       const triggerAnalysis = () =>
         state.requestAnalysis().catch((error) => {
           addLog(`[onTrackingUploaded] Auto analysis failed: ${error.message}`);
@@ -739,23 +767,53 @@ export const initializeAsleepListeners = (): (() => void) => {
         sessionId: data.sessionId,
         isTracking: false,
         isAnalyzing: false,
+        isRecoveryRequired: false,
         didClose: true,
         trackingStartTime: null,
       });
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
-    // Terminal codes (UPLOAD_TRACKING_TERMINATED / INTERRUPTION_RECOVERY_FAILED)
-    // mean the native SDK already tore the session down — clear tracking state
-    // in the same setState as the error write so subscribers see one event.
+    // Four buckets, each writing tracking state in the same setState as the error
+    // so subscribers see one event: terminal (native session already gone),
+    // recording-dead (recorder torn down but session still open — clearing
+    // isTracking is what unblocks a restart), recovery-required (resumeTracking()
+    // in foreground can revive it), and everything else (error only).
+    // The two dead-session buckets must also clear isRecoveryRequired: iOS retries
+    // cannotActivateInBackground and then gives up with interruptionRecoveryFailed,
+    // and no upload will ever arrive to clear the flag on that path.
     onTrackingFailed: (error: any) => {
       const errorString = JSON.stringify(error);
       const terminal = !!(error && TERMINAL_TRACKING_ERROR_CODES.has(error.code));
-      useAsleepStore.setState(
-        terminal
-          ? { error: errorString, isTracking: false, isAnalyzing: false, didClose: true, trackingStartTime: null }
-          : { error: errorString },
-      );
+      const recordingDead = !!(error && RECORDING_DEAD_ERROR_CODES.has(error.code));
+      const recoveryRequired = !!(error && RECOVERY_REQUIRED_ERROR_CODES.has(error.code));
+
+      let nextState: Partial<AsleepState>;
+      if (terminal) {
+        nextState = {
+          error: errorString,
+          isTracking: false,
+          isAnalyzing: false,
+          isRecoveryRequired: false,
+          didClose: true,
+          trackingStartTime: null,
+        };
+      } else if (recordingDead) {
+        nextState = {
+          error: errorString,
+          isTracking: false,
+          isAnalyzing: false,
+          isRecoveryRequired: false,
+          didClose: false,
+          trackingStartTime: null,
+        };
+      } else if (recoveryRequired) {
+        nextState = { error: errorString, isTracking: true, isRecoveryRequired: true };
+      } else {
+        nextState = { error: errorString };
+      }
+
+      useAsleepStore.setState(nextState);
       addLog(`[onTrackingError] error: ${errorString}`);
     },
     // Connected: iOS didInterrupt, Android NOT IMPLEMENTED
@@ -768,6 +826,8 @@ export const initializeAsleepListeners = (): (() => void) => {
     // retry) reach this handler without a preceding didInterrupt, and the stale error
     // should still be cleared. Only the paused-state mutation is gated, to dedup the
     // iOS 3.2.1+ double fire from handleRecovering -> handleResumed.
+    // isRecoveryRequired, not isTrackingPaused, is authoritative when recording is
+    // dead because didResume fires before the engine restart is attempted.
     onTrackingResumed: () => {
       const wasPaused = useAsleepStore.getState().isTrackingPaused;
       useAsleepStore.setState(wasPaused ? { error: null, isTrackingPaused: false } : { error: null });

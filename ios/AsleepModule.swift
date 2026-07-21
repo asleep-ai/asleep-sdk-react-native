@@ -91,6 +91,13 @@ public class AsleepModule: Module {
             trackingManager.stopTracking()
         }
 
+        AsyncFunction("resumeTracking") { () -> Void in
+            guard let trackingManager = self.trackingManager else {
+                throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
+            }
+            trackingManager.resumeTracking()
+        }
+
         AsyncFunction("getReport") { (sessionId: String) -> [String: Any] in
             sendEvent("onDebugLog", ["message": "getReport"])
 
@@ -270,6 +277,12 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
             errorInfo["code"] = "INTERRUPTION_RECOVERY_FAILED"
             errorInfo["message"] = "Failed to recover from audio interruption after \(attemptsCount) attempts"
             errorInfo["attemptsCount"] = attemptsCount
+        case .audioInitializationFailed:
+            errorInfo["code"] = "AUDIO_INITIALIZATION_FAILED"
+            errorInfo["message"] = "Audio recording could not be initialized and the recording engine has been torn down. resumeTracking() will not help; the session must be stopped and restarted."
+        case .cannotActivateInBackground:
+            errorInfo["code"] = "CANNOT_ACTIVATE_IN_BACKGROUND"
+            errorInfo["message"] = "Recording could not resume in background. resumeTracking() must be called in foreground."
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)

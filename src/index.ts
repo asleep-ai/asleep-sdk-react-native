@@ -151,6 +151,7 @@ export const useAsleep = () => {
   const {
     didClose,
     isTracking,
+    isRecoveryRequired,
     error,
     userId,
     sessionId,
@@ -162,6 +163,7 @@ export const useAsleep = () => {
     requestBatteryOptimizationExemption,
     startTracking,
     stopTracking,
+    resumeTracking,
     getReport,
     getReportList,
     getAverageReport,
@@ -192,6 +194,7 @@ export const useAsleep = () => {
   return {
     didClose,
     isTracking,
+    isRecoveryRequired,
     error,
     userId,
     sessionId,
@@ -205,6 +208,7 @@ export const useAsleep = () => {
     requestBatteryOptimizationExemption,
     startTracking,
     stopTracking,
+    resumeTracking,
     getReport,
     getReportList,
     getAverageReport,
@@ -243,6 +247,8 @@ export const AsleepSDK = {
 
   stopTracking: () => useAsleepStore.getState().stopTracking(),
 
+  resumeTracking: () => useAsleepStore.getState().resumeTracking(),
+
   getReport: (sessionId: string) => useAsleepStore.getState().getReport(sessionId),
 
   getReportList: (fromDate: string, toDate: string) => useAsleepStore.getState().getReportList(fromDate, toDate),
@@ -258,6 +264,8 @@ export const AsleepSDK = {
   requestAnalysis: () => useAsleepStore.getState().requestAnalysis(),
 
   isTracking: () => useAsleepStore.getState().isTracking,
+
+  isRecoveryRequired: () => useAsleepStore.getState().isRecoveryRequired,
 
   isAnalyzing: () => useAsleepStore.getState().isAnalyzing,
 

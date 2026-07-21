@@ -191,6 +191,8 @@ import { useAsleep, type AsleepReport, type AsleepSession, type AsleepAverageRep
 
 `useAsleep()` returns reactive state (`isTracking`, `sessionId`, `error`, `analysisResult`, ...) and bound actions (`startTracking`, `stopTracking`, `getReport`, `getReportList`, `requestAnalysis`, ...). Hover the return type in your editor for the full surface; the type definitions in [`src/Asleep.types.ts`](./src/Asleep.types.ts) are the source of truth and stay in sync with the native modules.
 
+On iOS, `isRecoveryRequired` becomes `true` when recording cannot resume while the app is in the background. After the app returns to the foreground, call `resumeTracking()`. The flag clears only after the next successful audio upload. `resumeTracking()` is iOS-only and rejects with `UNSUPPORTED_PLATFORM` on Android.
+
 ## Tracking lifecycle and platform compensations
 
 The library handles a number of platform quirks internally so JS sees a consistent event model:
@@ -198,6 +200,7 @@ The library handles a number of platform quirks internally so JS sees a consiste
 - iOS 3.2.1 `closeSessionSilently()` on 403/429 tears down a session without firing `didClose` — the wrapper detects terminal error codes and resets `isTracking` / `isAnalyzing` itself.
 - Android SDK 3.2.x emits both `onFail` and `onFinish` for fatal codes — the wrapper suppresses the spurious `onTrackingClosed` so JS doesn't misread a fatal error as a clean close.
 - iOS interruption recovery may emit duplicate `didResume` events — the wrapper deduplicates while still clearing `error`.
+- iOS audio initialization failure stops recording without closing the native session — stop and restart the session; `resumeTracking()` cannot recover it.
 
 See [AGENTS.md](./AGENTS.md#native-behavior-compensations) for the full table including upstream SDK versions and rationale.
 
