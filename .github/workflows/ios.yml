@@ -4,17 +4,32 @@ name: iOS
 # ios/Asleep.podspec. The main CI job is JS-only, so native regressions
 # (a renamed upstream symbol, a changed protocol signature, an SDK bump that
 # was never built) reach main unnoticed today.
+#
+# The trigger covers everything that feeds the pod graph, not just Swift. The
+# Podfile resolves expo and react-native out of node_modules, so a dependency
+# bump can break this compile without touching a single native file — and the
+# lockfile and workspace overrides have done exactly that before.
+# (GitHub Actions does not support YAML anchors, so the list is repeated.)
 on:
   pull_request:
     paths:
       - "ios/**"
       - "*.podspec"
+      - "example/ios/**"
+      - "example/package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
       - ".github/workflows/ios.yml"
   push:
     branches: [main]
     paths:
       - "ios/**"
       - "*.podspec"
+      - "example/ios/**"
+      - "example/package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/ios.yml"
 
 permissions:
   contents: read
