@@ -34,11 +34,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Pinned, not the runner default. React Native 0.79.2 bundles a copy of
-      # fmt that does not compile on newer clang — Xcode 27 rejects it with
-      # "call to consteval function ... is not a constant expression" in
-      # format-inl.h. The runner default is 16.4 today, but it moves, and an
-      # unpinned toolchain would break this job without a code change.
+      # Pinned, not the runner default: the compiler must not change under this
+      # job without a code change, or a "native regression" here is ambiguous.
+      #
+      # The pin is also load-bearing today. The example app is on React Native
+      # 0.79.2, which vendors fmt 11.0.2 via RCT-Folly. That fmt fails to
+      # compile from Xcode 26.4 onward — Apple clang jumped LLVM 19 -> 21 there
+      # and now rejects fmt's consteval format-string check ("call to consteval
+      # function ... is not a constant expression", format-inl.h). Xcode
+      # 16.4-26.3 are all fine; 26.4+ are not. Upstream: fmtlib/fmt#4740,
+      # react-native#55601, fixed in fmt 11.1.0 and picked up by RN 0.83.5+ /
+      # 0.85+ (never in 0.84.x).
+      #
+      # This pin is coupled to `runs-on: macos-15` — Xcode 16.4 does not exist
+      # on the macos-26 image. Bumping the runner means picking a new Xcode in
+      # the same change, and anything past 26.3 requires upgrading the example
+      # app's React Native first.
+      #
+      # Only the example app is affected. This package ships no C++ and no fmt
+      # dependency, so consumers hit this (or not) purely via their own RN.
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
