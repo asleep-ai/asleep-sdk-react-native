@@ -612,6 +612,7 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     enableLog: (print: boolean) => {
+      if (Platform.OS === "ios") AsleepModule.enableLog(print);
       set({ showDebugLog: print });
     },
 
@@ -837,7 +838,7 @@ export const initializeAsleepListeners = (): (() => void) => {
     onMicPermissionDenied: () => {
       addLog(`[onMicPermissionDenied]`);
     },
-    // Connected: iOS didPrint (AsleepDebugLoggerDelegate), Android sendEvent called directly
+    // Connected: iOS AsleepLogger callbacks, Android sendEvent called directly
     onDebugLog: (data: any) => {
       addLog(`[onDebugLog] message: ${data.message}`);
     },

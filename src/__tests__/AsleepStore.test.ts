@@ -435,6 +435,20 @@ describe("success path clears stale error", () => {
 describe("addLog gating", () => {
   beforeEach(resetStore);
 
+  it("forwards enableLog to the native logger on iOS", () => {
+    useAsleepStore.getState().enableLog(true);
+    expect(mockModule.enableLog).toHaveBeenCalledWith(true);
+
+    useAsleepStore.getState().enableLog(false);
+    expect(mockModule.enableLog).toHaveBeenLastCalledWith(false);
+  });
+
+  it("does not call the iOS logger bridge on Android", () => {
+    setPlatform("android");
+    useAsleepStore.getState().enableLog(true);
+    expect(mockModule.enableLog).not.toHaveBeenCalled();
+  });
+
   it("does not write to state when showDebugLog is false (default)", () => {
     const listener = jest.fn();
     const off = useAsleepStore.subscribe(listener);

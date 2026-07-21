@@ -33,6 +33,7 @@ export type MockAsleepModule = {
   deleteSession: jest.Mock;
   requestRequiredPermissions: jest.Mock;
   setCustomNotification: jest.Mock;
+  enableLog: jest.Mock;
   requestAnalysis: jest.Mock;
 };
 
@@ -59,6 +60,7 @@ export const createMockAsleepModule = (): MockAsleepModule => ({
   deleteSession: jest.fn().mockResolvedValue(undefined),
   requestRequiredPermissions: jest.fn().mockResolvedValue(true),
   setCustomNotification: jest.fn().mockResolvedValue(undefined),
+  enableLog: jest.fn(),
   requestAnalysis: jest.fn().mockResolvedValue({}),
 });
 
