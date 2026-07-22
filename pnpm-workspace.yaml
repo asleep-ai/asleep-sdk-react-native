@@ -7,7 +7,9 @@ overrides:
   "@babel/plugin-transform-modules-systemjs@<7.29.4": ">=7.29.4"
   "@tootallnate/once@<3.0.1": ">=3.0.1"
   "@xmldom/xmldom@<0.8.13": ">=0.8.13"
-  "brace-expansion@<1.1.13": ">=1.1.13"
+  # Caret, not >=: an open range resolves to the newest major (5.x), which is
+  # ESM-only and breaks minimatch v3's `require('brace-expansion')`.
+  "brace-expansion@<1.1.13": "^1.1.13"
   "brace-expansion@^5.0.0": "^5.0.6"
   "flatted@<=3.4.1": ">=3.4.2"
   "handlebars@<=4.7.8": ">=4.7.9"
