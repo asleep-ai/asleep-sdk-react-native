@@ -5,6 +5,7 @@ public class AsleepModule: Module {
     private var trackingManager: Asleep.SleepTrackingManager?
     private var reportManager: Asleep.Reports?
     private(set) var config: Asleep.Config?
+    private var isLogEnabled = false
 
     public func definition() -> ModuleDefinition {
         Name("Asleep")
@@ -27,6 +28,7 @@ public class AsleepModule: Module {
         Events("onAnalysisResult")
 
         Function("setup") { (apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
+            Asleep.setLogger(self)
             Asleep.setup(apiKey: apiKey,
                         baseUrl: URL(string: baseUrl ?? ""),
                         callbackUrl: URL(string: callbackUrl ?? ""),
@@ -36,11 +38,19 @@ public class AsleepModule: Module {
         }
 
         Function("initAsleepConfig") { (apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?) in
+            Asleep.setLogger(self)
             Asleep.initAsleepConfig(apiKey: apiKey,
                                     userId: userId,
                                     baseUrl: URL(string: baseUrl ?? ""),
                                     callbackUrl: URL(string: callbackUrl ?? ""),
                                     delegate: self)
+        }
+
+        // Gates SDK log forwarding natively so disabled logs never cross the
+        // bridge — every forwarded line lands in addLog, and `log` is returned
+        // from useAsleep(), so unconditional forwarding re-renders consumers.
+        Function("enableLog") { (enabled: Bool) in
+            self.isLogEnabled = enabled
         }
 
         AsyncFunction("isSleepTrackingAlive") { () -> Bool in
@@ -89,6 +99,13 @@ public class AsleepModule: Module {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
             }
             trackingManager.stopTracking()
+        }
+
+        AsyncFunction("resumeTracking") { () -> Void in
+            guard let trackingManager = self.trackingManager else {
+                throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
+            }
+            trackingManager.resumeTracking()
         }
 
         AsyncFunction("getReport") { (sessionId: String) -> [String: Any] in
@@ -270,6 +287,12 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
             errorInfo["code"] = "INTERRUPTION_RECOVERY_FAILED"
             errorInfo["message"] = "Failed to recover from audio interruption after \(attemptsCount) attempts"
             errorInfo["attemptsCount"] = attemptsCount
+        case .audioInitializationFailed:
+            errorInfo["code"] = "AUDIO_INITIALIZATION_FAILED"
+            errorInfo["message"] = "Audio recording could not be initialized and the recording engine has been torn down. resumeTracking() will not help; the session must be stopped and restarted."
+        case .cannotActivateInBackground:
+            errorInfo["code"] = "CANNOT_ACTIVATE_IN_BACKGROUND"
+            errorInfo["message"] = "Recording could not resume in background. resumeTracking() must be called in foreground."
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)
@@ -331,9 +354,34 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
     }
 }
 
-extension AsleepModule: AsleepDebugLoggerDelegate {
-    public func didPrint(message: String) {
+// AsleepDebugLoggerDelegate is deprecated in 3.2.0 and removed in 3.3.0.
+extension AsleepModule: AsleepLogger {
+    private func sendLoggerEvent(level: String, tag: LogTag, msg: String, error: Error?) {
+        var message = "[\(level)][\(tag.value)] \(msg)"
+        if let error = error {
+            message += " | \(error.localizedDescription)"
+        }
         sendEvent("onDebugLog", ["message": message])
+    }
+
+    public func d(tag: LogTag, msg: String, error: Error?) {
+        guard isLogEnabled else { return }
+        sendLoggerEvent(level: "D", tag: tag, msg: msg, error: error)
+    }
+
+    public func e(tag: LogTag, msg: String, error: Error?) {
+        guard isLogEnabled else { return }
+        sendLoggerEvent(level: "E", tag: tag, msg: msg, error: error)
+    }
+
+    public func i(tag: LogTag, msg: String, error: Error?) {
+        guard isLogEnabled else { return }
+        sendLoggerEvent(level: "I", tag: tag, msg: msg, error: error)
+    }
+
+    public func w(tag: LogTag, msg: String, error: Error?) {
+        guard isLogEnabled else { return }
+        sendLoggerEvent(level: "W", tag: tag, msg: msg, error: error)
     }
 }
 

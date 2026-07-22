@@ -59,6 +59,7 @@ const captureInitial = () => {
     didClose: s.didClose,
     isTracking: s.isTracking,
     isTrackingPaused: s.isTrackingPaused,
+    isRecoveryRequired: s.isRecoveryRequired,
     error: s.error,
     userId: s.userId,
     sessionId: s.sessionId,
@@ -242,6 +243,79 @@ describe("notification batching (one setState per native event)", () => {
     expect(s.error).toContain("minor");
   });
 
+  it("AUDIO_INITIALIZATION_FAILED clears tracking but leaves the native session open", () => {
+    useAsleepStore.setState({
+      isTracking: true,
+      isAnalyzing: true,
+      didClose: false,
+      trackingStartTime: new Date(),
+    });
+    mockEmitter.__emit("onTrackingFailed", { code: "AUDIO_INITIALIZATION_FAILED", error: "audio failed" });
+
+    const s = useAsleepStore.getState();
+    expect(s.isTracking).toBe(false);
+    expect(s.isAnalyzing).toBe(false);
+    expect(s.trackingStartTime).toBeNull();
+    expect(s.didClose).toBe(false);
+  });
+
+  it("CANNOT_ACTIVATE_IN_BACKGROUND keeps tracking active and requires recovery", () => {
+    useAsleepStore.setState({ isTracking: true, isRecoveryRequired: false });
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
+      error: "background activation failed",
+    });
+
+    const s = useAsleepStore.getState();
+    expect(s.isTracking).toBe(true);
+    expect(s.isRecoveryRequired).toBe(true);
+  });
+
+  it("marks recovery required when failure follows interrupted and resumed events", () => {
+    useAsleepStore.setState({ isTracking: true });
+    mockEmitter.__emit("onTrackingInterrupted", undefined);
+    mockEmitter.__emit("onTrackingResumed", undefined);
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
+      error: "background activation failed",
+    });
+
+    const s = useAsleepStore.getState();
+    expect(s.isTrackingPaused).toBe(false);
+    expect(s.isRecoveryRequired).toBe(true);
+  });
+
+  it("clears recovery required when the retry escalates to a terminal failure", () => {
+    useAsleepStore.setState({ isTracking: true });
+    mockEmitter.__emit("onTrackingFailed", { code: "CANNOT_ACTIVATE_IN_BACKGROUND", error: "background" });
+    expect(useAsleepStore.getState().isRecoveryRequired).toBe(true);
+
+    // iOS retries cannotActivateInBackground 3x, then gives up with
+    // interruptionRecoveryFailed. No upload will ever arrive to clear the flag.
+    mockEmitter.__emit("onTrackingFailed", { code: "INTERRUPTION_RECOVERY_FAILED", error: "gave up" });
+
+    const s = useAsleepStore.getState();
+    expect(s.isTracking).toBe(false);
+    expect(s.didClose).toBe(true);
+    expect(s.isRecoveryRequired).toBe(false);
+  });
+
+  it("clears recovery required when recording dies after a recovery attempt", () => {
+    useAsleepStore.setState({ isTracking: true });
+    mockEmitter.__emit("onTrackingFailed", { code: "CANNOT_ACTIVATE_IN_BACKGROUND", error: "background" });
+    mockEmitter.__emit("onTrackingFailed", { code: "AUDIO_INITIALIZATION_FAILED", error: "audio failed" });
+
+    const s = useAsleepStore.getState();
+    expect(s.isTracking).toBe(false);
+    expect(s.isRecoveryRequired).toBe(false);
+  });
+
+  it("clears recovery required after the next uploaded chunk", () => {
+    useAsleepStore.setState({ isTracking: true, isRecoveryRequired: true });
+    mockEmitter.__emit("onTrackingUploaded", { sequence: 1 });
+    expect(useAsleepStore.getState().isRecoveryRequired).toBe(false);
+  });
+
   it("enableLog(true) opts log writes back in (+1 notify per event)", () => {
     useAsleepStore.getState().enableLog(true);
     const listener = jest.fn();
@@ -250,6 +324,19 @@ describe("notification batching (one setState per native event)", () => {
     off();
     expect(listener).toHaveBeenCalledTimes(1);
     useAsleepStore.getState().enableLog(false);
+  });
+});
+
+describe("resumeTracking platform support", () => {
+  beforeEach(resetStore);
+
+  it("rejects on Android with a typed unsupported-platform error", async () => {
+    setPlatform("android");
+    await expect(useAsleepStore.getState().resumeTracking()).rejects.toMatchObject({
+      name: "AsleepPlatformError",
+      code: "UNSUPPORTED_PLATFORM",
+      message: "resumeTracking is only supported on iOS.",
+    });
   });
 });
 
@@ -347,6 +434,20 @@ describe("success path clears stale error", () => {
 
 describe("addLog gating", () => {
   beforeEach(resetStore);
+
+  it("forwards enableLog to the native logger on iOS", () => {
+    useAsleepStore.getState().enableLog(true);
+    expect(mockModule.enableLog).toHaveBeenCalledWith(true);
+
+    useAsleepStore.getState().enableLog(false);
+    expect(mockModule.enableLog).toHaveBeenLastCalledWith(false);
+  });
+
+  it("does not call the iOS logger bridge on Android", () => {
+    setPlatform("android");
+    useAsleepStore.getState().enableLog(true);
+    expect(mockModule.enableLog).not.toHaveBeenCalled();
+  });
 
   it("does not write to state when showDebugLog is false (default)", () => {
     const listener = jest.fn();
