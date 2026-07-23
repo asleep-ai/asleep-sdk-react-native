@@ -234,7 +234,8 @@ extension AsleepModule: AsleepSetupDelegate {
         sendEvent("onSetupDidFail", [
             "error": error.localizedDescription,
             "caseName": String(describing: error),
-            "code": (error as NSError).code
+            "code": (error as NSError).code,
+            "sdkCode": error.errorCode.code
         ])
     }
 
@@ -255,7 +256,8 @@ extension AsleepModule: AsleepConfigDelegate {
         sendEvent("onUserJoinFailed", [
             "error": error.localizedDescription,
             "caseName": String(describing: error),
-            "code": (error as NSError).code
+            "code": (error as NSError).code,
+            "sdkCode": error.errorCode.code
         ])
     }
 
@@ -297,7 +299,13 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)
         }
+        // (error as NSError).code is the Swift enum declaration ordinal, not the
+        // documented Asleep error code; kept for backward compatibility only.
         errorInfo["errorCode"] = (error as NSError).code
+        // Documented numeric code (10000-34999) via the SDK's errorCode computed
+        // property — the v3.2.0+ recommended API (Asleep.Interface.swift). This is
+        // what JS uses to classify errors, including cases in the default: arm.
+        errorInfo["sdkCode"] = error.errorCode.code
 
         sendEvent("onTrackingFailed", errorInfo)
     }

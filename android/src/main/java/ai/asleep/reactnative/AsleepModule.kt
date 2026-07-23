@@ -108,7 +108,8 @@ class AsleepModule : Module() {
                     "error" to detail,
                     "code" to code,
                     "message" to detail,
-                    "errorCode" to errorCode
+                    "errorCode" to errorCode,
+                    "sdkCode" to errorCode
                 ))
                 promise?.reject("TRACKING_FAILED", "Sleep tracking failed: $errorCode - $detail", null)
             }
@@ -168,7 +169,7 @@ class AsleepModule : Module() {
                         }
                         
                         override fun onFail(errorCode: Int, detail: String) {
-                            sendEvent("onSetupDidFail", mapOf("error" to detail))
+                            sendEvent("onSetupDidFail", mapOf("error" to detail, "sdkCode" to errorCode))
                             sendEvent("onDebugLog", mapOf("message" to "Setup failed: $errorCode - $detail"))
                             promise.reject("SETUP_FAILED", "Setup failed: $errorCode - $detail", null)
                         }
@@ -233,7 +234,7 @@ class AsleepModule : Module() {
 
                         override fun onFail(errorCode: Int, detail: String) {
                             sendEvent("onDebugLog", mapOf("message" to "Initialization failed: $errorCode - $detail"))
-                            sendEvent("onUserJoinFailed", mapOf("errorCode" to errorCode, "detail" to detail))
+                            sendEvent("onUserJoinFailed", mapOf("errorCode" to errorCode, "detail" to detail, "sdkCode" to errorCode))
                             promise.reject("INITIALIZATION_FAILED", "Initialization failed: $errorCode - $detail", null)
                         }
                     }

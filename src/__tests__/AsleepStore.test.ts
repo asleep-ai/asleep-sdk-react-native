@@ -61,6 +61,7 @@ const captureInitial = () => {
     isTrackingPaused: s.isTrackingPaused,
     isRecoveryRequired: s.isRecoveryRequired,
     error: s.error,
+    errorInfo: s.errorInfo,
     userId: s.userId,
     sessionId: s.sessionId,
     showDebugLog: s.showDebugLog,
@@ -324,6 +325,167 @@ describe("notification batching (one setState per native event)", () => {
     off();
     expect(listener).toHaveBeenCalledTimes(1);
     useAsleepStore.getState().enableLog(false);
+  });
+});
+
+describe("errorInfo classification", () => {
+  let cleanup: (() => void) | null = null;
+
+  beforeEach(() => {
+    resetStore();
+    cleanup = initializeAsleepListeners();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = null;
+  });
+
+  it("classifies terminal string codes and mirrors category into the error string", () => {
+    useAsleepStore.setState({ isTracking: true });
+    mockEmitter.__emit("onTrackingFailed", { code: "UPLOAD_TRACKING_TERMINATED", error: "x", sdkCode: 23499 });
+
+    const s = useAsleepStore.getState();
+    expect(s.errorInfo).toEqual({ code: "UPLOAD_TRACKING_TERMINATED", category: "terminal", sdkCode: 23499 });
+    expect(JSON.parse(s.error!).category).toBe("terminal");
+  });
+
+  it("classifies Android terminal numeric codes and clears tracking state (regression: stuck isTracking)", () => {
+    // Android sends the generic "TRACKING_FAILED" string for terminal codes
+    // like 11003 (ERR_AUDIO). Before sdkCode classification these fell into the
+    // else bucket: isTracking stayed true forever because the native module
+    // suppresses the dual-fired onFinish for exactly these codes.
+    useAsleepStore.setState({ isTracking: true, isAnalyzing: true, trackingStartTime: new Date() });
+    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "audio dead", sdkCode: 11003 });
+
+    const s = useAsleepStore.getState();
+    expect(s.errorInfo?.category).toBe("terminal");
+    expect(s.isTracking).toBe(false);
+    expect(s.isAnalyzing).toBe(false);
+    expect(s.didClose).toBe(true);
+    expect(s.trackingStartTime).toBeNull();
+  });
+
+  it("classifies recording-dead codes", () => {
+    useAsleepStore.setState({ isTracking: true });
+    mockEmitter.__emit("onTrackingFailed", { code: "AUDIO_INITIALIZATION_FAILED", error: "audio failed" });
+    expect(useAsleepStore.getState().errorInfo?.category).toBe("recordingDead");
+  });
+
+  it("classifies recovery-required codes", () => {
+    useAsleepStore.setState({ isTracking: true });
+    mockEmitter.__emit("onTrackingFailed", { code: "CANNOT_ACTIVATE_IN_BACKGROUND", error: "background" });
+    expect(useAsleepStore.getState().errorInfo?.category).toBe("recoveryRequired");
+  });
+
+  it("classifies survivable upload failures as transient and preserves tracking", () => {
+    useAsleepStore.setState({ isTracking: true, isAnalyzing: true });
+    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "upload blip", sdkCode: 23000 });
+
+    const s = useAsleepStore.getState();
+    expect(s.errorInfo?.category).toBe("transient");
+    expect(s.isTracking).toBe(true);
+    expect(s.isAnalyzing).toBe(true);
+  });
+
+  it("falls back to unknown for unclassified codes and preserves tracking state", () => {
+    useAsleepStore.setState({ isTracking: true });
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "UNKNOWN_ERROR",
+      error: "mystery",
+      caseName: "httpStatus(500, ...)",
+      sdkCode: 12345,
+    });
+
+    const s = useAsleepStore.getState();
+    expect(s.errorInfo).toEqual({
+      code: "UNKNOWN_ERROR",
+      category: "unknown",
+      sdkCode: 12345,
+      caseName: "httpStatus(500, ...)",
+    });
+    expect(s.isTracking).toBe(true);
+  });
+
+  it("keeps the terminal state transition for terminal-by-sdkCode a single notification", () => {
+    useAsleepStore.setState({ isTracking: true });
+    const listener = jest.fn();
+    const off = useAsleepStore.subscribe(listener);
+    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "x", sdkCode: 22500 });
+    off();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("errorInfo lockstep with error", () => {
+  const staleInfo = { code: "TRACKING_FAILED", category: "transient" as const, sdkCode: 23000 };
+
+  let cleanup: (() => void) | null = null;
+
+  beforeEach(() => {
+    resetStore();
+    cleanup = initializeAsleepListeners();
+  });
+
+  afterEach(() => {
+    cleanup?.();
+    cleanup = null;
+  });
+
+  it("startTracking() clears errorInfo alongside error on success", async () => {
+    useAsleepStore.setState({
+      error: "stale",
+      errorInfo: staleInfo,
+      hasCheckedStatus: true,
+      hasCheckedBatteryOptimization: true,
+    });
+    await useAsleepStore.getState().startTracking();
+    const s = useAsleepStore.getState();
+    expect(s.error).toBeNull();
+    expect(s.errorInfo).toBeNull();
+  });
+
+  it("stopTracking() clears errorInfo alongside error on success", async () => {
+    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo, isTracking: true });
+    await useAsleepStore.getState().stopTracking();
+    const s = useAsleepStore.getState();
+    expect(s.error).toBeNull();
+    expect(s.errorInfo).toBeNull();
+  });
+
+  it("action catches reset errorInfo so a previous event's category cannot linger", async () => {
+    useAsleepStore.setState({ errorInfo: staleInfo, isTracking: true });
+    mockModule.stopTracking.mockRejectedValueOnce(new Error("stop failed"));
+    await expect(useAsleepStore.getState().stopTracking()).rejects.toThrow("stop failed");
+
+    const s = useAsleepStore.getState();
+    expect(s.error).toBe("stop failed");
+    expect(s.errorInfo).toBeNull();
+  });
+
+  it("clearError() clears both fields", () => {
+    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo });
+    useAsleepStore.getState().clearError();
+    const s = useAsleepStore.getState();
+    expect(s.error).toBeNull();
+    expect(s.errorInfo).toBeNull();
+  });
+
+  it("onTrackingResumed clears both fields", () => {
+    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo, isTrackingPaused: true });
+    mockEmitter.__emit("onTrackingResumed", undefined);
+    const s = useAsleepStore.getState();
+    expect(s.error).toBeNull();
+    expect(s.errorInfo).toBeNull();
+  });
+
+  it("getReport() success clears errorInfo together with the guarded error clear", async () => {
+    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo });
+    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
+    await useAsleepStore.getState().getReport("a");
+    const s = useAsleepStore.getState();
+    expect(s.error).toBeNull();
+    expect(s.errorInfo).toBeNull();
   });
 });
 
