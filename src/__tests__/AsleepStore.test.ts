@@ -1,15 +1,3 @@
-/**
- * Tests for the v1.0.18 patch — non-breaking fixes applied on top of the
- * zustand-backed store.
- *
- * Locks in:
- * - Ref-counted initializeAsleepListeners (multi-mount safety)
- * - addLog gated on showDebugLog (default is zero-cost)
- * - Batched event handler setStates (one notification per native event)
- * - Success path error clear (no stale failure messages)
- * - console.error spy guard (regression prevention)
- * - __DEV__ gate on warnings
- */
 import type { MockAsleepModule, MockEventEmitter } from "./_helpers/factories.test";
 
 let mockModule: MockAsleepModule;
@@ -30,734 +18,359 @@ jest.mock("expo-modules-core", () => {
   };
 });
 
-jest.mock("react-native", () => {
-  const platform = { OS: "ios" as "ios" | "android", Version: 17 as number };
-  return {
-    Platform: platform,
-    PermissionsAndroid: {
-      PERMISSIONS: { RECORD_AUDIO: "RECORD_AUDIO", POST_NOTIFICATIONS: "POST_NOTIFICATIONS" },
-      RESULTS: { GRANTED: "granted", DENIED: "denied", NEVER_ASK_AGAIN: "never_ask_again" },
-      requestMultiple: jest.fn().mockResolvedValue({
-        RECORD_AUDIO: "granted",
-        POST_NOTIFICATIONS: "granted",
-      }),
-    },
-  };
+jest.mock("react-native", () => ({
+  Platform: { OS: "ios", Version: 17 },
+  PermissionsAndroid: {
+    PERMISSIONS: { RECORD_AUDIO: "RECORD_AUDIO", POST_NOTIFICATIONS: "POST_NOTIFICATIONS" },
+    RESULTS: { GRANTED: "granted", DENIED: "denied", NEVER_ASK_AGAIN: "never_ask_again" },
+    requestMultiple: jest.fn().mockResolvedValue({ RECORD_AUDIO: "granted", POST_NOTIFICATIONS: "granted" }),
+  },
+}));
+
+import { AsleepError } from "../Asleep.types";
+import {
+  asleepActions,
+  initializeAsleepListeners,
+  normalizeError,
+  toPublicState,
+  useAsleepStore,
+  type InternalAsleepState,
+} from "../AsleepStore";
+import { setMockPlatform } from "./_helpers/factories.test";
+
+const initialState = useAsleepStore.getState();
+let cleanup: () => void;
+
+const resetState = (partial: Partial<InternalAsleepState> = {}) => {
+  useAsleepStore.setState({
+    ...initialState,
+    setupStatus: "idle",
+    trackingStatus: "idle",
+    sessionId: null,
+    userId: null,
+    error: null,
+    analysisResult: null,
+    isAnalyzing: false,
+    didClose: false,
+    isODAEnabled: false,
+    trackingStartTime: null,
+    isInitialized: false,
+    hasCheckedStatus: false,
+    hasCheckedBatteryOptimization: false,
+    showDebugLog: false,
+    log: "",
+    ...partial,
+  });
+};
+
+beforeAll(() => {
+  cleanup = initializeAsleepListeners();
 });
 
-import { useAsleepStore, initializeAsleepListeners } from "../AsleepStore";
+afterAll(() => cleanup());
 
-const setPlatform = (os: "ios" | "android", version = 33) => {
-  const rn = require("react-native");
-  rn.Platform.OS = os;
-  rn.Platform.Version = version;
-};
-
-const captureInitial = () => {
-  const s = useAsleepStore.getState();
-  return {
-    didClose: s.didClose,
-    isTracking: s.isTracking,
-    isTrackingPaused: s.isTrackingPaused,
-    isRecoveryRequired: s.isRecoveryRequired,
-    error: s.error,
-    errorInfo: s.errorInfo,
-    userId: s.userId,
-    sessionId: s.sessionId,
-    showDebugLog: s.showDebugLog,
-    log: s.log,
-    analysisResult: s.analysisResult,
-    isODAEnabled: s.isODAEnabled,
-    isAnalyzing: s.isAnalyzing,
-    trackingStartTime: s.trackingStartTime,
-    isInitialized: s.isInitialized,
-    isSetupInProgress: s.isSetupInProgress,
-    isSetupComplete: s.isSetupComplete,
-    hasCheckedStatus: s.hasCheckedStatus,
-    hasCheckedBatteryOptimization: s.hasCheckedBatteryOptimization,
-  };
-};
-
-const INITIAL = captureInitial();
-
-const resetStore = () => {
-  useAsleepStore.setState({ ...INITIAL });
-  jest.clearAllMocks();
-  setPlatform("ios", 17);
-};
-
-// Library-boundary guard: the store must never bypass consumer observability
-// by writing to console.error. Any test that triggers it is a regression.
-let consoleErrorSpy: jest.SpyInstance;
 beforeEach(() => {
-  consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-});
-afterEach(() => {
-  expect(consoleErrorSpy).not.toHaveBeenCalled();
-  consoleErrorSpy.mockRestore();
+  jest.clearAllMocks();
+  setMockPlatform({ OS: "ios", Version: 17 });
+  resetState();
 });
 
-describe("initializeAsleepListeners ref counting", () => {
-  // The module-private refCount is not directly readable from tests, so we
-  // track every cleanup we create and drain them in afterEach. This keeps
-  // refCount at 0 between tests even if an assertion failure short-circuits
-  // an earlier test before its own cleanup call.
-  const cleanups: (() => void)[] = [];
-  const trackedInit = () => {
-    const c = initializeAsleepListeners();
-    cleanups.push(c);
-    return c;
-  };
-
-  beforeEach(resetStore);
-  afterEach(() => {
-    while (cleanups.length) cleanups.pop()!();
+describe("error normalization", () => {
+  it("preserves native metadata without stringifying the payload", () => {
+    const payload = { code: "NATIVE", detail: "failed", sdkCode: 22000, caseName: "create" };
+    const error = normalizeError(payload, "FALLBACK");
+    expect(error).toBeInstanceOf(AsleepError);
+    expect(error).toMatchObject({
+      code: "NATIVE",
+      message: "failed",
+      sdkCode: 22000,
+      caseName: "create",
+      cause: payload,
+    });
   });
 
-  it("first cleanup does not detach listeners while another holder is active", () => {
-    const cleanupA = trackedInit();
-    trackedInit(); // cleanupB
-    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
-
-    cleanupA();
-    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
-  });
-
-  it("calling the same cleanup twice is a no-op", () => {
-    const cleanupA = trackedInit();
-    trackedInit(); // cleanupB
-    cleanupA();
-    cleanupA();
-    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
-  });
-
-  it("re-initializes cleanly after final teardown", () => {
-    const cleanup1 = trackedInit();
-    cleanup1();
-    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(0);
-
-    trackedInit();
-    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBeGreaterThan(0);
+  it("returns an existing AsleepError unchanged when no overrides are supplied", () => {
+    const error = new AsleepError("EXISTING", "message");
+    expect(normalizeError(error, "FALLBACK")).toBe(error);
   });
 });
 
-describe("notification batching (one setState per native event)", () => {
-  let cleanup: (() => void) | null = null;
-
-  beforeEach(() => {
-    resetStore();
-    cleanup = initializeAsleepListeners();
+describe("public projection", () => {
+  it.each([
+    ["idle", false, false, false],
+    ["tracking", true, false, false],
+    ["paused", true, true, false],
+    ["recoveryRequired", true, false, true],
+  ] as const)("derives %s consistently", (status, isTracking, isTrackingPaused, isRecoveryRequired) => {
+    resetState({ trackingStatus: status });
+    expect(toPublicState(useAsleepStore.getState())).toMatchObject({
+      status,
+      isTracking,
+      isTrackingPaused,
+      isRecoveryRequired,
+    });
   });
 
-  afterEach(() => {
-    cleanup?.();
-    cleanup = null;
+  it("derives setup booleans and hides internal flags", () => {
+    resetState({ setupStatus: "inProgress", hasCheckedStatus: true, showDebugLog: true });
+    const state = toPublicState(useAsleepStore.getState());
+    expect(state.isSetupInProgress).toBe(true);
+    expect(state.isSetupComplete).toBe(false);
+    expect(state).not.toHaveProperty("hasCheckedStatus");
+    expect(state).not.toHaveProperty("showDebugLog");
+    expect(state).not.toHaveProperty("trackingStartTime");
   });
 
-  // With enableLog(false) (the default), addLog is a no-op for state.
-  // Every batched handler produces exactly ONE subscriber notification.
-  const expectSingleNotificationFor = (event: string, payload: unknown, setup?: () => void) => {
-    setup?.();
+  it("caches the projection for the same internal reference", () => {
+    const internal = useAsleepStore.getState();
+    expect(toPublicState(internal)).toBe(toPublicState(internal));
+  });
+});
+
+describe("listener lifecycle", () => {
+  it("attaches one native listener set for multiple holders", () => {
+    const extraA = initializeAsleepListeners();
+    const extraB = initializeAsleepListeners();
+    expect(mockEmitter.addListener).not.toHaveBeenCalled();
+    extraA();
+    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(1);
+    extraB();
+    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(1);
+  });
+
+  it("caller cleanup is idempotent", () => {
+    const extra = initializeAsleepListeners();
+    extra();
+    extra();
+    expect(mockEmitter.__listenerCount("onTrackingCreated")).toBe(1);
+  });
+});
+
+describe("one reducer transaction per native event", () => {
+  const cases: Array<[string, unknown, Partial<InternalAsleepState>]> = [
+    ["onUserJoined", { userId: "user" }, {}],
+    ["onUserJoinFailed", { detail: "join failed", sdkCode: 10000 }, {}],
+    ["onUserDeleted", { userId: "user" }, { userId: "old" }],
+    ["onTrackingCreated", { sessionId: "session" }, {}],
+    ["onTrackingUploaded", { sequence: 2 }, { trackingStatus: "tracking" }],
+    ["onTrackingClosed", { sessionId: "session" }, { trackingStatus: "tracking" }],
+    ["onTrackingFailed", { code: "TRACKING_FAILED", error: "failed", sdkCode: 23000 }, { trackingStatus: "tracking" }],
+    ["onTrackingInterrupted", undefined, { trackingStatus: "tracking" }],
+    ["onTrackingResumed", undefined, { trackingStatus: "paused", error: new AsleepError("OLD", "old") }],
+    ["onMicPermissionDenied", undefined, {}],
+    ["onDebugLog", { message: "native" }, {}],
+    ["onSetupDidComplete", undefined, { setupStatus: "inProgress" }],
+    ["onSetupDidFail", { error: "setup failed", sdkCode: 10000 }, { setupStatus: "inProgress" }],
+    ["onSetupInProgress", { progress: 50 }, {}],
+    ["onAnalysisResult", { sleep_stages: [1, 2] }, { isAnalyzing: true }],
+  ];
+
+  it.each(cases)("%s emits exactly once with debug logging enabled", async (event, payload, setup) => {
+    resetState({ ...setup, showDebugLog: true });
     const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
+    const unsubscribe = useAsleepStore.subscribe(listener);
     mockEmitter.__emit(event, payload);
-    off();
+    await Promise.resolve();
+    unsubscribe();
     expect(listener).toHaveBeenCalledTimes(1);
-  };
-
-  it("onTrackingCreated → single notification", () => {
-    expectSingleNotificationFor("onTrackingCreated", { sessionId: "sess-1" });
   });
 
-  it("onTrackingClosed → single notification", () => {
-    expectSingleNotificationFor("onTrackingClosed", { sessionId: "final" }, () => {
-      useAsleepStore.setState({ isTracking: true, isAnalyzing: true, trackingStartTime: new Date() });
-    });
-  });
-
-  it("onTrackingFailed (terminal) → single notification", () => {
-    expectSingleNotificationFor("onTrackingFailed", { code: "UPLOAD_TRACKING_TERMINATED", error: "x" }, () => {
-      useAsleepStore.setState({ isTracking: true });
-    });
-  });
-
-  it("onTrackingResumed (was paused) → single notification", () => {
-    expectSingleNotificationFor("onTrackingResumed", undefined, () => {
-      useAsleepStore.setState({ isTrackingPaused: true, error: "stale" });
-    });
-  });
-
-  it("onSetupDidComplete → single notification", () => {
-    expectSingleNotificationFor("onSetupDidComplete", undefined);
-  });
-
-  it("onSetupDidFail → single notification", () => {
-    expectSingleNotificationFor("onSetupDidFail", { error: "boom" });
-  });
-
-  it("onAnalysisResult → single notification", () => {
-    expectSingleNotificationFor("onAnalysisResult", { id: "a", state: "ANALYZING" }, () => {
-      useAsleepStore.setState({ isAnalyzing: true });
-    });
-  });
-
-  it("onMicPermissionDenied → zero notifications (no state change with log gated)", () => {
+  it("no-op events emit zero times with debug logging disabled", () => {
     const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
+    const unsubscribe = useAsleepStore.subscribe(listener);
     mockEmitter.__emit("onMicPermissionDenied", undefined);
-    off();
+    mockEmitter.__emit("onDebugLog", { message: "ignored" });
+    unsubscribe();
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("onTrackingUploaded triggers the native analysis call exactly once per ODA upload", () => {
-    // The store action requestAnalysis wraps mockModule.requestAnalysis. Counting
-    // the native call locks in that the handler no longer pre-flips isAnalyzing
-    // separately and then redundantly invokes requestAnalysis (which also flips it).
-    useAsleepStore.setState({ isODAEnabled: true, isTracking: true });
-    mockModule.requestAnalysis.mockClear();
-    mockEmitter.__emit("onTrackingUploaded", { sequence: 1 });
-    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(1);
+  it("normalizes Android analysis casing", () => {
+    mockEmitter.__emit("onAnalysisResult", { sleep_stages: [1], start_time: "now" });
+    expect(useAsleepStore.getState().analysisResult).toEqual({ sleepStages: [1], startTime: "now" });
   });
+});
 
-  it("onTrackingUploaded triggers analysis on non-ODA modulo cadence (sequence 11, 21, …)", () => {
-    // Non-ODA path: analysis fires when sequence >= 10 and sequence % 10 === 1.
-    // Lock the modulo so a future rebase cannot quietly drop the cadence.
-    useAsleepStore.setState({ isODAEnabled: false, isTracking: true });
-    mockModule.requestAnalysis.mockClear();
+describe("tracking failure classification", () => {
+  beforeEach(() => resetState({ trackingStatus: "tracking", isAnalyzing: true, trackingStartTime: new Date() }));
 
-    mockEmitter.__emit("onTrackingUploaded", { sequence: 11 });
-    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(1);
-
-    mockEmitter.__emit("onTrackingUploaded", { sequence: 12 });
-    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(1); // no trigger off-cadence
-
-    mockEmitter.__emit("onTrackingUploaded", { sequence: 21 });
-    expect(mockModule.requestAnalysis).toHaveBeenCalledTimes(2);
-  });
-
-  it("onTrackingFailed with a non-terminal code preserves isTracking and only stores the error", () => {
-    useAsleepStore.setState({ isTracking: true, isAnalyzing: true });
-    mockEmitter.__emit("onTrackingFailed", { code: "RECOVERABLE_GLITCH", error: "minor" });
-    const s = useAsleepStore.getState();
-    expect(s.isTracking).toBe(true);
-    expect(s.isAnalyzing).toBe(true);
-    expect(s.error).toContain("minor");
-  });
-
-  it("AUDIO_INITIALIZATION_FAILED clears tracking but leaves the native session open", () => {
-    useAsleepStore.setState({
-      isTracking: true,
-      isAnalyzing: true,
-      didClose: false,
-      trackingStartTime: new Date(),
-    });
-    // Real iOS payload carries sdkCode 11003 — the same number is in the
-    // Android terminal set, so this test also locks in string-bucket precedence.
+  it("classifies recording-dead strings before the numeric terminal fallback", () => {
     mockEmitter.__emit("onTrackingFailed", {
       code: "AUDIO_INITIALIZATION_FAILED",
-      error: "audio failed",
+      message: "audio",
       sdkCode: 11003,
     });
-
-    const s = useAsleepStore.getState();
-    expect(s.isTracking).toBe(false);
-    expect(s.isAnalyzing).toBe(false);
-    expect(s.trackingStartTime).toBeNull();
-    expect(s.didClose).toBe(false);
+    const state = useAsleepStore.getState();
+    expect(state.error).toMatchObject({ category: "recordingDead", sdkCode: 11003 });
+    expect(state.trackingStatus).toBe("idle");
+    expect(state.didClose).toBe(false);
   });
 
-  it("CANNOT_ACTIVATE_IN_BACKGROUND keeps tracking active and requires recovery", () => {
-    useAsleepStore.setState({ isTracking: true, isRecoveryRequired: false });
+  it("classifies recovery-required failures and keeps the session live", () => {
     mockEmitter.__emit("onTrackingFailed", {
       code: "CANNOT_ACTIVATE_IN_BACKGROUND",
-      error: "background activation failed",
+      message: "background",
+      sdkCode: 11003,
     });
-
-    const s = useAsleepStore.getState();
-    expect(s.isTracking).toBe(true);
-    expect(s.isRecoveryRequired).toBe(true);
+    const state = useAsleepStore.getState();
+    expect(state.error?.category).toBe("recoveryRequired");
+    expect(state.trackingStatus).toBe("recoveryRequired");
+    expect(toPublicState(state).isTracking).toBe(true);
   });
 
-  it("marks recovery required when failure follows interrupted and resumed events", () => {
-    useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingInterrupted", undefined);
+  it("classifies terminal string and numeric codes", () => {
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "TRACKING_FAILED",
+      message: "terminal",
+      sdkCode: 22500,
+    });
+    expect(useAsleepStore.getState()).toMatchObject({
+      trackingStatus: "idle",
+      didClose: true,
+      isAnalyzing: false,
+    });
+    expect(useAsleepStore.getState().error?.category).toBe("terminal");
+  });
+
+  it("classifies survivable upload failures as transient without changing liveness", () => {
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "TRACKING_FAILED",
+      message: "retry exhausted",
+      sdkCode: 23000,
+    });
+    expect(useAsleepStore.getState().error?.category).toBe("transient");
+    expect(useAsleepStore.getState().trackingStatus).toBe("tracking");
+  });
+
+  it("classifies unknown codes without changing liveness", () => {
+    mockEmitter.__emit("onTrackingFailed", { code: "NEW_CODE", message: "unknown", sdkCode: 34999 });
+    expect(useAsleepStore.getState().error?.category).toBe("unknown");
+    expect(useAsleepStore.getState().trackingStatus).toBe("tracking");
+  });
+
+  it("only a completed upload clears recovery-required state", () => {
+    resetState({
+      trackingStatus: "recoveryRequired",
+      error: new AsleepError("RECOVERY", "needed", { category: "recoveryRequired" }),
+    });
     mockEmitter.__emit("onTrackingResumed", undefined);
-    mockEmitter.__emit("onTrackingFailed", {
-      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
-      error: "background activation failed",
-    });
-
-    const s = useAsleepStore.getState();
-    expect(s.isTrackingPaused).toBe(false);
-    expect(s.isRecoveryRequired).toBe(true);
-  });
-
-  it("clears recovery required when the retry escalates to a terminal failure", () => {
-    useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", { code: "CANNOT_ACTIVATE_IN_BACKGROUND", error: "background" });
-    expect(useAsleepStore.getState().isRecoveryRequired).toBe(true);
-
-    // iOS retries cannotActivateInBackground 3x, then gives up with
-    // interruptionRecoveryFailed. No upload will ever arrive to clear the flag.
-    mockEmitter.__emit("onTrackingFailed", { code: "INTERRUPTION_RECOVERY_FAILED", error: "gave up" });
-
-    const s = useAsleepStore.getState();
-    expect(s.isTracking).toBe(false);
-    expect(s.didClose).toBe(true);
-    expect(s.isRecoveryRequired).toBe(false);
-  });
-
-  it("clears recovery required when recording dies after a recovery attempt", () => {
-    useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", {
-      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
-      error: "background",
-      sdkCode: 11000,
-    });
-    mockEmitter.__emit("onTrackingFailed", {
-      code: "AUDIO_INITIALIZATION_FAILED",
-      error: "audio failed",
-      sdkCode: 11003,
-    });
-
-    const s = useAsleepStore.getState();
-    expect(s.isTracking).toBe(false);
-    expect(s.isRecoveryRequired).toBe(false);
-  });
-
-  it("clears recovery required after the next uploaded chunk", () => {
-    useAsleepStore.setState({ isTracking: true, isRecoveryRequired: true });
-    mockEmitter.__emit("onTrackingUploaded", { sequence: 1 });
-    expect(useAsleepStore.getState().isRecoveryRequired).toBe(false);
-  });
-
-  it("enableLog(true) opts log writes back in (+1 notify per event)", () => {
-    useAsleepStore.getState().enableLog(true);
-    const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
-    mockEmitter.__emit("onMicPermissionDenied", undefined);
-    off();
-    expect(listener).toHaveBeenCalledTimes(1);
-    useAsleepStore.getState().enableLog(false);
+    expect(useAsleepStore.getState().trackingStatus).toBe("recoveryRequired");
+    expect(useAsleepStore.getState().error).toBeNull();
+    mockEmitter.__emit("onTrackingUploaded", { sequence: 2 });
+    expect(useAsleepStore.getState().trackingStatus).toBe("tracking");
   });
 });
 
-describe("errorInfo classification", () => {
-  let cleanup: (() => void) | null = null;
-
-  beforeEach(() => {
-    resetStore();
-    cleanup = initializeAsleepListeners();
+describe("action contracts", () => {
+  it("startTracking checks permission without requesting it", async () => {
+    resetState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });
+    await asleepActions.startTracking();
+    expect(mockModule.hasRequiredPermissions).toHaveBeenCalledTimes(1);
+    expect(mockModule.requestRequiredPermissions).not.toHaveBeenCalled();
+    expect(mockModule.startTracking).toHaveBeenCalledTimes(1);
   });
 
-  afterEach(() => {
-    cleanup?.();
-    cleanup = null;
-  });
-
-  it("classifies terminal string codes and mirrors category into the error string", () => {
-    useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", { code: "UPLOAD_TRACKING_TERMINATED", error: "x", sdkCode: 23499 });
-
-    const s = useAsleepStore.getState();
-    expect(s.errorInfo).toEqual({ code: "UPLOAD_TRACKING_TERMINATED", category: "terminal", sdkCode: 23499 });
-    expect(JSON.parse(s.error!).category).toBe("terminal");
-  });
-
-  it("classifies Android terminal numeric codes and clears tracking state (regression: stuck isTracking)", () => {
-    // Android sends the generic "TRACKING_FAILED" string for terminal codes
-    // like 11003 (ERR_AUDIO). Before sdkCode classification these fell into the
-    // else bucket: isTracking stayed true forever because the native module
-    // suppresses the dual-fired onFinish for exactly these codes.
-    useAsleepStore.setState({ isTracking: true, isAnalyzing: true, trackingStartTime: new Date() });
-    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "audio dead", sdkCode: 11003 });
-
-    const s = useAsleepStore.getState();
-    expect(s.errorInfo?.category).toBe("terminal");
-    expect(s.isTracking).toBe(false);
-    expect(s.isAnalyzing).toBe(false);
-    expect(s.didClose).toBe(true);
-    expect(s.trackingStartTime).toBeNull();
-  });
-
-  it("classifies recording-dead codes, letting the iOS string win over the numeric terminal set", () => {
-    // iOS sends sdkCode 11003 here; on Android the same number is session-terminal.
-    // The explicit string bucket must win: session is still open (didClose false).
-    useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", {
-      code: "AUDIO_INITIALIZATION_FAILED",
-      error: "audio failed",
-      sdkCode: 11003,
+  it("startTracking rejects denied permission with AsleepError", async () => {
+    resetState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });
+    mockModule.hasRequiredPermissions.mockResolvedValueOnce(false);
+    await expect(asleepActions.startTracking()).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "PERMISSION_DENIED",
     });
-    const s = useAsleepStore.getState();
-    expect(s.errorInfo?.category).toBe("recordingDead");
-    expect(s.isTracking).toBe(false);
-    expect(s.didClose).toBe(false);
+    expect(mockModule.startTracking).not.toHaveBeenCalled();
   });
 
-  it("classifies recovery-required codes", () => {
-    useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", {
-      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
-      error: "background",
-      sdkCode: 11000,
+  it("requestRequiredPermissions returns false for a normal Android denial", async () => {
+    setMockPlatform({ OS: "android", Version: 34 });
+    const { PermissionsAndroid } = require("react-native");
+    PermissionsAndroid.requestMultiple.mockResolvedValueOnce({
+      RECORD_AUDIO: "denied",
+      POST_NOTIFICATIONS: "granted",
     });
-    expect(useAsleepStore.getState().errorInfo?.category).toBe("recoveryRequired");
-  });
-
-  it("classifies survivable upload failures as transient and preserves tracking", () => {
-    useAsleepStore.setState({ isTracking: true, isAnalyzing: true });
-    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "upload blip", sdkCode: 23000 });
-
-    const s = useAsleepStore.getState();
-    expect(s.errorInfo?.category).toBe("transient");
-    expect(s.isTracking).toBe(true);
-    expect(s.isAnalyzing).toBe(true);
-  });
-
-  it("falls back to unknown for unclassified codes and preserves tracking state", () => {
-    useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", {
-      code: "UNKNOWN_ERROR",
-      error: "mystery",
-      caseName: "httpStatus(500, ...)",
-      sdkCode: 12345,
-    });
-
-    const s = useAsleepStore.getState();
-    expect(s.errorInfo).toEqual({
-      code: "UNKNOWN_ERROR",
-      category: "unknown",
-      sdkCode: 12345,
-      caseName: "httpStatus(500, ...)",
-    });
-    expect(s.isTracking).toBe(true);
-  });
-
-  it("keeps the terminal state transition for terminal-by-sdkCode a single notification", () => {
-    useAsleepStore.setState({ isTracking: true });
-    const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
-    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "x", sdkCode: 22500 });
-    off();
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("errorInfo lockstep with error", () => {
-  const staleInfo = { code: "TRACKING_FAILED", category: "transient" as const, sdkCode: 23000 };
-
-  let cleanup: (() => void) | null = null;
-
-  beforeEach(() => {
-    resetStore();
-    cleanup = initializeAsleepListeners();
-  });
-
-  afterEach(() => {
-    cleanup?.();
-    cleanup = null;
-  });
-
-  it("startTracking() clears errorInfo alongside error on success", async () => {
-    useAsleepStore.setState({
-      error: "stale",
-      errorInfo: staleInfo,
-      hasCheckedStatus: true,
-      hasCheckedBatteryOptimization: true,
-    });
-    await useAsleepStore.getState().startTracking();
-    const s = useAsleepStore.getState();
-    expect(s.error).toBeNull();
-    expect(s.errorInfo).toBeNull();
-  });
-
-  it("stopTracking() clears errorInfo alongside error on success", async () => {
-    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo, isTracking: true });
-    await useAsleepStore.getState().stopTracking();
-    const s = useAsleepStore.getState();
-    expect(s.error).toBeNull();
-    expect(s.errorInfo).toBeNull();
-  });
-
-  it("non-lifecycle catches reset errorInfo so a previous event's category cannot linger", async () => {
-    useAsleepStore.setState({ errorInfo: staleInfo });
-    mockModule.requestAnalysis.mockRejectedValueOnce(new Error("analysis failed"));
-    await useAsleepStore.getState().requestAnalysis();
-
-    const s = useAsleepStore.getState();
-    expect(s.error).toBe("analysis failed");
-    expect(s.errorInfo).toBeNull();
-  });
-
-  it("stopTracking catch clears a stale verdict from an earlier failure", async () => {
-    useAsleepStore.setState({ errorInfo: staleInfo, isTracking: true });
-    mockModule.stopTracking.mockRejectedValueOnce(new Error("stop failed"));
-    await expect(useAsleepStore.getState().stopTracking()).rejects.toThrow("stop failed");
-
-    const s = useAsleepStore.getState();
-    expect(s.error).toBe("stop failed");
-    expect(s.errorInfo).toBeNull();
-  });
-
-  it("startTracking guard failure writes the new error even when a stale verdict exists", async () => {
-    // Guard throws happen before the pre-native clear; a verdict left by an
-    // earlier failure must not swallow the new error message.
-    useAsleepStore.setState({ errorInfo: staleInfo, error: "old", hasCheckedStatus: false });
-    await expect(useAsleepStore.getState().startTracking()).rejects.toThrow("checkAndRestoreTracking");
-
-    const s = useAsleepStore.getState();
-    expect(s.error).toContain("checkAndRestoreTracking");
-    expect(s.errorInfo).toBeNull();
-  });
-
-  it("startTracking rejection preserves a concurrently classified errorInfo", async () => {
-    // Android order: native fires the classified onTrackingFailed event first,
-    // then rejects the same start promise. The catch must not clobber the
-    // verdict with the raw rejection message.
-    useAsleepStore.setState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });
-    let rejectStart!: (e: Error) => void;
-    const nativeCallReached = new Promise<void>((resolveReached) => {
-      mockModule.startTracking.mockImplementationOnce(() => {
-        resolveReached();
-        return new Promise((_, reject) => {
-          rejectStart = reject;
-        });
-      });
-    });
-    const startPromise = useAsleepStore.getState().startTracking();
-    // Wait until the action's pre-await setState has run (it precedes the
-    // native call), so the emitted event lands mid-await like on a device.
-    await nativeCallReached;
-    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "create failed", sdkCode: 22500 });
-    rejectStart!(new Error("Sleep tracking failed: 22500 - create failed"));
-    await expect(startPromise).rejects.toThrow("22500");
-
-    const s = useAsleepStore.getState();
-    expect(s.errorInfo).toEqual({ code: "TRACKING_FAILED", category: "terminal", sdkCode: 22500 });
-    expect(JSON.parse(s.error!).category).toBe("terminal");
-    expect(s.isTracking).toBe(false);
-    expect(s.trackingStartTime).toBeNull();
-  });
-
-  it("clearError() clears both fields", () => {
-    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo });
-    useAsleepStore.getState().clearError();
-    const s = useAsleepStore.getState();
-    expect(s.error).toBeNull();
-    expect(s.errorInfo).toBeNull();
-  });
-
-  it("onTrackingResumed clears both fields", () => {
-    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo, isTrackingPaused: true });
-    mockEmitter.__emit("onTrackingResumed", undefined);
-    const s = useAsleepStore.getState();
-    expect(s.error).toBeNull();
-    expect(s.errorInfo).toBeNull();
-  });
-
-  it("getReport() success clears errorInfo together with the guarded error clear", async () => {
-    useAsleepStore.setState({ error: "stale", errorInfo: staleInfo });
-    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
-    await useAsleepStore.getState().getReport("a");
-    const s = useAsleepStore.getState();
-    expect(s.error).toBeNull();
-    expect(s.errorInfo).toBeNull();
-  });
-});
-
-describe("resumeTracking platform support", () => {
-  beforeEach(resetStore);
-
-  it("rejects on Android with a typed unsupported-platform error", async () => {
-    setPlatform("android");
-    await expect(useAsleepStore.getState().resumeTracking()).rejects.toMatchObject({
-      name: "AsleepPlatformError",
-      code: "UNSUPPORTED_PLATFORM",
-      message: "resumeTracking is only supported on iOS.",
-    });
-  });
-});
-
-describe("success error clear is guarded — no spurious notifications", () => {
-  beforeEach(resetStore);
-
-  it("getReport success does NOT notify subscribers when error was already null", async () => {
-    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
-    const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
-    await useAsleepStore.getState().getReport("a");
-    off();
-    expect(listener).not.toHaveBeenCalled();
-  });
-
-  it("getReportList success is silent when error was already null", async () => {
-    mockModule.getReportList.mockResolvedValueOnce([]);
-    const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
-    await useAsleepStore.getState().getReportList("a", "b");
-    off();
-    expect(listener).not.toHaveBeenCalled();
-  });
-
-  it("getReport success DOES notify exactly once when there was a stale error", async () => {
-    useAsleepStore.setState({ error: "stale" });
-    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
-    const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
-    await useAsleepStore.getState().getReport("a");
-    off();
-    expect(listener).toHaveBeenCalledTimes(1);
+    await expect(asleepActions.requestRequiredPermissions()).resolves.toBe(false);
     expect(useAsleepStore.getState().error).toBeNull();
   });
 
-  it("getReport success does NOT clobber an unrelated error that arrived during the await", async () => {
-    // Seed an initial state error (the snapshot the guard captures).
-    useAsleepStore.setState({ error: "old report error" });
-    // Resolve the native call only after we inject an interleaved error.
-    let resolveGet: (value: unknown) => void;
-    mockModule.getReport.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveGet = resolve;
+  it("requestRequiredPermissions normalizes a bridge failure", async () => {
+    mockModule.requestRequiredPermissions.mockRejectedValueOnce(new Error("bridge failed"));
+    await expect(asleepActions.requestRequiredPermissions()).rejects.toMatchObject({
+      code: "REQUEST_PERMISSION_FAILED",
+    });
+    expect(useAsleepStore.getState().error).toBeInstanceOf(AsleepError);
+  });
+
+  it("startTracking enforces restore and battery prerequisites", async () => {
+    await expect(asleepActions.startTracking()).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+    resetState({ hasCheckedStatus: true });
+    await expect(asleepActions.startTracking()).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+  });
+
+  it("resumeTracking rejects Android with a typed error", async () => {
+    setMockPlatform({ OS: "android", Version: 34 });
+    await expect(asleepActions.resumeTracking()).rejects.toMatchObject({ code: "UNSUPPORTED_PLATFORM" });
+  });
+
+  it.each([
+    ["getReport", () => asleepActions.getReport("session")],
+    ["getReportList", () => asleepActions.getReportList("2026-01-01", "2026-01-02")],
+    ["getAverageReport", () => asleepActions.getAverageReport("2026-01-01", "2026-01-02")],
+    ["deleteSession", () => asleepActions.deleteSession("session")],
+    ["requestAnalysis", () => asleepActions.requestAnalysis()],
+  ])("%s throws AsleepError rather than returning a sentinel", async (nativeName, call) => {
+    (mockModule as any)[nativeName].mockRejectedValueOnce(new Error("native failure"));
+    await expect(call()).rejects.toBeInstanceOf(AsleepError);
+  });
+
+  it("requestAnalysis return never writes analysisResult", async () => {
+    mockModule.requestAnalysis.mockResolvedValueOnce({ sleep_stages: [1] });
+    await expect(asleepActions.requestAnalysis()).resolves.toEqual({ sleepStages: [1] });
+    expect(useAsleepStore.getState().analysisResult).toBeNull();
+    expect(useAsleepStore.getState().isAnalyzing).toBe(true);
+  });
+
+  it("keeps a tracking failure emitted before lifecycle rejection", async () => {
+    resetState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });
+    let rejectStart!: (error: Error) => void;
+    mockModule.startTracking.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectStart = reject;
       }),
     );
-    const getPromise = useAsleepStore.getState().getReport("a");
-    // Simulate a concurrent native failure landing while the await is in flight.
-    useAsleepStore.setState({ error: "tracking failed mid-flight" });
-    resolveGet!({ timezone: "", session: {} });
-    await getPromise;
-    // The capture-and-compare guard must leave the interleaved error untouched.
-    expect(useAsleepStore.getState().error).toBe("tracking failed mid-flight");
-  });
-});
-
-describe("success path clears stale error", () => {
-  beforeEach(resetStore);
-
-  it("setup() clears error on success", async () => {
-    useAsleepStore.setState({ error: "stale failure" });
-    await useAsleepStore.getState().setup({ apiKey: "k" });
-    expect(useAsleepStore.getState().error).toBeNull();
-  });
-
-  it("startTracking() clears error on success", async () => {
-    useAsleepStore.setState({
-      error: "stale",
-      hasCheckedStatus: true,
-      hasCheckedBatteryOptimization: true,
+    const promise = asleepActions.startTracking();
+    await Promise.resolve();
+    await Promise.resolve();
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "TRACKING_FAILED",
+      message: "classified",
+      sdkCode: 22500,
     });
-    await useAsleepStore.getState().startTracking();
-    expect(useAsleepStore.getState().error).toBeNull();
+    const classified = useAsleepStore.getState().error;
+    rejectStart(new Error("raw rejection"));
+    await expect(promise).rejects.toBe(classified);
+    expect(useAsleepStore.getState().error).toBe(classified);
   });
 
-  it("stopTracking() clears error on success", async () => {
-    useAsleepStore.setState({ error: "stale", isTracking: true });
-    await useAsleepStore.getState().stopTracking();
-    expect(useAsleepStore.getState().error).toBeNull();
+  it("query success does not clobber an error emitted during the await", async () => {
+    const stale = new AsleepError("STALE", "stale");
+    resetState({ error: stale, trackingStatus: "tracking" });
+    let resolveReport!: (report: unknown) => void;
+    mockModule.getReport.mockReturnValueOnce(new Promise((resolve) => (resolveReport = resolve)));
+    const promise = asleepActions.getReport("session");
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "TRACKING_FAILED",
+      message: "concurrent",
+      sdkCode: 23000,
+    });
+    const concurrent = useAsleepStore.getState().error;
+    resolveReport({ timezone: "UTC", session: { id: "session" }, missingDataRatio: 0, peculiarities: [] });
+    await promise;
+    expect(useAsleepStore.getState().error).toBe(concurrent);
   });
 
-  it("getReport() clears error on success", async () => {
-    useAsleepStore.setState({ error: "stale" });
-    mockModule.getReport.mockResolvedValueOnce({ timezone: "", session: {} });
-    await useAsleepStore.getState().getReport("a");
-    expect(useAsleepStore.getState().error).toBeNull();
-  });
-
-  it("getReportList() clears error on success", async () => {
-    useAsleepStore.setState({ error: "stale" });
-    mockModule.getReportList.mockResolvedValueOnce([]);
-    await useAsleepStore.getState().getReportList("from", "to");
-    expect(useAsleepStore.getState().error).toBeNull();
-  });
-});
-
-describe("addLog gating", () => {
-  beforeEach(resetStore);
-
-  it("forwards enableLog to the native logger on iOS", () => {
-    useAsleepStore.getState().enableLog(true);
-    expect(mockModule.enableLog).toHaveBeenCalledWith(true);
-
-    useAsleepStore.getState().enableLog(false);
-    expect(mockModule.enableLog).toHaveBeenLastCalledWith(false);
-  });
-
-  it("does not call the iOS logger bridge on Android", () => {
-    setPlatform("android");
-    useAsleepStore.getState().enableLog(true);
-    expect(mockModule.enableLog).not.toHaveBeenCalled();
-  });
-
-  it("does not write to state when showDebugLog is false (default)", () => {
-    const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
-    useAsleepStore.getState().addLog("[test] hello");
-    off();
-    expect(listener).not.toHaveBeenCalled();
-    expect(useAsleepStore.getState().log).toBe("");
-  });
-
-  it("writes to state when enableLog(true) is set", () => {
-    useAsleepStore.getState().enableLog(true);
-    const listener = jest.fn();
-    const off = useAsleepStore.subscribe(listener);
-    useAsleepStore.getState().addLog("[test] hello");
-    off();
-    expect(listener).toHaveBeenCalled();
-    expect(useAsleepStore.getState().log).toContain("[test] hello");
-  });
-});
-
-describe("__DEV__ gated warnings", () => {
-  const setDev = (value: boolean) => {
-    (globalThis as { __DEV__?: boolean }).__DEV__ = value;
-  };
-
-  let warnSpy: jest.SpyInstance;
-  beforeEach(() => {
-    resetStore();
-    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
-  });
-  afterEach(() => {
-    setDev(true);
-    warnSpy.mockRestore();
-  });
-
-  it("setCustomNotification on iOS warns in dev with [Asleep] prefix", async () => {
-    setPlatform("ios");
-    setDev(true);
-    await useAsleepStore.getState().setCustomNotification("t", "x");
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("[Asleep]"));
-  });
-
-  it("setCustomNotification on iOS is silent in production", async () => {
-    setPlatform("ios");
-    setDev(false);
-    await useAsleepStore.getState().setCustomNotification("t", "x");
-    expect(warnSpy).not.toHaveBeenCalled();
-  });
-
-  it("query methods that silently return null/[] surface a dev-only warn", async () => {
-    setDev(true);
-    mockModule.getReport.mockRejectedValueOnce(new Error("net down"));
-    await useAsleepStore.getState().getReport("any");
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("getReport failed"), expect.any(Error));
-  });
-
-  it("query method warn is silent in production", async () => {
-    setDev(false);
-    mockModule.getReport.mockRejectedValueOnce(new Error("net down"));
-    await useAsleepStore.getState().getReport("any");
-    expect(warnSpy).not.toHaveBeenCalled();
-  });
-
-  it("requestMicrophonePermission deprecation is dev-gated", async () => {
-    setDev(false);
-    await useAsleepStore.getState().requestMicrophonePermission();
-    expect(warnSpy).not.toHaveBeenCalled();
-
-    setDev(true);
-    await useAsleepStore.getState().requestMicrophonePermission();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("deprecated"));
+  it("never pairs console.error with thrown failures", async () => {
+    const spy = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    mockModule.getReport.mockRejectedValueOnce(new Error("failure"));
+    await expect(asleepActions.getReport("session")).rejects.toBeInstanceOf(AsleepError);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

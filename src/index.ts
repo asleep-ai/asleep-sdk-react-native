@@ -1,315 +1,59 @@
-import { EventEmitter } from "expo-modules-core";
 import { useEffect } from "react";
-import { Alert } from "react-native";
+import type { AsleepEventType } from "./Asleep.types";
 import {
-  AsleepConfig,
-  AsleepSetupConfig,
-  AsleepEventType,
-  AsleepReport,
-  AsleepSession,
-  AsleepAverageReport,
-  TrackingConfig,
-} from "./Asleep.types";
-import AsleepModule from "./AsleepModule";
-import { useAsleepStore, initializeAsleepListeners } from "./AsleepStore";
+  asleepActions,
+  initializeAsleepListeners,
+  toPublicState,
+  useAsleepStore,
+  type AsleepPublicApi,
+} from "./AsleepStore";
 
-const emitter = new EventEmitter(AsleepModule);
-
-class Asleep {
-  private listeners: {
-    [K in keyof AsleepEventType]?: ((data: AsleepEventType[K]) => void)[];
-  } = {};
-
-  setup = async (config: AsleepSetupConfig): Promise<void> => {
-    try {
-      await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
-    } catch (error) {
-      console.error("setup error:", error);
-      throw error;
-    }
-  };
-
-  initAsleepConfig = async (config: AsleepConfig): Promise<void> => {
-    try {
-      const result = await AsleepModule.initAsleepConfig(
-        config.apiKey,
-        config.userId,
-        config.baseUrl,
-        config.callbackUrl,
-      );
-      return result;
-    } catch (error) {
-      console.error("initAsleepConfig error:", error);
-      throw error;
-    }
-  };
-
-  startTracking = async (config?: TrackingConfig): Promise<void> => {
-    const permission = await this.requestRequiredPermissions();
-    if (!permission) {
-      Alert.alert("Microphone permission denied");
-      throw new Error("Microphone permission denied");
-    }
-
-    return AsleepModule.startTracking(config);
-  };
-
-  stopTracking = async (): Promise<string> => {
-    return AsleepModule.stopTracking();
-  };
-
-  isTracking = (): boolean => {
-    return AsleepModule.isTracking();
-  };
-
-  getReport = async (sessionId: string): Promise<AsleepReport> => {
-    const report = await AsleepModule.getReport(sessionId);
-    return this.convertKeysToCamelCase(report);
-  };
-
-  getReportList = async (fromDate: string, toDate: string): Promise<AsleepSession[]> => {
-    const reportList = await AsleepModule.getReportList(fromDate, toDate);
-    return reportList.map((session: any) => {
-      const converted = this.convertKeysToCamelCase(session);
-      // Normalize property names to match other session types
-      return {
-        id: converted.sessionId || converted.id,
-        state: converted.state,
-        startTime: converted.sessionStartTime || converted.startTime,
-        endTime: converted.sessionEndTime || converted.endTime,
-        createdTimezone: converted.createdTimezone,
-        unexpectedEndTime: converted.unexpectedEndTime,
-        lastReceivedSeqNum: converted.lastReceivedSeqNum,
-        timeInBed: converted.timeInBed,
-      };
-    });
-  };
-
-  deleteSession = async (sessionId: string): Promise<void> => {
-    return AsleepModule.deleteSession(sessionId);
-  };
-
-  getAverageReport = async (fromDate: string, toDate: string): Promise<AsleepAverageReport> => {
-    const averageReport = await AsleepModule.getAverageReport(fromDate, toDate);
-    return this.convertKeysToCamelCase(averageReport);
-  };
-
-  /**
-   * @deprecated Use requestRequiredPermissions instead. This method will be removed in a future version.
-   */
-  requestMicrophonePermission = async (): Promise<boolean> => {
-    console.warn(
-      "[AsleepSDK] requestMicrophonePermission is deprecated. Please use requestRequiredPermissions instead.",
-    );
-    return this.requestRequiredPermissions();
-  };
-
-  requestRequiredPermissions = async (): Promise<boolean> => {
-    return AsleepModule.requestRequiredPermissions();
-  };
-
-  setCustomNotification = async (_title: string, _text: string): Promise<void> => {
-    // Native method removed; notification config now flows through startTracking options.
-    console.warn(
-      "[Asleep] setCustomNotification is deprecated and a no-op; pass `{ android: { notification: { title, text, icon } } }` to startTracking() instead",
-    );
-  };
-
-  private convertKeysToCamelCase = (obj: any): any => {
-    if (Array.isArray(obj)) {
-      return obj.map(this.convertKeysToCamelCase);
-    } else if (obj !== null && obj.constructor === Object) {
-      return Object.keys(obj).reduce((acc, key) => {
-        const camelKey = key.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-        acc[camelKey] = this.convertKeysToCamelCase(obj[key]);
-        return acc;
-      }, {} as any);
-    }
-    return obj;
-  };
-
-  addEventListener<K extends keyof AsleepEventType>(eventType: K, listener: (data: AsleepEventType[K]) => void) {
-    if (!this.listeners[eventType]) {
-      this.listeners[eventType] = [];
-    }
-    this.listeners[eventType]!.push(listener);
-
-    const subscription = emitter.addListener(eventType, listener);
-
-    return subscription;
-  }
-
-  removeAllListeners = <K extends keyof AsleepEventType>(eventType: K) => {
-    if (this.listeners[eventType]) {
-      this.listeners[eventType] = [];
-    }
-    emitter.removeAllListeners(eventType as string);
-  };
-}
-
-export const useAsleep = () => {
-  const {
-    didClose,
-    isTracking,
-    isRecoveryRequired,
-    error,
-    errorInfo,
-    userId,
-    sessionId,
-    log,
-    setup,
-    initAsleepConfig,
-    checkAndRestoreTracking,
-    checkBatteryOptimization,
-    requestBatteryOptimizationExemption,
-    startTracking,
-    stopTracking,
-    resumeTracking,
-    getReport,
-    getReportList,
-    getAverageReport,
-    deleteSession,
-    enableLog,
-    setCustomNotification,
-    requestMicrophonePermission,
-    requestRequiredPermissions,
-    requestAnalysis,
-    isODAEnabled,
-    analysisResult,
-    isAnalyzing,
-    isTrackingPaused,
-    getTrackingDurationMinutes,
-    isInitialized,
-    isSetupInProgress,
-    isSetupComplete,
-    hasCheckedStatus,
-    hasCheckedBatteryOptimization,
-    clearError,
-  } = useAsleepStore();
+export const useAsleep = (): AsleepPublicApi => {
+  const state = useAsleepStore(toPublicState);
 
   useEffect(() => {
-    const cleanup = initializeAsleepListeners();
-    return cleanup;
+    return initializeAsleepListeners();
   }, []);
 
-  return {
-    didClose,
-    isTracking,
-    isRecoveryRequired,
-    error,
-    errorInfo,
-    userId,
-    sessionId,
-    log,
-    enableLog,
-    setCustomNotification,
-    setup,
-    initAsleepConfig,
-    checkAndRestoreTracking,
-    checkBatteryOptimization,
-    requestBatteryOptimizationExemption,
-    startTracking,
-    stopTracking,
-    resumeTracking,
-    getReport,
-    getReportList,
-    getAverageReport,
-    deleteSession,
-    requestMicrophonePermission,
-    requestRequiredPermissions,
-    requestAnalysis,
-    isODAEnabled,
-    analysisResult,
-    isAnalyzing,
-    isTrackingPaused,
-    getTrackingDurationMinutes,
-    isInitialized,
-    isSetupInProgress,
-    isSetupComplete,
-    hasCheckedStatus,
-    hasCheckedBatteryOptimization,
-    clearError,
-  };
+  return state;
 };
 
-export const asleepStore = useAsleepStore;
-
-export const AsleepSDK = {
-  setup: (config: AsleepSetupConfig) => useAsleepStore.getState().setup(config),
-
-  initAsleepConfig: (config: AsleepConfig) => useAsleepStore.getState().initAsleepConfig(config),
-
-  checkAndRestoreTracking: () => useAsleepStore.getState().checkAndRestoreTracking(),
-
-  checkBatteryOptimization: () => useAsleepStore.getState().checkBatteryOptimization(),
-
-  requestBatteryOptimizationExemption: () => useAsleepStore.getState().requestBatteryOptimizationExemption(),
-
-  startTracking: (config?: TrackingConfig) => useAsleepStore.getState().startTracking(config),
-
-  stopTracking: () => useAsleepStore.getState().stopTracking(),
-
-  resumeTracking: () => useAsleepStore.getState().resumeTracking(),
-
-  getReport: (sessionId: string) => useAsleepStore.getState().getReport(sessionId),
-
-  getReportList: (fromDate: string, toDate: string) => useAsleepStore.getState().getReportList(fromDate, toDate),
-
-  getAverageReport: (fromDate: string, toDate: string) => useAsleepStore.getState().getAverageReport(fromDate, toDate),
-
-  deleteSession: (sessionId: string) => useAsleepStore.getState().deleteSession(sessionId),
-
-  requestMicrophonePermission: () => useAsleepStore.getState().requestMicrophonePermission(),
-
-  requestRequiredPermissions: () => useAsleepStore.getState().requestRequiredPermissions(),
-
-  requestAnalysis: () => useAsleepStore.getState().requestAnalysis(),
-
-  isTracking: () => useAsleepStore.getState().isTracking,
-
-  isRecoveryRequired: () => useAsleepStore.getState().isRecoveryRequired,
-
-  isAnalyzing: () => useAsleepStore.getState().isAnalyzing,
-
-  isSetupInProgress: () => useAsleepStore.getState().isSetupInProgress,
-
-  isSetupComplete: () => useAsleepStore.getState().isSetupComplete,
-
-  hasCheckedStatus: () => useAsleepStore.getState().hasCheckedStatus,
-
-  hasCheckedBatteryOptimization: () => useAsleepStore.getState().hasCheckedBatteryOptimization,
-
-  getUserId: () => useAsleepStore.getState().userId,
-
-  getSessionId: () => useAsleepStore.getState().sessionId,
-
-  enableLog: (print: boolean) => useAsleepStore.getState().enableLog(print),
-
-  setCustomNotification: (title: string, text: string) => useAsleepStore.getState().setCustomNotification(title, text),
-
-  clearError: () => useAsleepStore.getState().clearError(),
-
-  initialize: () => {
-    return initializeAsleepListeners();
+export const Asleep = {
+  initialize: initializeAsleepListeners,
+  getState: (): AsleepPublicApi => toPublicState(useAsleepStore.getState()),
+  subscribe: (listener: (state: AsleepPublicApi) => void): (() => void) => {
+    let previous = toPublicState(useAsleepStore.getState());
+    return useAsleepStore.subscribe(() => {
+      const next = toPublicState(useAsleepStore.getState());
+      if (next === previous) return;
+      previous = next;
+      listener(next);
+    });
   },
+  addEventListener: <K extends keyof AsleepEventType>(
+    eventType: K,
+    listener: (data: AsleepEventType[K]) => void,
+  ): (() => void) => asleepActions.addEventListener(eventType, listener),
 };
 
-const asleep = new Asleep();
-export default asleep;
+export { AsleepError } from "./Asleep.types";
 
 export type {
+  AsleepAnalysisAck,
+  AsleepAnalysisResult,
+  AsleepAverageReport,
   AsleepConfig,
-  AsleepSetupConfig,
   AsleepErrorCategory,
-  AsleepErrorInfo,
   AsleepEventType,
+  AsleepNeverSleptSession,
   AsleepReport,
   AsleepSession,
-  AsleepAverageReport,
+  AsleepSetupConfig,
   AsleepSleptSession,
-  AsleepNeverSleptSession,
   AsleepStat,
-  AsleepAnalysisResult,
-  AsleepAnalysisAck,
+  AudioSessionOption,
+  SetupStatus,
   TrackingConfig,
+  TrackingStatus,
 } from "./Asleep.types";
+export type { AsleepActions, AsleepPublicApi, AsleepPublicState } from "./AsleepStore";

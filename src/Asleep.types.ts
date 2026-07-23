@@ -167,6 +167,10 @@ export type AsleepAnalysisAck = {
   timestamp: number;
 };
 
+export type SetupStatus = "idle" | "inProgress" | "complete";
+
+export type TrackingStatus = "idle" | "tracking" | "paused" | "recoveryRequired";
+
 export type AudioSessionOption = "duckOthers" | "allowAirPlay" | "allowBluetooth" | "allowBluetoothA2DP";
 
 export type TrackingConfig = {
@@ -195,23 +199,39 @@ export type TrackingConfig = {
 export type AsleepErrorCategory = "terminal" | "recordingDead" | "recoveryRequired" | "transient" | "unknown";
 
 /**
- * Structured view of the last onTrackingFailed event, exposed as
- * useAsleep().errorInfo alongside the legacy `error` JSON string. Cleared to
- * null wherever `error` is cleared.
+ * Structured error used everywhere the SDK reports a failure.
+ *
+ * `code` is a stable machine identifier. Classified tracking failures also
+ * carry their category and documented native SDK code, while `cause` retains
+ * the original rejection or event payload for observability.
  */
-export type AsleepErrorInfo = {
-  /** Stable string code from the native module (e.g. "UPLOAD_TRACKING_TERMINATED"). */
-  code: string;
-  category: AsleepErrorCategory;
-  /**
-   * Numeric code documented by the native Asleep SDKs (range 10000-34999):
-   * iOS `AsleepError.errorCode.code` (v3.2.0+), Android listener `errorCode`.
-   */
-  sdkCode?: number;
-  message?: string;
-  /** iOS: Swift enum case description for cases without an explicit code mapping. */
-  caseName?: string;
-};
+export class AsleepError extends Error {
+  readonly code: string;
+  readonly category?: AsleepErrorCategory;
+  readonly sdkCode?: number;
+  readonly caseName?: string;
+  readonly cause?: unknown;
+
+  constructor(
+    code: string,
+    message: string,
+    options?: {
+      cause?: unknown;
+      category?: AsleepErrorCategory;
+      sdkCode?: number;
+      caseName?: string;
+    },
+  ) {
+    super(message);
+    this.name = "AsleepError";
+    this.code = code;
+    this.category = options?.category;
+    this.sdkCode = options?.sdkCode;
+    this.caseName = options?.caseName;
+    this.cause = options?.cause;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
 
 export type AsleepEventType = {
   onTrackingCreated: { sessionId?: string };

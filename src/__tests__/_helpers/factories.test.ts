@@ -22,6 +22,7 @@ export type MockAsleepModule = {
   initAsleepConfig: jest.Mock;
   startTracking: jest.Mock;
   stopTracking: jest.Mock;
+  resumeTracking: jest.Mock;
   isTracking: jest.Mock;
   isSleepTrackingAlive: jest.Mock;
   connectSleepTracking: jest.Mock;
@@ -31,6 +32,7 @@ export type MockAsleepModule = {
   getReportList: jest.Mock;
   getAverageReport: jest.Mock;
   deleteSession: jest.Mock;
+  hasRequiredPermissions: jest.Mock;
   requestRequiredPermissions: jest.Mock;
   setCustomNotification: jest.Mock;
   enableLog: jest.Mock;
@@ -49,6 +51,7 @@ export const createMockAsleepModule = (): MockAsleepModule => ({
   initAsleepConfig: jest.fn().mockResolvedValue(undefined),
   startTracking: jest.fn().mockResolvedValue(undefined),
   stopTracking: jest.fn().mockResolvedValue("session-stub"),
+  resumeTracking: jest.fn().mockResolvedValue(undefined),
   isTracking: jest.fn().mockReturnValue(false),
   isSleepTrackingAlive: jest.fn().mockResolvedValue(false),
   connectSleepTracking: jest.fn().mockResolvedValue(false),
@@ -58,6 +61,7 @@ export const createMockAsleepModule = (): MockAsleepModule => ({
   getReportList: jest.fn().mockResolvedValue([]),
   getAverageReport: jest.fn().mockResolvedValue(null),
   deleteSession: jest.fn().mockResolvedValue(undefined),
+  hasRequiredPermissions: jest.fn().mockResolvedValue(true),
   requestRequiredPermissions: jest.fn().mockResolvedValue(true),
   setCustomNotification: jest.fn().mockResolvedValue(undefined),
   enableLog: jest.fn(),

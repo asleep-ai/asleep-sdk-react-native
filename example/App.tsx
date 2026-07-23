@@ -13,7 +13,7 @@ import {
   Platform,
 } from "react-native";
 import { useTracking } from "./useTracking";
-import { useAsleep, AsleepSleptSession, AsleepNeverSleptSession } from "react-native-asleep/src";
+import { useAsleep, type AsleepSleptSession, type AsleepNeverSleptSession } from "react-native-asleep";
 
 const SHOW_DEBUG_LOG = true;
 
@@ -43,8 +43,8 @@ const App = () => {
     requestAnalysis,
     enableLog,
     isTrackingPaused,
-    getTrackingDurationMinutes,
-    isInitialized,
+    trackingStartTime,
+    isSetupComplete,
   } = useTracking();
 
   const { didClose, deleteSession } = useAsleep();
@@ -59,7 +59,7 @@ const App = () => {
   // error
   useEffect(() => {
     if (error) {
-      addLog(`Error: ${error}`);
+      addLog(`Error: ${error.message}`);
     }
   }, [error]);
 
@@ -73,22 +73,23 @@ const App = () => {
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isTracking && !isTrackingPaused) {
-      interval = setInterval(async () => {
-        try {
-          const duration = await getTrackingDurationMinutes();
-          setTrackingDuration(duration);
-        } catch (error) {
-          console.error("Failed to get tracking duration:", error);
-        }
+    if (isTracking && !isTrackingPaused && trackingStartTime) {
+      const updateDuration = () => {
+        setTrackingDuration((Date.now() - trackingStartTime) / (60 * 1000));
+      };
+      updateDuration();
+      interval = setInterval(() => {
+        updateDuration();
       }, 1000);
+    } else if (!isTracking) {
+      setTrackingDuration(0);
     }
     return () => {
       if (interval) {
         clearInterval(interval);
       }
     };
-  }, [isTracking, isTrackingPaused, getTrackingDurationMinutes]);
+  }, [isTracking, isTrackingPaused, trackingStartTime]);
 
   const addLog = (message: string) => {
     console.log("message", message);
@@ -208,7 +209,7 @@ const App = () => {
         addLog(`Request analysis response: ${JSON.stringify(result)}`);
 
         // For Android, show the result immediately
-        if (Platform.OS === 'android' && result.sleepStages) {
+        if (Platform.OS === 'android' && !("status" in result) && result.sleepStages) {
           showModal("Analysis Result", result);
         } else if (Platform.OS === 'ios') {
           // For iOS, show the current analysisResult if available
@@ -556,7 +557,7 @@ const App = () => {
         <View>
           <Text>User ID: {userId}</Text>
           <Text>Session ID: {sessionId}</Text>
-          <Text>SDK Initialized: {isInitialized ? "Yes" : "No"}</Text>
+          <Text>SDK Initialized: {isSetupComplete ? "Yes" : "No"}</Text>
           <Text>
             Tracking Status:{" "}
             {!isTracking
@@ -582,7 +583,7 @@ const App = () => {
               ,
             </Text>
           )}
-          {error && <Text style={styles.errorText}>Error: {error}</Text>}
+          {error && <Text style={styles.errorText}>Error: {error.message}</Text>}
         </View>
         <ScrollView style={styles.logContainer}>
           {logs.map((log, index) => (
@@ -595,7 +596,7 @@ const App = () => {
         <View style={styles.buttonContainer}>
           <Button
             title="Start Tracking"
-            disabled={!isInitialized || isTracking}
+            disabled={!isSetupComplete || isTracking}
             onPress={_startTracking}
           />
           <Button
