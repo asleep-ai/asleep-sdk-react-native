@@ -204,11 +204,38 @@ The library handles a number of platform quirks internally so JS sees a consiste
 
 See [AGENTS.md](./AGENTS.md#native-behavior-compensations) for the full table including upstream SDK versions and rationale.
 
+## Error classification
+
+`useAsleep().errorInfo` is a structured view of the last tracking failure. Its `category` field is the library's objective verdict on recoverability; the app decides what severity to log at:
+
+| `category` | Meaning | Suggested app-side severity |
+|---|---|---|
+| `terminal` | Native session is gone; no `onTrackingClosed` will follow. Start a new session. | error |
+| `recordingDead` | Recorder torn down but the session is still open; `stopTracking()` then start again. | error |
+| `recoveryRequired` | Tracking is alive; call `resumeTracking()` in the foreground (`isRecoveryRequired` is also set). | warning |
+| `transient` | The native session survived (e.g. one upload window failed after internal retries); later uploads continue. | warning |
+| `unknown` | Unclassified code — do not assume it is benign. | error |
+
+```ts
+const { errorInfo } = useAsleep();
+
+useEffect(() => {
+  if (!errorInfo) return;
+  if (errorInfo.category === "recoveryRequired" || errorInfo.category === "transient") {
+    analytics.track("asleep_recoverable_error", errorInfo); // visibility without paging
+  } else {
+    Sentry.captureException(new Error(`[Asleep] ${errorInfo.code}`), { extra: errorInfo });
+  }
+}, [errorInfo]);
+```
+
+`errorInfo.sdkCode` carries the numeric error code documented by the native Asleep SDKs (both platforms). The legacy `errorCode` event-payload field is deprecated: on iOS it holds a Swift enum ordinal from NSError bridging, not the documented code.
+
 ## Best practices
 
 - **Permission flow**: call `requestRequiredPermissions()` *before* `startTracking()`. As of v1.0.18 the Android native module rejects `startTracking` with `PERMISSION_REQUIRED` when `RECORD_AUDIO` / `FOREGROUND_SERVICE_MICROPHONE` aren't granted.
 - **Battery optimization (Android, required)**: long sessions get killed without an exemption. Call `checkBatteryOptimization()` before `startTracking()`; if not exempted, call `requestBatteryOptimizationExemption()` and follow the system prompt. iOS's no-op call keeps cross-platform code uniform.
-- **Error handling**: read `error` from `useAsleep()` and switch on its `code` for category-specific UI rather than parsing `message` substrings.
+- **Error handling**: gate log severity on `useAsleep().errorInfo?.category` (see [Error classification](#error-classification)) and switch on `errorInfo.code` for category-specific UI rather than parsing `message` substrings.
 
 ## Troubleshooting
 

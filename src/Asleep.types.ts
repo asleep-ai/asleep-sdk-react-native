@@ -183,6 +183,36 @@ export type TrackingConfig = {
   };
 };
 
+/**
+ * Coarse classification of a tracking-runtime failure (onTrackingFailed),
+ * derived from the native error code. The library reports the objective fact;
+ * the app decides log severity. Recommended mapping:
+ * - "terminal" / "recordingDead" → error (session or recorder is gone)
+ * - "recoveryRequired" / "transient" → warning (tracking is still alive and a
+ *   defined recovery path exists)
+ * - "unknown" → error (unclassified; do not assume it is benign)
+ */
+export type AsleepErrorCategory = "terminal" | "recordingDead" | "recoveryRequired" | "transient" | "unknown";
+
+/**
+ * Structured view of the last onTrackingFailed event, exposed as
+ * useAsleep().errorInfo alongside the legacy `error` JSON string. Cleared to
+ * null wherever `error` is cleared.
+ */
+export type AsleepErrorInfo = {
+  /** Stable string code from the native module (e.g. "UPLOAD_TRACKING_TERMINATED"). */
+  code: string;
+  category: AsleepErrorCategory;
+  /**
+   * Numeric code documented by the native Asleep SDKs (range 10000-34999):
+   * iOS `AsleepError.errorCode.code` (v3.2.0+), Android listener `errorCode`.
+   */
+  sdkCode?: number;
+  message?: string;
+  /** iOS: Swift enum case description for cases without an explicit code mapping. */
+  caseName?: string;
+};
+
 export type AsleepEventType = {
   onTrackingCreated: { sessionId?: string };
   onTrackingUploaded: { sequence: number };
@@ -191,7 +221,13 @@ export type AsleepEventType = {
     error: string;
     code: string;
     message?: string;
+    /**
+     * @deprecated On iOS this is the Swift enum declaration ordinal from
+     * NSError bridging, not the documented Asleep error code. Use `sdkCode`.
+     */
     errorCode?: number;
+    /** Numeric code documented by the native Asleep SDKs (both platforms). */
+    sdkCode?: number;
     caseName?: string;
   };
   onTrackingInterrupted: undefined;
@@ -204,11 +240,17 @@ export type AsleepEventType = {
     detail?: string;
     caseName?: string;
     code?: number;
+    /** Numeric code documented by the native Asleep SDKs (both platforms). */
+    sdkCode?: number;
   };
   onUserDeleted: { userId: string };
   onDebugLog: { message: string };
   onSetupDidComplete: undefined;
-  onSetupDidFail: { error: string };
+  onSetupDidFail: {
+    error: string;
+    /** Numeric code documented by the native Asleep SDKs (both platforms). */
+    sdkCode?: number;
+  };
   onSetupInProgress: { progress: number };
   onAnalysisResult: AsleepAnalysisResult;
 };

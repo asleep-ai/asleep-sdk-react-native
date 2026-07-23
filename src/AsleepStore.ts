@@ -5,6 +5,8 @@ import { Platform, PermissionsAndroid } from "react-native";
 import {
   AsleepConfig,
   AsleepSetupConfig,
+  AsleepErrorCategory,
+  AsleepErrorInfo,
   AsleepEventType,
   AsleepReport,
   AsleepSession,
@@ -44,12 +46,48 @@ const RECORDING_DEAD_ERROR_CODES = new Set<string>(["AUDIO_INITIALIZATION_FAILED
 // background. The consumer must call resumeTracking() after returning foreground.
 const RECOVERY_REQUIRED_ERROR_CODES = new Set<string>(["CANNOT_ACTIVATE_IN_BACKGROUND"]);
 
+// Numeric-code twin of TERMINAL_TRACKING_ERROR_CODES, matched against the
+// `sdkCode` payload field. Android SDK 3.2.x AsleepCore.onErrorCodeReceived
+// tears the session down and dual-fires onFail + onFinish for exactly these
+// codes (the native module suppresses the duplicate onFinish), so JS must
+// clear tracking state here or isTracking stays stuck true.
+// Must stay in sync with the Kotlin TERMINAL_TRACKING_ERROR_CODES companion
+// set in android/src/main/java/ai/asleep/reactnative/AsleepModule.kt.
+const TERMINAL_TRACKING_SDK_CODES = new Set<number>([
+  11003, // ERR_AUDIO
+  22000,
+  22401,
+  22409,
+  22422,
+  22500, // ERR_CREATE_*
+  23499, // ERR_UPLOAD_TRACKING_TERMINATED
+  24000,
+  24400,
+  24401,
+  24403,
+  24404,
+  24500, // ERR_CLOSE_*
+]);
+
+// Upload failures the native session survives: absent from the AsleepCore
+// terminal set above, so the Android SDK 3.2.x keeps the session open and later
+// uploads continue (UploadDataTask retries 5xx internally before reporting).
+// Deliberately small — only codes verifiable in upstream sources.
+const TRANSIENT_TRACKING_SDK_CODES = new Set<number>([
+  23000, // ERR_UPLOAD_FAILED
+  23500, // ERR_UPLOAD_SERVER_ERROR
+]);
+
 export interface AsleepState {
   didClose: boolean;
   isTracking: boolean;
   isTrackingPaused: boolean;
   isRecoveryRequired: boolean;
   error: string | null;
+  // Structured view of the last onTrackingFailed event. Kept in lockstep with
+  // `error`: every write or clear of `error` pairs an errorInfo write — a
+  // stale category surviving a later unrelated error would misclassify it.
+  errorInfo: AsleepErrorInfo | null;
   userId: string | null;
   sessionId: string | null;
   showDebugLog: boolean;
@@ -132,6 +170,7 @@ export const useAsleepStore = create<AsleepState>()(
     isTrackingPaused: false,
     isRecoveryRequired: false,
     error: null,
+    errorInfo: null,
     userId: null,
     sessionId: null,
     showDebugLog: false,
@@ -168,7 +207,7 @@ export const useAsleepStore = create<AsleepState>()(
         }
 
         addLog("[setup] Start");
-        set({ isSetupInProgress: true, error: null });
+        set({ isSetupInProgress: true, error: null, errorInfo: null });
 
         await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
 
@@ -181,10 +220,11 @@ export const useAsleepStore = create<AsleepState>()(
           isSetupInProgress: false,
           isSetupComplete: true,
           error: null,
+          errorInfo: null,
         });
         addLog(`[setup] Success - ODA enabled: ${config.enableODA || false}`);
       } catch (error: any) {
-        set({ error: error.message, isSetupInProgress: false });
+        set({ error: error.message, errorInfo: null, isSetupInProgress: false });
         throw error;
       }
     },
@@ -201,11 +241,11 @@ export const useAsleepStore = create<AsleepState>()(
           config.callbackUrl,
         );
 
-        set({ isInitialized: true, error: null });
+        set({ isInitialized: true, error: null, errorInfo: null });
         addLog("[initAsleepConfig] Success");
         return result;
       } catch (error: any) {
-        set({ error: error.message });
+        set({ error: error.message, errorInfo: null });
         throw error;
       }
     },
@@ -240,7 +280,7 @@ export const useAsleepStore = create<AsleepState>()(
           hasActiveSession: isAlive,
         };
       } catch (error: any) {
-        set({ error: error.message });
+        set({ error: error.message, errorInfo: null });
         throw error;
       }
     },
@@ -318,6 +358,10 @@ export const useAsleepStore = create<AsleepState>()(
      * @throws Error if prerequisites are not met or tracking is already in progress
      */
     startTracking: async (config?: TrackingConfig) => {
+      // Snapshot so the catch can tell a verdict published DURING this call
+      // (Android fires classified onTrackingFailed before rejecting the same
+      // promise) apart from a stale one left by an earlier failure.
+      const errorInfoBefore = get().errorInfo;
       try {
         const { requestRequiredPermissions, addLog, isODAEnabled, isSetupInProgress, hasCheckedStatus } = get();
 
@@ -381,6 +425,7 @@ export const useAsleepStore = create<AsleepState>()(
           isRecoveryRequired: false,
           trackingStartTime: new Date(),
           error: null,
+          errorInfo: null,
         });
         await AsleepModule.startTracking(config);
 
@@ -392,8 +437,14 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog("[startTracking] Success");
       } catch (error: any) {
+        // Preserve only a verdict that arrived during this call — the raw
+        // rejection message carries strictly less information than the
+        // numeric-code verdict. Reference inequality against the snapshot
+        // excludes stale verdicts, so guard failures still write the new error.
+        const nowInfo = get().errorInfo;
+        const classified = nowInfo !== null && nowInfo !== errorInfoBefore;
         set({
-          error: error.message,
+          ...(classified ? {} : { error: error.message, errorInfo: null }),
           isTracking: false,
           isAnalyzing: false,
           trackingStartTime: null,
@@ -403,6 +454,8 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     stopTracking: async () => {
+      // Same dual-signal race as startTracking; see the snapshot rationale there.
+      const errorInfoBefore = get().errorInfo;
       try {
         const { addLog } = get();
         addLog("[stopTracking] Start");
@@ -416,11 +469,13 @@ export const useAsleepStore = create<AsleepState>()(
           isRecoveryRequired: false,
           trackingStartTime: null,
           error: null,
+          errorInfo: null,
         });
 
         addLog(`[stopTracking] Success - result: ${result}`);
       } catch (error: any) {
-        set({ error: error.message });
+        const nowInfo = get().errorInfo;
+        if (nowInfo === null || nowInfo === errorInfoBefore) set({ error: error.message, errorInfo: null });
         throw error;
       }
     },
@@ -452,7 +507,7 @@ export const useAsleepStore = create<AsleepState>()(
         // Guard so a successful query after a clean run does not spam an empty
         // notification, and so we never clobber an unrelated tracking error
         // that arrived during the await.
-        if (get().error !== null && get().error === errorBefore) set({ error: null });
+        if (get().error !== null && get().error === errorBefore) set({ error: null, errorInfo: null });
 
         // Ensure the report has the expected AsleepReport structure
         // Handle cases where native modules might return data in different formats
@@ -485,7 +540,7 @@ export const useAsleepStore = create<AsleepState>()(
         // Metro log still shows the failure when they're debugging without
         // observing `useAsleep().error` directly.
         if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getReport failed:", error);
-        set({ error: error.message });
+        set({ error: error.message, errorInfo: null });
         return null;
       }
     },
@@ -513,11 +568,11 @@ export const useAsleepStore = create<AsleepState>()(
         });
 
         addLog("[getReportList] Success");
-        if (get().error !== null && get().error === errorBefore) set({ error: null });
+        if (get().error !== null && get().error === errorBefore) set({ error: null, errorInfo: null });
         return convertedList;
       } catch (error: any) {
         if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getReportList failed:", error);
-        set({ error: error.message });
+        set({ error: error.message, errorInfo: null });
         return [];
       }
     },
@@ -531,9 +586,9 @@ export const useAsleepStore = create<AsleepState>()(
         await AsleepModule.deleteSession(sessionId);
 
         addLog("[deleteSession] Success");
-        if (get().error !== null && get().error === errorBefore) set({ error: null });
+        if (get().error !== null && get().error === errorBefore) set({ error: null, errorInfo: null });
       } catch (error: any) {
-        set({ error: error.message });
+        set({ error: error.message, errorInfo: null });
         throw error;
       }
     },
@@ -548,11 +603,11 @@ export const useAsleepStore = create<AsleepState>()(
         const convertedReport = convertKeysToCamelCase(averageReport);
 
         addLog("[getAverageReport] Success");
-        if (get().error !== null && get().error === errorBefore) set({ error: null });
+        if (get().error !== null && get().error === errorBefore) set({ error: null, errorInfo: null });
         return convertedReport;
       } catch (error: any) {
         if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] getAverageReport failed:", error);
-        set({ error: error.message });
+        set({ error: error.message, errorInfo: null });
         return null;
       }
     },
@@ -621,7 +676,7 @@ export const useAsleepStore = create<AsleepState>()(
         const { addLog, showDebugLog } = get();
         addLog("[requestAnalysis] Start");
 
-        set({ isAnalyzing: true, error: null });
+        set({ isAnalyzing: true, error: null, errorInfo: null });
 
         const result = await AsleepModule.requestAnalysis();
         const convertedResult = convertKeysToCamelCase(result);
@@ -635,7 +690,7 @@ export const useAsleepStore = create<AsleepState>()(
         return convertedResult;
       } catch (error: any) {
         if (typeof __DEV__ !== "undefined" && __DEV__) console.warn("[Asleep] requestAnalysis failed:", error);
-        set({ error: error.message, isAnalyzing: false });
+        set({ error: error.message, errorInfo: null, isAnalyzing: false });
         return null;
       }
     },
@@ -652,8 +707,10 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     // internal actions
-    setError: (error) => set({ error }),
-    clearError: () => set({ error: null }),
+    // setError takes a raw string, so any structured classification is stale;
+    // reset errorInfo rather than let a previous event's category linger.
+    setError: (error) => set({ error, errorInfo: null }),
+    clearError: () => set({ error: null, errorInfo: null }),
     setUserId: (userId) => set({ userId }),
     setSessionId: (sessionId) => set({ sessionId }),
     setIsTracking: (isTracking) => set({ isTracking }),
@@ -720,7 +777,9 @@ export const initializeAsleepListeners = (): (() => void) => {
     // Connected: iOS didFailUserJoin, Android onFail (AsleepConfigListener)
     onUserJoinFailed: (error: any) => {
       const errorString = JSON.stringify(error);
-      useAsleepStore.setState({ error: errorString });
+      // Not a tracking-runtime failure; errorInfo stays reserved for
+      // onTrackingFailed classification.
+      useAsleepStore.setState({ error: errorString, errorInfo: null });
       addLog(`[onUserJoinFailed] error: ${errorString}`);
     },
     // Connected: iOS userDidDelete, Android NOT IMPLEMENTED
@@ -775,24 +834,59 @@ export const initializeAsleepListeners = (): (() => void) => {
       addLog(`[onTrackingClosed] sessionId: ${data.sessionId}`);
     },
     // Connected: iOS didFail, Android onFail (AsleepTrackingListener)
-    // Four buckets, each writing tracking state in the same setState as the error
-    // so subscribers see one event: terminal (native session already gone),
+    // Four state buckets, each writing tracking state in the same setState as the
+    // error so subscribers see one event: terminal (native session already gone),
     // recording-dead (recorder torn down but session still open — clearing
     // isTracking is what unblocks a restart), recovery-required (resumeTracking()
     // in foreground can revive it), and everything else (error only).
     // The two dead-session buckets must also clear isRecoveryRequired: iOS retries
     // cannotActivateInBackground and then gives up with interruptionRecoveryFailed,
     // and no upload will ever arrive to clear the flag on that path.
+    // The bucket verdict is also published as errorInfo.category (with the
+    // else-bucket split into "transient" vs "unknown") so consumers can gate
+    // log severity on data instead of re-deriving code lists themselves.
     onTrackingFailed: (error: any) => {
-      const errorString = JSON.stringify(error);
-      const terminal = !!(error && TERMINAL_TRACKING_ERROR_CODES.has(error.code));
+      // The explicit iOS string buckets must win before the numeric terminal
+      // fallback: the numeric set encodes Android teardown semantics, and iOS
+      // reuses 11003 (.audioInitializationFailed -> .audio) for a failure whose
+      // session is still open. The numeric fallback still matters on iOS for
+      // start/stop failures that arrive as UNKNOWN_ERROR + 22xxx/24xxx and must
+      // clear the optimistically-set isTracking.
       const recordingDead = !!(error && RECORDING_DEAD_ERROR_CODES.has(error.code));
       const recoveryRequired = !!(error && RECOVERY_REQUIRED_ERROR_CODES.has(error.code));
+      const terminal = !!(
+        error &&
+        !recordingDead &&
+        !recoveryRequired &&
+        (TERMINAL_TRACKING_ERROR_CODES.has(error.code) || TERMINAL_TRACKING_SDK_CODES.has(error.sdkCode))
+      );
+      const transient = !!(error && TRANSIENT_TRACKING_SDK_CODES.has(error.sdkCode));
+
+      let category: AsleepErrorCategory;
+      if (recordingDead) category = "recordingDead";
+      else if (recoveryRequired) category = "recoveryRequired";
+      else if (terminal) category = "terminal";
+      else if (transient) category = "transient";
+      else category = "unknown";
+
+      // Category rides along in the stringified error too, so consumers still
+      // parsing the legacy string see the same verdict as errorInfo readers.
+      const errorString = JSON.stringify(error ? { ...error, category } : error);
+      const errorInfo: AsleepErrorInfo | null = error
+        ? {
+            code: typeof error.code === "string" ? error.code : "UNKNOWN_ERROR",
+            category,
+            ...(typeof error.sdkCode === "number" ? { sdkCode: error.sdkCode } : {}),
+            ...(typeof error.message === "string" ? { message: error.message } : {}),
+            ...(typeof error.caseName === "string" ? { caseName: error.caseName } : {}),
+          }
+        : null;
 
       let nextState: Partial<AsleepState>;
       if (terminal) {
         nextState = {
           error: errorString,
+          errorInfo,
           isTracking: false,
           isAnalyzing: false,
           isRecoveryRequired: false,
@@ -802,6 +896,7 @@ export const initializeAsleepListeners = (): (() => void) => {
       } else if (recordingDead) {
         nextState = {
           error: errorString,
+          errorInfo,
           isTracking: false,
           isAnalyzing: false,
           isRecoveryRequired: false,
@@ -809,9 +904,9 @@ export const initializeAsleepListeners = (): (() => void) => {
           trackingStartTime: null,
         };
       } else if (recoveryRequired) {
-        nextState = { error: errorString, isTracking: true, isRecoveryRequired: true };
+        nextState = { error: errorString, errorInfo, isTracking: true, isRecoveryRequired: true };
       } else {
-        nextState = { error: errorString };
+        nextState = { error: errorString, errorInfo };
       }
 
       useAsleepStore.setState(nextState);
@@ -831,7 +926,9 @@ export const initializeAsleepListeners = (): (() => void) => {
     // dead because didResume fires before the engine restart is attempted.
     onTrackingResumed: () => {
       const wasPaused = useAsleepStore.getState().isTrackingPaused;
-      useAsleepStore.setState(wasPaused ? { error: null, isTrackingPaused: false } : { error: null });
+      useAsleepStore.setState(
+        wasPaused ? { error: null, errorInfo: null, isTrackingPaused: false } : { error: null, errorInfo: null },
+      );
       addLog(wasPaused ? `[onTrackingResumed]` : `[onTrackingResumed] (no prior pause; error cleared)`);
     },
     // Connected: iOS micPermissionWasDenied, Android NOT IMPLEMENTED
@@ -850,7 +947,12 @@ export const initializeAsleepListeners = (): (() => void) => {
     // Connected: iOS setupDidFail, Android onFail (AsleepSetupListener)
     onSetupDidFail: (data: any) => {
       const errorString = JSON.stringify(data);
-      useAsleepStore.setState({ error: errorString, isSetupInProgress: false, isSetupComplete: false });
+      useAsleepStore.setState({
+        error: errorString,
+        errorInfo: null,
+        isSetupInProgress: false,
+        isSetupComplete: false,
+      });
       addLog(`[onSetupDidFail] error: ${errorString}`);
     },
     // Connected: iOS setupInProgress, Android onProgress (AsleepSetupListener)

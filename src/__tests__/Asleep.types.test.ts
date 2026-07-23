@@ -1,4 +1,4 @@
-import { TrackingConfig, AudioSessionOption, AsleepEventType } from "../Asleep.types";
+import { TrackingConfig, AudioSessionOption, AsleepErrorInfo, AsleepEventType } from "../Asleep.types";
 
 describe("TrackingConfig", () => {
   it("accepts android-only config", () => {
@@ -100,6 +100,43 @@ describe("onTrackingFailed event payload", () => {
     const parsed = JSON.parse(serialized);
     expect(parsed.code).toBe("UPLOAD_TRACKING_TERMINATED");
     expect(parsed.errorCode).toBe(23499);
+  });
+
+  it("carries the documented native code as sdkCode alongside the legacy errorCode", () => {
+    // Android sends the same value in both fields; iOS sends the NSError
+    // bridging ordinal in errorCode and the documented code in sdkCode
+    // (.cannotActivateInBackground maps to 11000 upstream).
+    const payload: AsleepEventType["onTrackingFailed"] = {
+      error: "Recording could not resume in background",
+      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
+      errorCode: 39,
+      sdkCode: 11000,
+    };
+    expect(payload.sdkCode).toBe(11000);
+    expect(payload.errorCode).toBe(39);
+  });
+});
+
+describe("AsleepErrorInfo", () => {
+  it("pairs a category with the code and optional native fields", () => {
+    const info: AsleepErrorInfo = {
+      code: "TRACKING_FAILED",
+      category: "transient",
+      sdkCode: 23000,
+      message: "Failed to upload",
+    };
+    expect(info.category).toBe("transient");
+    expect(info.sdkCode).toBe(23000);
+  });
+
+  it("supports the minimal unknown shape", () => {
+    const info: AsleepErrorInfo = {
+      code: "UNKNOWN_ERROR",
+      category: "unknown",
+      caseName: "httpStatus(500, ...)",
+    };
+    expect(info.category).toBe("unknown");
+    expect(info.sdkCode).toBeUndefined();
   });
 });
 
