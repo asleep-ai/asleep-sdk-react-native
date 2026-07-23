@@ -480,14 +480,53 @@ describe("errorInfo lockstep with error", () => {
     expect(s.errorInfo).toBeNull();
   });
 
-  it("action catches reset errorInfo so a previous event's category cannot linger", async () => {
-    useAsleepStore.setState({ errorInfo: staleInfo, isTracking: true });
+  it("non-lifecycle catches reset errorInfo so a previous event's category cannot linger", async () => {
+    useAsleepStore.setState({ errorInfo: staleInfo });
+    mockModule.requestAnalysis.mockRejectedValueOnce(new Error("analysis failed"));
+    await useAsleepStore.getState().requestAnalysis();
+
+    const s = useAsleepStore.getState();
+    expect(s.error).toBe("analysis failed");
+    expect(s.errorInfo).toBeNull();
+  });
+
+  it("stopTracking catch writes the rejection only when no classified verdict exists", async () => {
+    useAsleepStore.setState({ errorInfo: null, isTracking: true });
     mockModule.stopTracking.mockRejectedValueOnce(new Error("stop failed"));
     await expect(useAsleepStore.getState().stopTracking()).rejects.toThrow("stop failed");
 
     const s = useAsleepStore.getState();
     expect(s.error).toBe("stop failed");
     expect(s.errorInfo).toBeNull();
+  });
+
+  it("startTracking rejection preserves a concurrently classified errorInfo", async () => {
+    // Android order: native fires the classified onTrackingFailed event first,
+    // then rejects the same start promise. The catch must not clobber the
+    // verdict with the raw rejection message.
+    useAsleepStore.setState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });
+    let rejectStart!: (e: Error) => void;
+    const nativeCallReached = new Promise<void>((resolveReached) => {
+      mockModule.startTracking.mockImplementationOnce(() => {
+        resolveReached();
+        return new Promise((_, reject) => {
+          rejectStart = reject;
+        });
+      });
+    });
+    const startPromise = useAsleepStore.getState().startTracking();
+    // Wait until the action's pre-await setState has run (it precedes the
+    // native call), so the emitted event lands mid-await like on a device.
+    await nativeCallReached;
+    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", error: "create failed", sdkCode: 22500 });
+    rejectStart!(new Error("Sleep tracking failed: 22500 - create failed"));
+    await expect(startPromise).rejects.toThrow("22500");
+
+    const s = useAsleepStore.getState();
+    expect(s.errorInfo).toEqual({ code: "TRACKING_FAILED", category: "terminal", sdkCode: 22500 });
+    expect(JSON.parse(s.error!).category).toBe("terminal");
+    expect(s.isTracking).toBe(false);
+    expect(s.trackingStartTime).toBeNull();
   });
 
   it("clearError() clears both fields", () => {

@@ -433,9 +433,13 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog("[startTracking] Success");
       } catch (error: any) {
+        // Android fires onTrackingFailed (already classified into errorInfo)
+        // before rejecting the same start promise. If a classified verdict is
+        // present, keep it — the raw rejection message carries strictly less
+        // information than the numeric-code verdict.
+        const classified = get().errorInfo !== null;
         set({
-          error: error.message,
-          errorInfo: null,
+          ...(classified ? {} : { error: error.message, errorInfo: null }),
           isTracking: false,
           isAnalyzing: false,
           trackingStartTime: null,
@@ -463,7 +467,9 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog(`[stopTracking] Success - result: ${result}`);
       } catch (error: any) {
-        set({ error: error.message, errorInfo: null });
+        // Same dual-signal race as startTracking: a close failure can arrive as
+        // a classified onTrackingFailed before this rejection is handled.
+        if (get().errorInfo === null) set({ error: error.message, errorInfo: null });
         throw error;
       }
     },
