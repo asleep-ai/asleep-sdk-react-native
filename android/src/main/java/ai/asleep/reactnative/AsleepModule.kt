@@ -67,6 +67,18 @@ class AsleepModule : Module() {
 
     companion object {
         public const val MICROPHONE_PERMISSION_REQUEST_CODE = 1001
+
+        // Error codes for which Android SDK 3.2.x AsleepCore.onErrorCodeReceived tears
+        // the session down and fires BOTH onFail and onFinish (dual dispatch). Only
+        // these may suppress the follow-up onFinish; for any other code the native
+        // session is still alive and a later onFinish is a genuine close.
+        // Must stay in sync with TERMINAL_TRACKING_SDK_CODES in src/AsleepStore.ts.
+        private val TERMINAL_TRACKING_ERROR_CODES = setOf(
+            11003, // ERR_AUDIO
+            22000, 22401, 22409, 22422, 22500, // ERR_CREATE_*
+            23499, // ERR_UPLOAD_TRACKING_TERMINATED
+            24000, 24400, 24401, 24403, 24404, 24500, // ERR_CLOSE_*
+        )
     }
 
     // Factory for the AsleepTrackingListener used by both connectSleepTracking
@@ -82,8 +94,14 @@ class AsleepModule : Module() {
             private var failedTerminally = false
 
             override fun onFail(errorCode: Int, detail: String) {
-                failedTerminally = true
-                isTracking = false
+                // Only terminal codes kill the native session (and dual-fire onFinish,
+                // which failedTerminally suppresses). For any other code tracking is
+                // still running: keep isTracking and let a later onFinish through as a
+                // genuine close.
+                if (errorCode in TERMINAL_TRACKING_ERROR_CODES) {
+                    failedTerminally = true
+                    isTracking = false
+                }
                 sendEvent("onDebugLog", mapOf("message" to "Sleep tracking failed: $errorCode - $detail"))
                 val code = if (errorCode == 23499) "UPLOAD_TRACKING_TERMINATED" else "TRACKING_FAILED"
                 sendEvent("onTrackingFailed", mapOf(
