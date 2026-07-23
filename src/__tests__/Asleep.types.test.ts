@@ -104,14 +104,15 @@ describe("onTrackingFailed event payload", () => {
 
   it("carries the documented native code as sdkCode alongside the legacy errorCode", () => {
     // Android sends the same value in both fields; iOS sends the NSError
-    // bridging ordinal in errorCode and the documented code in sdkCode.
+    // bridging ordinal in errorCode and the documented code in sdkCode
+    // (.cannotActivateInBackground maps to 11000 upstream).
     const payload: AsleepEventType["onTrackingFailed"] = {
       error: "Recording could not resume in background",
       code: "CANNOT_ACTIVATE_IN_BACKGROUND",
       errorCode: 39,
-      sdkCode: 11003,
+      sdkCode: 11000,
     };
-    expect(payload.sdkCode).toBe(11003);
+    expect(payload.sdkCode).toBe(11000);
     expect(payload.errorCode).toBe(39);
   });
 });

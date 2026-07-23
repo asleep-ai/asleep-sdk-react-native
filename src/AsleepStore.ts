@@ -55,9 +55,18 @@ const RECOVERY_REQUIRED_ERROR_CODES = new Set<string>(["CANNOT_ACTIVATE_IN_BACKG
 // set in android/src/main/java/ai/asleep/reactnative/AsleepModule.kt.
 const TERMINAL_TRACKING_SDK_CODES = new Set<number>([
   11003, // ERR_AUDIO
-  22000, 22401, 22409, 22422, 22500, // ERR_CREATE_*
+  22000,
+  22401,
+  22409,
+  22422,
+  22500, // ERR_CREATE_*
   23499, // ERR_UPLOAD_TRACKING_TERMINATED
-  24000, 24400, 24401, 24403, 24404, 24500, // ERR_CLOSE_*
+  24000,
+  24400,
+  24401,
+  24403,
+  24404,
+  24500, // ERR_CLOSE_*
 ]);
 
 // Upload failures the native session survives: absent from the AsleepCore
@@ -825,18 +834,26 @@ export const initializeAsleepListeners = (): (() => void) => {
     // else-bucket split into "transient" vs "unknown") so consumers can gate
     // log severity on data instead of re-deriving code lists themselves.
     onTrackingFailed: (error: any) => {
-      const terminal = !!(
-        error &&
-        (TERMINAL_TRACKING_ERROR_CODES.has(error.code) || TERMINAL_TRACKING_SDK_CODES.has(error.sdkCode))
-      );
+      // The explicit iOS string buckets must win before the numeric terminal
+      // fallback: the numeric set encodes Android teardown semantics, and iOS
+      // reuses 11003 (.audioInitializationFailed -> .audio) for a failure whose
+      // session is still open. The numeric fallback still matters on iOS for
+      // start/stop failures that arrive as UNKNOWN_ERROR + 22xxx/24xxx and must
+      // clear the optimistically-set isTracking.
       const recordingDead = !!(error && RECORDING_DEAD_ERROR_CODES.has(error.code));
       const recoveryRequired = !!(error && RECOVERY_REQUIRED_ERROR_CODES.has(error.code));
+      const terminal = !!(
+        error &&
+        !recordingDead &&
+        !recoveryRequired &&
+        (TERMINAL_TRACKING_ERROR_CODES.has(error.code) || TERMINAL_TRACKING_SDK_CODES.has(error.sdkCode))
+      );
       const transient = !!(error && TRANSIENT_TRACKING_SDK_CODES.has(error.sdkCode));
 
       let category: AsleepErrorCategory;
-      if (terminal) category = "terminal";
-      else if (recordingDead) category = "recordingDead";
+      if (recordingDead) category = "recordingDead";
       else if (recoveryRequired) category = "recoveryRequired";
+      else if (terminal) category = "terminal";
       else if (transient) category = "transient";
       else category = "unknown";
 

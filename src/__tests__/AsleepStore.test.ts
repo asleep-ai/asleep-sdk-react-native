@@ -251,7 +251,13 @@ describe("notification batching (one setState per native event)", () => {
       didClose: false,
       trackingStartTime: new Date(),
     });
-    mockEmitter.__emit("onTrackingFailed", { code: "AUDIO_INITIALIZATION_FAILED", error: "audio failed" });
+    // Real iOS payload carries sdkCode 11003 — the same number is in the
+    // Android terminal set, so this test also locks in string-bucket precedence.
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "AUDIO_INITIALIZATION_FAILED",
+      error: "audio failed",
+      sdkCode: 11003,
+    });
 
     const s = useAsleepStore.getState();
     expect(s.isTracking).toBe(false);
@@ -303,8 +309,16 @@ describe("notification batching (one setState per native event)", () => {
 
   it("clears recovery required when recording dies after a recovery attempt", () => {
     useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", { code: "CANNOT_ACTIVATE_IN_BACKGROUND", error: "background" });
-    mockEmitter.__emit("onTrackingFailed", { code: "AUDIO_INITIALIZATION_FAILED", error: "audio failed" });
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
+      error: "background",
+      sdkCode: 11000,
+    });
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "AUDIO_INITIALIZATION_FAILED",
+      error: "audio failed",
+      sdkCode: 11003,
+    });
 
     const s = useAsleepStore.getState();
     expect(s.isTracking).toBe(false);
@@ -366,15 +380,28 @@ describe("errorInfo classification", () => {
     expect(s.trackingStartTime).toBeNull();
   });
 
-  it("classifies recording-dead codes", () => {
+  it("classifies recording-dead codes, letting the iOS string win over the numeric terminal set", () => {
+    // iOS sends sdkCode 11003 here; on Android the same number is session-terminal.
+    // The explicit string bucket must win: session is still open (didClose false).
     useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", { code: "AUDIO_INITIALIZATION_FAILED", error: "audio failed" });
-    expect(useAsleepStore.getState().errorInfo?.category).toBe("recordingDead");
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "AUDIO_INITIALIZATION_FAILED",
+      error: "audio failed",
+      sdkCode: 11003,
+    });
+    const s = useAsleepStore.getState();
+    expect(s.errorInfo?.category).toBe("recordingDead");
+    expect(s.isTracking).toBe(false);
+    expect(s.didClose).toBe(false);
   });
 
   it("classifies recovery-required codes", () => {
     useAsleepStore.setState({ isTracking: true });
-    mockEmitter.__emit("onTrackingFailed", { code: "CANNOT_ACTIVATE_IN_BACKGROUND", error: "background" });
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "CANNOT_ACTIVATE_IN_BACKGROUND",
+      error: "background",
+      sdkCode: 11000,
+    });
     expect(useAsleepStore.getState().errorInfo?.category).toBe("recoveryRequired");
   });
 
