@@ -490,13 +490,24 @@ describe("errorInfo lockstep with error", () => {
     expect(s.errorInfo).toBeNull();
   });
 
-  it("stopTracking catch writes the rejection only when no classified verdict exists", async () => {
-    useAsleepStore.setState({ errorInfo: null, isTracking: true });
+  it("stopTracking catch clears a stale verdict from an earlier failure", async () => {
+    useAsleepStore.setState({ errorInfo: staleInfo, isTracking: true });
     mockModule.stopTracking.mockRejectedValueOnce(new Error("stop failed"));
     await expect(useAsleepStore.getState().stopTracking()).rejects.toThrow("stop failed");
 
     const s = useAsleepStore.getState();
     expect(s.error).toBe("stop failed");
+    expect(s.errorInfo).toBeNull();
+  });
+
+  it("startTracking guard failure writes the new error even when a stale verdict exists", async () => {
+    // Guard throws happen before the pre-native clear; a verdict left by an
+    // earlier failure must not swallow the new error message.
+    useAsleepStore.setState({ errorInfo: staleInfo, error: "old", hasCheckedStatus: false });
+    await expect(useAsleepStore.getState().startTracking()).rejects.toThrow("checkAndRestoreTracking");
+
+    const s = useAsleepStore.getState();
+    expect(s.error).toContain("checkAndRestoreTracking");
     expect(s.errorInfo).toBeNull();
   });
 

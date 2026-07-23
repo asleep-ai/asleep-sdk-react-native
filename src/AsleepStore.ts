@@ -358,6 +358,10 @@ export const useAsleepStore = create<AsleepState>()(
      * @throws Error if prerequisites are not met or tracking is already in progress
      */
     startTracking: async (config?: TrackingConfig) => {
+      // Snapshot so the catch can tell a verdict published DURING this call
+      // (Android fires classified onTrackingFailed before rejecting the same
+      // promise) apart from a stale one left by an earlier failure.
+      const errorInfoBefore = get().errorInfo;
       try {
         const { requestRequiredPermissions, addLog, isODAEnabled, isSetupInProgress, hasCheckedStatus } = get();
 
@@ -433,11 +437,12 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog("[startTracking] Success");
       } catch (error: any) {
-        // Android fires onTrackingFailed (already classified into errorInfo)
-        // before rejecting the same start promise. If a classified verdict is
-        // present, keep it — the raw rejection message carries strictly less
-        // information than the numeric-code verdict.
-        const classified = get().errorInfo !== null;
+        // Preserve only a verdict that arrived during this call — the raw
+        // rejection message carries strictly less information than the
+        // numeric-code verdict. Reference inequality against the snapshot
+        // excludes stale verdicts, so guard failures still write the new error.
+        const nowInfo = get().errorInfo;
+        const classified = nowInfo !== null && nowInfo !== errorInfoBefore;
         set({
           ...(classified ? {} : { error: error.message, errorInfo: null }),
           isTracking: false,
@@ -449,6 +454,8 @@ export const useAsleepStore = create<AsleepState>()(
     },
 
     stopTracking: async () => {
+      // Same dual-signal race as startTracking; see the snapshot rationale there.
+      const errorInfoBefore = get().errorInfo;
       try {
         const { addLog } = get();
         addLog("[stopTracking] Start");
@@ -467,9 +474,8 @@ export const useAsleepStore = create<AsleepState>()(
 
         addLog(`[stopTracking] Success - result: ${result}`);
       } catch (error: any) {
-        // Same dual-signal race as startTracking: a close failure can arrive as
-        // a classified onTrackingFailed before this rejection is handled.
-        if (get().errorInfo === null) set({ error: error.message, errorInfo: null });
+        const nowInfo = get().errorInfo;
+        if (nowInfo === null || nowInfo === errorInfoBefore) set({ error: error.message, errorInfo: null });
         throw error;
       }
     },
