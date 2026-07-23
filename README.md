@@ -352,6 +352,7 @@ v2 deliberately removes the parallel and mutable v1 surfaces:
 8. The default export, `Asleep` class, `AsleepSDK`, and raw `asleepStore` export are removed. Use `useAsleep()` or the named `Asleep` escape hatch.
 9. `zustand` is no longer a dependency. Remove it from your app if nothing else uses it.
 10. Use the additive `status: TrackingStatus` field when a single lifecycle value is clearer than multiple derived booleans.
+11. Android 13+: `requestRequiredPermissions()` still requests `POST_NOTIFICATIONS` (so the foreground-service notification stays visible), but its return value now reflects only what tracking needs to run — microphone-side permissions, matching `hasRequiredPermissions()`. In 1.x a denied notification permission made it return `false` even though tracking could start.
 
 ## Troubleshooting
 

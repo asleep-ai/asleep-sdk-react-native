@@ -381,11 +381,12 @@ export const asleepActions: AsleepActions = {
     const errorBefore = state.error;
     try {
       if (!(await asleepActions.hasRequiredPermissions())) {
-        const message =
-          Platform.OS === "android" && Platform.Version >= 33
-            ? "Microphone and notification permissions are required. Call requestRequiredPermissions() before startTracking()."
-            : "Microphone permission is required. Call requestRequiredPermissions() before startTracking().";
-        storeAndThrow(new AsleepError("PERMISSION_DENIED", message));
+        storeAndThrow(
+          new AsleepError(
+            "PERMISSION_DENIED",
+            "Microphone permission is required. Call requestRequiredPermissions() before startTracking().",
+          ),
+        );
       }
 
       if (Platform.OS === "android" && !(await AsleepModule.isBatteryOptimizationExempted())) {
@@ -532,14 +533,13 @@ export const asleepActions: AsleepActions = {
         const permissions = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
         if (Platform.Version >= 33) permissions.push(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
         const results = await PermissionsAndroid.requestMultiple(permissions);
+        // POST_NOTIFICATIONS is requested for foreground-service notification
+        // visibility but is not needed for tracking to run, so the returned
+        // boolean mirrors hasRequiredPermissions(): microphone-side grants only.
         const audioGranted =
           results[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
-        const notificationGranted =
-          Platform.Version >= 33
-            ? results[PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] === PermissionsAndroid.RESULTS.GRANTED
-            : true;
         clearErrorIfUnchanged(errorBefore);
-        return audioGranted && notificationGranted;
+        return audioGranted;
       }
       const result = await AsleepModule.requestRequiredPermissions();
       clearErrorIfUnchanged(errorBefore);

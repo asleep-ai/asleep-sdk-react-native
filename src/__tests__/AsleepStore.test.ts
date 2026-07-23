@@ -290,6 +290,20 @@ describe("action contracts", () => {
     expect(useAsleepStore.getState().error).toBeNull();
   });
 
+  it("requestRequiredPermissions still requests notifications but does not require them", async () => {
+    setMockPlatform({ OS: "android", Version: 34 });
+    const { PermissionsAndroid } = require("react-native");
+    PermissionsAndroid.requestMultiple.mockResolvedValueOnce({
+      RECORD_AUDIO: "granted",
+      POST_NOTIFICATIONS: "denied",
+    });
+    await expect(asleepActions.requestRequiredPermissions()).resolves.toBe(true);
+    expect(PermissionsAndroid.requestMultiple).toHaveBeenLastCalledWith([
+      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+    ]);
+  });
+
   it("requestRequiredPermissions normalizes a bridge failure", async () => {
     mockModule.requestRequiredPermissions.mockRejectedValueOnce(new Error("bridge failed"));
     await expect(asleepActions.requestRequiredPermissions()).rejects.toMatchObject({
