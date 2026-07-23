@@ -344,7 +344,7 @@ v2 deliberately removes the parallel and mutable v1 surfaces:
 
 1. `error: string | null` is now `AsleepError | null`. Render `error?.message` and branch on `error?.code`.
 2. `errorInfo` is removed. Read `error.category`, `error.sdkCode`, and `error.caseName`.
-3. Report and analysis queries throw `AsleepError` on failure instead of returning `null` or `[]`.
+3. Report and analysis queries throw `AsleepError` on failure instead of returning `null` or `[]`. A session that has no report surfaces as code `REPORT_NOT_FOUND`; an empty report list still resolves to `[]`.
 4. Public state setters are removed. Native events and SDK actions are the sole state writers; `clearError()` remains public.
 5. `getTrackingDurationMinutes()` is removed and `trackingStartTime` is internal. Apps own wall-clock duration.
 6. `requestMicrophonePermission()` is removed. Use `requestRequiredPermissions()`.

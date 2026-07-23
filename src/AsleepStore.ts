@@ -281,11 +281,9 @@ export const asleepActions: AsleepActions = {
     if (state.setupStatus === "inProgress") {
       return storeAndThrow(new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress."));
     }
-    if (state.trackingStatus !== "idle") {
-      return storeAndThrow(
-        new AsleepError("INVALID_STATE", "Cannot initialize configuration while tracking is in progress."),
-      );
-    }
+    // No tracking-state guard here: checkAndRestoreTracking() reconnects a live
+    // session before the app configures the SDK, so this must remain callable
+    // while trackingStatus is "tracking" (v1 behavior the restore flow relies on).
     const errorBefore = state.error;
     addLog("[initAsleepConfig] Start");
     useAsleepStore.setState({ setupStatus: "inProgress" });
@@ -450,7 +448,11 @@ export const asleepActions: AsleepActions = {
   getReport: async (sessionId) => {
     const errorBefore = useAsleepStore.getState().error;
     try {
-      const report = normalizeReport(await AsleepModule.getReport(sessionId), sessionId);
+      const payload = await AsleepModule.getReport(sessionId);
+      if (payload == null) {
+        throw new AsleepError("REPORT_NOT_FOUND", `No report available for session "${sessionId}".`);
+      }
+      const report = normalizeReport(payload, sessionId);
       clearErrorIfUnchanged(errorBefore);
       return report;
     } catch (error) {
@@ -461,7 +463,7 @@ export const asleepActions: AsleepActions = {
   getReportList: async (fromDate, toDate) => {
     const errorBefore = useAsleepStore.getState().error;
     try {
-      const reportList = await AsleepModule.getReportList(fromDate, toDate);
+      const reportList = (await AsleepModule.getReportList(fromDate, toDate)) ?? [];
       const result = reportList.map((session: any) => {
         const converted = convertKeysToCamelCase(session);
         return {
@@ -485,7 +487,11 @@ export const asleepActions: AsleepActions = {
   getAverageReport: async (fromDate, toDate) => {
     const errorBefore = useAsleepStore.getState().error;
     try {
-      const result = convertKeysToCamelCase(await AsleepModule.getAverageReport(fromDate, toDate));
+      const payload = await AsleepModule.getAverageReport(fromDate, toDate);
+      if (payload == null) {
+        throw new AsleepError("REPORT_NOT_FOUND", `No average report available for ${fromDate} to ${toDate}.`);
+      }
+      const result = convertKeysToCamelCase(payload);
       clearErrorIfUnchanged(errorBefore);
       return result;
     } catch (error) {

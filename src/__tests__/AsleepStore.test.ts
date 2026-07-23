@@ -304,6 +304,31 @@ describe("action contracts", () => {
     ]);
   });
 
+  it("initAsleepConfig stays callable while a restored session is tracking", async () => {
+    resetState({ trackingStatus: "tracking" });
+    await asleepActions.initAsleepConfig({ apiKey: "key" });
+    expect(mockModule.initAsleepConfig).toHaveBeenCalledTimes(1);
+    expect(useAsleepStore.getState().setupStatus).toBe("complete");
+  });
+
+  it("getReport throws REPORT_NOT_FOUND when native resolves no report", async () => {
+    mockModule.getReport.mockResolvedValueOnce(null);
+    await expect(asleepActions.getReport("session-1")).rejects.toMatchObject({ code: "REPORT_NOT_FOUND" });
+    expect(useAsleepStore.getState().error).toMatchObject({ code: "REPORT_NOT_FOUND" });
+  });
+
+  it("getAverageReport throws REPORT_NOT_FOUND when native resolves no report", async () => {
+    mockModule.getAverageReport.mockResolvedValueOnce(null);
+    await expect(asleepActions.getAverageReport("2026-07-01", "2026-07-07")).rejects.toMatchObject({
+      code: "REPORT_NOT_FOUND",
+    });
+  });
+
+  it("getReportList treats a null native payload as an empty list", async () => {
+    mockModule.getReportList.mockResolvedValueOnce(null);
+    await expect(asleepActions.getReportList("2026-07-01", "2026-07-07")).resolves.toEqual([]);
+  });
+
   it("requestRequiredPermissions normalizes a bridge failure", async () => {
     mockModule.requestRequiredPermissions.mockRejectedValueOnce(new Error("bridge failed"));
     await expect(asleepActions.requestRequiredPermissions()).rejects.toMatchObject({
