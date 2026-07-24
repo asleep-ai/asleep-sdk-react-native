@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { Alert } from "react-native";
-import { useAsleep, AsleepSession, AsleepSDK } from "../src";
+import { useAsleep, type AsleepSession } from "../src";
 import { create } from "zustand";
 
 // Zustand store interface
@@ -48,13 +48,14 @@ export const useTracking = () => {
     error,
     didClose,
     log,
-    isInitialized,
     enableLog,
     isODAEnabled,
     isAnalyzing,
     requestAnalysis,
+    requestRequiredPermissions,
+    checkBatteryOptimization,
+    requestBatteryOptimizationExemption,
     isTrackingPaused,
-    getTrackingDurationMinutes,
     isSetupInProgress,
     isSetupComplete,
   } = useAsleep();
@@ -74,11 +75,11 @@ export const useTracking = () => {
   // Initialize SDK
   useEffect(() => {
     enableLog(true);
-    console.log("🐤 isInitialized", isInitialized);
-    if (!isInitialized) {
+    console.log("🐤 isSetupComplete", isSetupComplete);
+    if (!isSetupComplete && !isSetupInProgress) {
       initSDK();
     }
-  }, [isInitialized]);
+  }, [isSetupComplete, isSetupInProgress]);
 
   // Manage start time when tracking state changes
   useEffect(() => {
@@ -111,6 +112,14 @@ export const useTracking = () => {
       }
 
       if (!isTracking) {
+        const permissionGranted = await requestRequiredPermissions();
+        if (!permissionGranted) {
+          Alert.alert(
+            "Microphone Permission Required",
+            "Grant microphone permission, then tap Start Tracking again."
+          );
+          return;
+        }
         await startTracking({ "android": { "notification": { "title": "Asleep Tracking", "text": "Look at the useTracking code to change!" } } });
         setTrackingStartTime(Date.now());
         console.log("🐤 Tracking started");
@@ -170,7 +179,7 @@ export const useTracking = () => {
       // IMPORTANT: Check battery optimization on BOTH platforms
       // This ensures iOS developers test battery optimization handling,
       // preventing issues for their Android users in production
-      const batteryStatus = await AsleepSDK.checkBatteryOptimization();
+      const batteryStatus = await checkBatteryOptimization();
       console.log(`🔋 Battery optimization check - Platform: ${batteryStatus.platform}, Exempted: ${batteryStatus.exempted}`);
 
       // Only prompt on Android when not exempted
@@ -184,7 +193,7 @@ export const useTracking = () => {
             {
               text: "Open Settings",
               onPress: async () => {
-                const result = await AsleepSDK.requestBatteryOptimizationExemption();
+                const result = await requestBatteryOptimizationExemption();
                 if (!result) {
                   console.log("🔋 Battery settings opened, user needs to disable optimization");
                 }
@@ -234,8 +243,8 @@ export const useTracking = () => {
   );
 
   const fetchReportList = useCallback(async () => {
-    console.log("fetchReportList, isInitialized", isInitialized);
-    if (!isInitialized) return;
+    console.log("fetchReportList, isSetupComplete", isSetupComplete);
+    if (!isSetupComplete) return;
 
     const today = new Date();
     const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -245,7 +254,7 @@ export const useTracking = () => {
 
     const reportList = await getReportListWrapper(fromDate, toDate);
     setReportList(reportList ?? []);
-  }, [isInitialized, getReportListWrapper]);
+  }, [isSetupComplete, getReportListWrapper]);
 
   const checkPermissionAndStartTracking = async () => {
     if (isSetupInProgress) {
@@ -266,7 +275,7 @@ export const useTracking = () => {
     startTracking: startTrackingWrapper,
     stopTracking: stopTrackingWrapper,
     initSDK,
-    isInitialized,
+    isSetupComplete,
     tryStopTracking,
     getReport,
     getReportList: getReportListWrapper,
@@ -289,9 +298,7 @@ export const useTracking = () => {
     requestAnalysis,
     enableLog,
     isTrackingPaused,
-    getTrackingDurationMinutes,
     isSetupInProgress,
-    isSetupComplete,
   };
 };
 

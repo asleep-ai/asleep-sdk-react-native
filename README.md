@@ -4,7 +4,7 @@ Advanced sleep tracking SDK for React Native applications, powered by Asleep's A
 
 ## Status
 
-This SDK is under active development. The API may evolve between minor versions until v2.0 — pin to exact versions and review the [CHANGELOG](./CHANGELOG.md) before upgrading.
+This SDK is under active development. v2 has a deliberately small public surface; pin to exact versions and review the [CHANGELOG](./CHANGELOG.md) before upgrading.
 
 ## Overview
 
@@ -33,10 +33,8 @@ This library uses the Expo Modules API. Bare RN projects need Expo modules insta
 2. **Install the package** (`npm install` / `pnpm add` / `yarn add`):
 
    ```bash
-   npm install react-native-asleep zustand
+   npm install react-native-asleep
    ```
-
-   `zustand` is a peer dependency through v1.x and will be removed in v2.0.
 
 3. **iOS**: in `ios/`, run `bundle install` (once) then `bundle exec pod install`. The project's `Gemfile` avoids host Ruby/CocoaPods conflicts. **Android**: no extra step.
 
@@ -77,6 +75,13 @@ The [example app](./example) is the reference setup. Adjacent versions are expec
 | Android `minSdkVersion`     | 24       |
 | Android `compileSdkVersion` | 34       |
 | Android `targetSdkVersion`  | 34       |
+
+#### Bundled native SDK versions
+
+| Platform | Native SDK version |
+|---|---|
+| iOS | 3.2.0 |
+| Android | 3.2.1 |
 
 ## Setup
 
@@ -139,17 +144,18 @@ The library declares its own permissions; the manifest merger combines them into
 
 ```tsx
 import { useEffect } from "react";
-import { Button, View } from "react-native";
-import { useAsleep } from "react-native-asleep";
+import { Button, Text, View } from "react-native";
+import { AsleepError, useAsleep } from "react-native-asleep";
 
 function SleepTracker() {
   const {
+    status,
     isTracking,
-    sessionId,
     error,
     initAsleepConfig,
     checkAndRestoreTracking,
     checkBatteryOptimization,
+    hasRequiredPermissions,
     requestRequiredPermissions,
     startTracking,
     stopTracking,
@@ -165,14 +171,25 @@ function SleepTracker() {
   }, []);
 
   const handleStart = async () => {
-    await requestRequiredPermissions();
-    await startTracking({
-      android: { notification: { title: "Sleep tracking", text: "Recording..." } },
-    });
+    try {
+      if (!(await hasRequiredPermissions())) {
+        const granted = await requestRequiredPermissions();
+        if (!granted) return;
+      }
+
+      await startTracking({
+        android: { notification: { title: "Sleep tracking", text: "Recording..." } },
+      });
+    } catch (cause) {
+      if (!(cause instanceof AsleepError)) throw cause;
+      // `error` is also updated reactively and rendered below.
+    }
   };
 
   return (
     <View>
+      <Text>Status: {status}</Text>
+      {error ? <Text>{error.message}</Text> : null}
       <Button title={isTracking ? "Stop" : "Start"} onPress={isTracking ? stopTracking : handleStart} />
     </View>
   );
@@ -183,13 +200,78 @@ For ODA (On-Device Analysis) mode, call `setup()` instead of `initAsleepConfig()
 
 ## API surface
 
-The library exports a single React hook plus types:
+The v2 API has one reactive hook, one thin imperative escape hatch, and named value/type exports:
 
 ```ts
-import { useAsleep, type AsleepReport, type AsleepSession, type AsleepAverageReport } from "react-native-asleep";
+import {
+  Asleep,
+  AsleepError,
+  useAsleep,
+  type AsleepAverageReport,
+  type AsleepReport,
+  type AsleepSession,
+  type TrackingStatus,
+} from "react-native-asleep";
 ```
 
-`useAsleep()` returns reactive state (`isTracking`, `sessionId`, `error`, `analysisResult`, ...) and bound actions (`startTracking`, `stopTracking`, `getReport`, `getReportList`, `requestAnalysis`, ...). Hover the return type in your editor for the full surface; the type definitions in [`src/Asleep.types.ts`](./src/Asleep.types.ts) are the source of truth and stay in sync with the native modules.
+`useAsleep()` attaches the native listeners while mounted and returns the public state plus bound actions.
+
+### Public state
+
+The store keeps native facts internally and derives the public booleans from `status`:
+
+| Field | Meaning |
+|---|---|
+| `status` | `"idle"`, `"tracking"`, `"paused"`, or `"recoveryRequired"` |
+| `isTracking` | `true` for every status except `"idle"`; recovery-required sessions are still live |
+| `isTrackingPaused` | `true` only while `status` is `"paused"` |
+| `isRecoveryRequired` | `true` only while `status` is `"recoveryRequired"` |
+| `isSetupInProgress` / `isSetupComplete` | Derived setup lifecycle |
+| `sessionId` / `userId` | Current native identifiers |
+| `error` | Last `AsleepError`, or `null` |
+| `analysisResult` / `isAnalyzing` | Latest analysis event and request state |
+| `didClose` / `isODAEnabled` / `log` | Session history, mode, and opt-in debug log |
+
+`trackingStartTime`, listener bookkeeping, and mutable setters are internal implementation details.
+
+### Actions
+
+The hook exposes:
+
+- Setup and restore: `setup`, `initAsleepConfig`, `checkAndRestoreTracking`
+- Tracking: `startTracking`, `stopTracking`, `resumeTracking`
+- Reports: `getReport`, `getReportList`, `getAverageReport`, `deleteSession`, `requestAnalysis`
+- Prerequisites: `checkBatteryOptimization`, `requestBatteryOptimizationExemption`, `hasRequiredPermissions`, `requestRequiredPermissions`
+- Utilities: `enableLog`, `clearError`, `addEventListener`, and the deprecated no-op `setCustomNotification`
+
+`requestAnalysis()` returns the Android analysis result or the iOS `{ status: "requested", timestamp }` acknowledgement. On both platforms, `onAnalysisResult` is the only writer of reactive `analysisResult`.
+
+### Non-React contexts
+
+Use `Asleep` for background callbacks and other code where hooks are unavailable:
+
+```ts
+import { Asleep } from "react-native-asleep";
+
+// Required when no mounted useAsleep() hook owns the native listener lifecycle.
+const teardown = Asleep.initialize();
+
+const unsubscribe = Asleep.subscribe(({ status, error }) => {
+  console.log(status, error?.code);
+});
+
+const offAnalysis = Asleep.addEventListener("onAnalysisResult", (result) => {
+  console.log(result);
+});
+
+await Asleep.getState().stopTracking();
+
+offAnalysis();
+unsubscribe();
+teardown();
+```
+
+`initialize()` is ref-counted, so it is safe to use alongside mounted hooks. Importing the package alone does not attach native listeners.
 
 On iOS, `isRecoveryRequired` becomes `true` when recording cannot resume while the app is in the background. After the app returns to the foreground, call `resumeTracking()`. The flag clears only after the next successful audio upload. `resumeTracking()` is iOS-only and rejects with `UNSUPPORTED_PLATFORM` on Android.
 
@@ -206,7 +288,19 @@ See [AGENTS.md](./AGENTS.md#native-behavior-compensations) for the full table in
 
 ## Error classification
 
-`useAsleep().errorInfo` is a structured view of the last tracking failure. Its `category` field is the library's objective verdict on recoverability; the app decides what severity to log at:
+Every failed action and native failure event produces an `AsleepError`, which extends `Error`:
+
+```ts
+class AsleepError extends Error {
+  readonly code: string;
+  readonly category?: "terminal" | "recordingDead" | "recoveryRequired" | "transient" | "unknown";
+  readonly sdkCode?: number;
+  readonly caseName?: string;
+  readonly cause?: unknown;
+}
+```
+
+Branch on the stable `code`, render `message`, and forward the error itself to observability tooling. Tracking failures also carry the library's objective recovery classification in `category`; the app decides what severity to record:
 
 | `category` | Meaning | Suggested app-side severity |
 |---|---|---|
@@ -217,29 +311,52 @@ See [AGENTS.md](./AGENTS.md#native-behavior-compensations) for the full table in
 | `unknown` | Unclassified code — do not assume it is benign. | error |
 
 ```ts
-const { errorInfo } = useAsleep();
+const { error } = useAsleep();
 
 useEffect(() => {
-  if (!errorInfo) return;
-  if (errorInfo.category === "recoveryRequired" || errorInfo.category === "transient") {
-    analytics.track("asleep_recoverable_error", errorInfo); // visibility without paging
+  if (!error) return;
+  if (error.category === "recoveryRequired" || error.category === "transient") {
+    analytics.track("asleep_recoverable_error", {
+      code: error.code,
+      sdkCode: error.sdkCode,
+      category: error.category,
+    });
   } else {
-    Sentry.captureException(new Error(`[Asleep] ${errorInfo.code}`), { extra: errorInfo });
+    Sentry.captureException(error);
   }
-}, [errorInfo]);
+}, [error]);
 ```
 
-`errorInfo.sdkCode` carries the numeric error code documented by the native Asleep SDKs (both platforms). The legacy `errorCode` event-payload field is deprecated: on iOS it holds a Swift enum ordinal from NSError bridging, not the documented code.
+`sdkCode` is the numeric code documented by the native Asleep SDKs. The legacy `errorCode` event-payload field remains for wire compatibility but is deprecated: on iOS it is a Swift enum ordinal from NSError bridging, not the documented code.
+
+All actions, including report queries, throw `AsleepError` on failure. Queries no longer return `null` or `[]` as failure sentinels. Successful actions clear only the error that was present when the native call began; a classified failure event arriving during the await is preserved.
 
 ## Best practices
 
-- **Permission flow**: call `requestRequiredPermissions()` *before* `startTracking()`. As of v1.0.18 the Android native module rejects `startTracking` with `PERMISSION_REQUIRED` when `RECORD_AUDIO` / `FOREGROUND_SERVICE_MICROPHONE` aren't granted.
+- **Permission flow**: use `hasRequiredPermissions()` for a non-interactive check, then call `requestRequiredPermissions()` from a user-initiated flow. `startTracking()` never opens a permission dialog and throws `PERMISSION_DENIED` when permission is missing.
 - **Battery optimization (Android, required)**: long sessions get killed without an exemption. Call `checkBatteryOptimization()` before `startTracking()`; if not exempted, call `requestBatteryOptimizationExemption()` and follow the system prompt. iOS's no-op call keeps cross-platform code uniform.
-- **Error handling**: gate log severity on `useAsleep().errorInfo?.category` (see [Error classification](#error-classification)) and switch on `errorInfo.code` for category-specific UI rather than parsing `message` substrings.
+- **Error handling**: gate log severity on `useAsleep().error?.category` and switch on `error.code` for category-specific UI rather than parsing message text.
+- **Non-React lifecycle**: pair every `Asleep.initialize()` with its returned teardown function.
+
+## Migrating from 1.x
+
+v2 deliberately removes the parallel and mutable v1 surfaces:
+
+1. `error: string | null` is now `AsleepError | null`. Render `error?.message` and branch on `error?.code`.
+2. `errorInfo` is removed. Read `error.category`, `error.sdkCode`, and `error.caseName`.
+3. Report and analysis queries throw `AsleepError` on failure instead of returning `null` or `[]`. A session that has no report surfaces as code `REPORT_NOT_FOUND`; an empty report list still resolves to `[]`.
+4. Public state setters are removed. Native events and SDK actions are the sole state writers; `clearError()` remains public.
+5. `getTrackingDurationMinutes()` is removed and `trackingStartTime` is internal. Apps own wall-clock duration.
+6. `requestMicrophonePermission()` is removed. Use `requestRequiredPermissions()`.
+7. `startTracking()` no longer requests permission. Check with `hasRequiredPermissions()`, explicitly request if needed, then start.
+8. The default export, `Asleep` class, `AsleepSDK`, and raw `asleepStore` export are removed. Use `useAsleep()` or the named `Asleep` escape hatch.
+9. `zustand` is no longer a dependency. Remove it from your app if nothing else uses it.
+10. Use the additive `status: TrackingStatus` field when a single lifecycle value is clearer than multiple derived booleans.
+11. Android 13+: `requestRequiredPermissions()` still requests `POST_NOTIFICATIONS` (so the foreground-service notification stays visible), but its return value now reflects only what tracking needs to run — microphone-side permissions, matching `hasRequiredPermissions()`. In 1.x a denied notification permission made it return `false` even though tracking could start.
 
 ## Troubleshooting
 
-- **`PERMISSION_REQUIRED` from `startTracking`**: call `requestRequiredPermissions()` first, then retry.
+- **`PERMISSION_DENIED` from `startTracking`**: check and request microphone permission from a user-initiated flow, then retry.
 - **`MISSING_PREREQUISITE` from `startTracking`**: call `checkAndRestoreTracking()` and `checkBatteryOptimization()` before `startTracking()`.
 - **Tracking ends unexpectedly on Android**: battery optimization is on; call `checkBatteryOptimization()` and follow the prompt.
 - **Network errors**: verify API key and connectivity.

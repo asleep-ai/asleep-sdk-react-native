@@ -167,6 +167,10 @@ public class AsleepModule: Module {
             return trackingManager?.getTrackingStatus().sessionId != nil
         }
 
+        AsyncFunction("hasRequiredPermissions") { () -> Bool in
+            return AVAudioSession.sharedInstance().recordPermission == .granted
+        }
+
         // Deprecated method for backward compatibility
         AsyncFunction("requestMicrophonePermission") { () -> Bool in
             let audioSession = AVAudioSession.sharedInstance()

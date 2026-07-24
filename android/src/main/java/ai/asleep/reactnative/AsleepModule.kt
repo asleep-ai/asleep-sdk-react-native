@@ -282,16 +282,7 @@ class AsleepModule : Module() {
         
         AsyncFunction("startTracking") { config: Map<String, Any>?, promise: Promise ->
             try {
-                val audioPermission = ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.RECORD_AUDIO)
-                // FOREGROUND_SERVICE_MICROPHONE was introduced in API 34 (UPSIDE_DOWN_CAKE).
-                // Gating on TIRAMISU (API 33) would false-deny on Android 13 where the permission
-                // doesn't exist yet.
-                val fgsPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    ContextCompat.checkSelfPermission(appContext.reactContext!!, Manifest.permission.FOREGROUND_SERVICE_MICROPHONE)
-                } else {
-                    PackageManager.PERMISSION_GRANTED
-                }
-                if (audioPermission != PackageManager.PERMISSION_GRANTED || fgsPermission != PackageManager.PERMISSION_GRANTED) {
+                if (!hasRequiredPermissions()) {
                     // beginSleepTracking would crash with SecurityException at
                     // startForeground(type=microphone) on API 34+. Reject so JS requests via
                     // requestRequiredPermissions() and retries.
@@ -464,6 +455,10 @@ class AsleepModule : Module() {
                 sendEvent("onDebugLog", mapOf("message" to errorMessage))
                 promise.reject("UNEXPECTED_ERROR", errorMessage, e)
             }
+        }
+
+        AsyncFunction("hasRequiredPermissions") { promise: Promise ->
+            promise.resolve(hasRequiredPermissions())
         }
 
         // Deprecated method for backward compatibility
@@ -657,6 +652,21 @@ class AsleepModule : Module() {
     private inline fun <I, reified O> I.convert(): O {
         val json = gson.toJson(this)
         return gson.fromJson(json, object : TypeToken<O>() {}.type)
+    }
+
+    private fun hasRequiredPermissions(): Boolean {
+        val context = appContext.reactContext!!
+        val audioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+        // FOREGROUND_SERVICE_MICROPHONE was introduced in API 34 (UPSIDE_DOWN_CAKE).
+        // Gating on TIRAMISU (API 33) would false-deny on Android 13 where the permission
+        // doesn't exist yet.
+        val fgsPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.FOREGROUND_SERVICE_MICROPHONE)
+        } else {
+            PackageManager.PERMISSION_GRANTED
+        }
+        return audioPermission == PackageManager.PERMISSION_GRANTED &&
+            fgsPermission == PackageManager.PERMISSION_GRANTED
     }
 
     private suspend fun requestMicrophonePermission(): Boolean = suspendCancellableCoroutine { cont ->

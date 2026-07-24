@@ -52,9 +52,6 @@ importers:
       oxlint:
         specifier: ^1.66.0
         version: 1.66.0
-      zustand:
-        specifier: ^5.0.12
-        version: 5.0.12(@types/react@19.2.14)(react@19.0.0)
 
   example:
     dependencies:
@@ -11864,9 +11861,4 @@ snapshots:
   zustand@5.0.12(@types/react@19.0.14)(react@19.0.0):
     optionalDependencies:
       '@types/react': 19.0.14
-      react: 19.0.0
-
-  zustand@5.0.12(@types/react@19.2.14)(react@19.0.0):
-    optionalDependencies:
-      '@types/react': 19.2.14
       react: 19.0.0

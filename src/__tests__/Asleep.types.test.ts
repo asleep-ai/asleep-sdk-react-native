@@ -1,4 +1,4 @@
-import { TrackingConfig, AudioSessionOption, AsleepErrorInfo, AsleepEventType } from "../Asleep.types";
+import { TrackingConfig, AudioSessionOption, AsleepEventType } from "../Asleep.types";
 
 describe("TrackingConfig", () => {
   it("accepts android-only config", () => {
@@ -114,29 +114,6 @@ describe("onTrackingFailed event payload", () => {
     };
     expect(payload.sdkCode).toBe(11000);
     expect(payload.errorCode).toBe(39);
-  });
-});
-
-describe("AsleepErrorInfo", () => {
-  it("pairs a category with the code and optional native fields", () => {
-    const info: AsleepErrorInfo = {
-      code: "TRACKING_FAILED",
-      category: "transient",
-      sdkCode: 23000,
-      message: "Failed to upload",
-    };
-    expect(info.category).toBe("transient");
-    expect(info.sdkCode).toBe(23000);
-  });
-
-  it("supports the minimal unknown shape", () => {
-    const info: AsleepErrorInfo = {
-      code: "UNKNOWN_ERROR",
-      category: "unknown",
-      caseName: "httpStatus(500, ...)",
-    };
-    expect(info.category).toBe("unknown");
-    expect(info.sdkCode).toBeUndefined();
   });
 });
 
