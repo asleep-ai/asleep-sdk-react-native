@@ -47,7 +47,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Pinned, not the runner default: the compiler must not change under this
       # job without a code change, or a "native regression" here is ambiguous.
@@ -72,12 +72,12 @@ jobs:
         run: sudo xcode-select -s /Applications/Xcode_16.4.app
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: "22.14.0"
+          node-version: "24.18.0"
           cache: "pnpm"
 
       # The example Podfile resolves expo and react-native through
@@ -87,14 +87,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Cache Pods
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: example/ios/Pods
           key: pods-${{ hashFiles('example/ios/Podfile.lock', 'ios/Asleep.podspec') }}
           restore-keys: pods-
 
       - name: Cache DerivedData
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/Library/Developer/Xcode/DerivedData
           key: dd-${{ hashFiles('example/ios/Podfile.lock') }}-${{ hashFiles('ios/**/*.swift') }}
