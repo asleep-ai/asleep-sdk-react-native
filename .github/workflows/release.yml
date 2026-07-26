@@ -229,9 +229,17 @@ jobs:
             Output markdown only — no preamble, no trailing commentary.
             Structure: English block first, then Korean block, separated by a horizontal rule.
             English block — header '## English' followed by sections
-            '### New Features', '### Improvements', '### Bug Fixes', '### Internal Changes'.
+            '### Breaking Changes', '### New Features', '### Improvements',
+            '### Bug Fixes', '### Internal Changes'.
             Korean block — header '## 한국어' followed by sections
-            '### 신규 기능', '### 개선', '### 버그 수정', '### 내부 변경'.
+            '### 호환성이 깨지는 변경', '### 신규 기능', '### 개선', '### 버그 수정', '### 내부 변경'.
+            Breaking Changes comes first. It covers every removed, renamed, or
+            behaviourally-changed public API; the signals are a `!` after the commit
+            type (e.g. `feat!:`) and a `BREAKING CHANGE:` footer, but also judge the
+            change itself. Never file a removed public API or a changed public
+            contract under Internal Changes — that section is only for changes a
+            consumer cannot observe. Each breaking bullet says what changed and what
+            to use instead.
             Omit empty sections; do not invent content.
             Input is a numbered list of commits; each entry contains the PR subject
             on the first line and the PR description (rationale, compatibility notes,
