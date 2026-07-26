@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_type:
-        description: 'Semver bump (patch / minor / major)'
+        description: 'Semver bump — or "none" to (re)publish the current version without a bump'
         required: true
         default: 'patch'
         type: choice
@@ -12,6 +12,7 @@ on:
           - patch
           - minor
           - major
+          - none
       dry_run:
         description: 'Dry run (skip npm publish and GitHub release)'
         required: false
@@ -26,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '22.14.0'
+  NODE_VERSION: '24.18.0'
 
 jobs:
   prepare:
@@ -37,15 +38,16 @@ jobs:
     outputs:
       version: ${{ steps.bump.outputs.version }}
       branch: ${{ steps.bump.outputs.branch }}
+      ref: ${{ steps.bump.outputs.ref }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: corepack enable
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -55,10 +57,29 @@ jobs:
         run: |
           set -euo pipefail
           CURRENT=$(node -p "require('./package.json').version")
+
+          # "none" republishes the current version from main without bumping —
+          # used to resume a partially-failed release (e.g. npm publish failed
+          # after the tag and GitHub release were already created) without
+          # double-bumping. No release branch is created; build/publish read
+          # `ref` and operate on main.
+          if [ "${{ inputs.version_type }}" = "none" ]; then
+            {
+              echo "version=$CURRENT"
+              echo "branch="
+              echo "ref=main"
+            } >> "$GITHUB_OUTPUT"
+            echo "Publish-only mode: (re)publish current version v$CURRENT from main; no bump."
+            exit 0
+          fi
+
           NEW=$(pnpm dlx semver "$CURRENT" -i ${{ inputs.version_type }})
           BRANCH="release/v$NEW"
-          echo "version=$NEW" >> "$GITHUB_OUTPUT"
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$NEW"
+            echo "branch=$BRANCH"
+            echo "ref=$BRANCH"
+          } >> "$GITHUB_OUTPUT"
           echo "Bumping $CURRENT -> $NEW on $BRANCH"
 
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -76,13 +97,13 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.prepare.outputs.branch }}
+          ref: ${{ needs.prepare.outputs.ref }}
 
-      - run: corepack enable
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -96,13 +117,13 @@ jobs:
     # Waits on release-notes so the release branch (which release-notes checks
     # out) is not deleted by `gh pr merge --delete-branch` before notes finish.
     needs: [prepare, build, release-notes]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && inputs.version_type != 'none' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -133,19 +154,27 @@ jobs:
   publish-npm:
     name: Publish to npm
     needs: [prepare, build, merge]
-    if: ${{ !inputs.dry_run }}
+    # Runs after merge in a normal release, and in "none" mode where merge is
+    # skipped (main already carries the version). !cancelled() lets this job
+    # evaluate its condition even though the needed `merge` job was skipped.
+    if: >-
+      ${{ !cancelled() && !inputs.dry_run
+      && needs.prepare.result == 'success'
+      && needs.build.result == 'success'
+      && (needs.merge.result == 'success'
+      || (inputs.version_type == 'none' && needs.merge.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
 
-      - run: corepack enable
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
@@ -155,25 +184,30 @@ jobs:
 
       - run: pnpm build
 
-      # npm CLI 11.5.1+ is required for the OIDC token exchange that backs
-      # Trusted Publishers. Node 22 ships with npm 10, which only signs the
-      # provenance attestation but does not exchange the GitHub OIDC token
-      # for an npm publish credential — leaving the actual PUT unauthenticated
-      # (npm returns 404 in that case, not 401, to avoid leaking package
-      # existence). Upgrading the CLI here keeps the rest of the toolchain
-      # on Node 22 while enabling tokenless publish.
-      - name: Upgrade npm CLI for OIDC publish
-        run: npm install -g npm@latest
-
-      - name: Publish with provenance
-        run: npm publish --provenance --access public
+      # Node 24 bundles npm >= 11.5.1, which performs the OIDC token exchange
+      # that backs npm Trusted Publishers — so no manual npm CLI upgrade is
+      # needed (Node 22 shipped npm 10, which signed provenance but could not
+      # exchange the OIDC token, leaving the publish unauthenticated).
+      # The npm view guard makes re-runs safe: if the version is already on the
+      # registry (e.g. a "none"-mode resume after a later step failed), skip.
+      - name: Publish with provenance (idempotent)
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already on npm; skipping publish."
+            exit 0
+          fi
+          npm publish --provenance --access public
 
   release-notes:
     name: Generate release notes
     needs: [prepare, build]
+    if: ${{ inputs.version_type != 'none' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Use the release branch (which contains the version bump + all
           # post-tag commits). On dry runs the branch is still alive; on real
@@ -219,7 +253,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload notes artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: ${{ steps.ai_notes.outputs.path }}
@@ -228,19 +262,19 @@ jobs:
   release-github:
     name: Create GitHub release
     needs: [prepare, build, merge, release-notes]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && inputs.version_type != 'none' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download notes artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-notes
           path: .
@@ -249,20 +283,29 @@ jobs:
         run: |
           set -euo pipefail
           TAG="v${{ needs.prepare.outputs.version }}"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on origin; skipping."
+          else
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config user.name "github-actions[bot]"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
 
       - name: Create GitHub release with AI notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           TAG="v${{ needs.prepare.outputs.version }}"
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes-file release-notes.md \
-            --latest
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; leaving it (and any manual edits) untouched."
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file release-notes.md \
+              --latest
+          fi
 
   cleanup:
     name: Cleanup release branch
@@ -275,7 +318,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
