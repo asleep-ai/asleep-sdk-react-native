@@ -144,6 +144,7 @@ export function SleepTracker() {
     error,
     checkAndRestoreTracking,
     initAsleepConfig,
+    addEventListener,
     checkBatteryOptimization,
     requestBatteryOptimizationExemption,
     hasRequiredPermissions,
@@ -160,14 +161,58 @@ export function SleepTracker() {
     void (async () => {
       try {
         await checkAndRestoreTracking();
-        await initAsleepConfig({ apiKey: "YOUR_API_KEY" });
+
+        const config = { apiKey: "YOUR_API_KEY" };
+        if (Platform.OS === "ios") {
+          let removeJoined = () => {};
+          let removeFailed = () => {};
+          const configurationFinished = new Promise<void>(
+            (resolve, reject) => {
+              removeJoined = addEventListener("onUserJoined", () => resolve());
+              removeFailed = addEventListener(
+                "onUserJoinFailed",
+                (failure) => {
+                  reject(
+                    new AsleepError(
+                      "USER_JOIN_FAILED",
+                      failure.detail ?? failure.error ?? "사용자 설정 실패",
+                      {
+                        sdkCode: failure.sdkCode,
+                        caseName: failure.caseName,
+                        cause: failure,
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          );
+
+          try {
+            await Promise.all([
+              initAsleepConfig(config),
+              configurationFinished,
+            ]);
+          } finally {
+            removeJoined();
+            removeFailed();
+          }
+        } else {
+          await initAsleepConfig(config);
+        }
+
         await checkBatteryOptimization();
         setIsReady(true);
       } catch {
         // `error`에도 같은 AsleepError가 반영됩니다.
       }
     })();
-  }, [checkAndRestoreTracking, initAsleepConfig, checkBatteryOptimization]);
+  }, [
+    checkAndRestoreTracking,
+    initAsleepConfig,
+    addEventListener,
+    checkBatteryOptimization,
+  ]);
 
   const handleStart = async () => {
     try {
@@ -204,19 +249,26 @@ export function SleepTracker() {
     }
   };
 
+  const shouldStop =
+    isTracking || error?.category === "recordingDead";
+
   return (
     <View>
       <Text>상태: {status}</Text>
       {error ? <Text>{error.message}</Text> : null}
       <Button
-        title={isTracking ? "측정 종료" : "측정 시작"}
+        title={shouldStop ? "측정 종료" : "측정 시작"}
         disabled={!isReady}
-        onPress={isTracking ? handleStop : handleStart}
+        onPress={shouldStop ? handleStop : handleStart}
       />
     </View>
   );
 }
 ```
+
+iOS의 `initAsleepConfig()`는 native user 설정을 비동기로 시작하지만 bridge 호출은 manager 준비 전에 반환될 수 있습니다. 위 예제처럼 호출 전에 user event를 등록하고 `onUserJoined` 또는 `onUserJoinFailed`까지 기다리세요. Android는 설정 완료 뒤 Promise가 끝나며, 복원된 service의 빠른 경로에서는 `onUserJoined`가 발생하지 않으므로 event를 추가로 기다리면 안 됩니다.
+
+`recordingDead`도 예외입니다. `isTracking`은 `false`지만 native session은 열려 있으므로 새 측정을 시작하기 전에 `stopTracking()`을 호출해야 합니다.
 
 새 ODA(On-Device Analysis) 세션을 구성할 때는 `initAsleepConfig()` 대신 `setup()`을 사용합니다. `setup()`은 활성 tracking 중에는 호출할 수 없으므로 ODA 복원 정책은 별도로 설계하세요.
 

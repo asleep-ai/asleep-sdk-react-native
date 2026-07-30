@@ -16,7 +16,7 @@
 앱 시작
 → useAsleep() mount 또는 Asleep.initialize()
 → checkAndRestoreTracking()
-→ initAsleepConfig()                    // 복원 여부와 관계없이 항상 호출
+→ initAsleepConfig()                    // iOS는 user event까지 대기
 → checkBatteryOptimization()
 → 사용자 동작에서 권한 요청
 → startTracking()                       // 활성 세션이 없을 때만
@@ -42,7 +42,8 @@ iOS bridge는 복원 가능한 session을 보고하지 않지만 `startTracking(
 
 ```tsx
 import { useCallback, useState } from "react";
-import { useAsleep } from "react-native-asleep";
+import { Platform } from "react-native";
+import { AsleepError, useAsleep } from "react-native-asleep";
 
 export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
   const asleep = useAsleep();
@@ -51,10 +52,48 @@ export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
 
   const initialize = useCallback(async () => {
     await asleep.checkAndRestoreTracking();
-    await asleep.initAsleepConfig({
+
+    const config = {
       apiKey,
       userId: stableUserId,
-    });
+    };
+
+    if (Platform.OS === "ios") {
+      let removeJoined = () => {};
+      let removeFailed = () => {};
+      const configurationFinished = new Promise<void>((resolve, reject) => {
+        removeJoined = asleep.addEventListener("onUserJoined", () => resolve());
+        removeFailed = asleep.addEventListener(
+          "onUserJoinFailed",
+          (failure) => {
+            reject(
+              new AsleepError(
+                "USER_JOIN_FAILED",
+                failure.detail ?? failure.error ?? "사용자 설정 실패",
+                {
+                  sdkCode: failure.sdkCode,
+                  caseName: failure.caseName,
+                  cause: failure,
+                },
+              ),
+            );
+          },
+        );
+      });
+
+      try {
+        await Promise.all([
+          asleep.initAsleepConfig(config),
+          configurationFinished,
+        ]);
+      } finally {
+        removeJoined();
+        removeFailed();
+      }
+    } else {
+      await asleep.initAsleepConfig(config);
+    }
+
     const battery = await asleep.checkBatteryOptimization();
 
     setIsBatteryExempted(battery.exempted);
@@ -64,12 +103,15 @@ export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
     stableUserId,
     asleep.checkAndRestoreTracking,
     asleep.initAsleepConfig,
+    asleep.addEventListener,
     asleep.checkBatteryOptimization,
   ]);
 
   return { ...asleep, initialize, isReady, isBatteryExempted };
 }
 ```
+
+iOS의 bridge 호출은 native user 설정을 시작한 뒤 tracking/report manager가 준비되기 전에 반환될 수 있습니다. 따라서 호출 전에 `onUserJoined`와 `onUserJoinFailed`를 등록하고 둘 중 하나가 발생할 때까지 기다립니다. `isSetupComplete`만으로 iOS 준비 완료를 판단하면 안 됩니다. 현재 bridge action은 user-join delegate가 native manager를 만들기 전에 이 값을 갱신할 수 있습니다. Android에서는 `initAsleepConfig()` 자체의 Promise만 기다립니다. 복원된 service의 빠른 경로는 Promise를 resolve하지만 `onUserJoined`를 보내지 않기 때문입니다.
 
 앱의 integration owner에서 `initialize()`를 한 번 호출하고 실패하면 tracking UI를 비활성화한 채 앱이 소유한 재시도 동작을 제공하세요.
 
@@ -182,6 +224,18 @@ async function startSleepTracking() {
     },
   });
 }
+
+async function handleTrackingPress() {
+  const shouldStop =
+    asleep.isTracking || asleep.error?.category === "recordingDead";
+
+  if (shouldStop) {
+    await asleep.stopTracking();
+    return;
+  }
+
+  await startSleepTracking();
+}
 ```
 
 `startTracking()`은 다음 조건을 직접 검증하고 `AsleepError`를 throw합니다.
@@ -195,7 +249,7 @@ async function startSleepTracking() {
 
 정상 종료는 `stopTracking()`이 성공한 뒤 앱이 관리하는 타이머와 부가 상태를 정리합니다. 먼저 앱 상태를 지우면 native 종료 실패 후 복구할 근거를 잃을 수 있습니다.
 
-`recordingDead` 오류에서는 `isTracking === false`여도 native session이 열려 있으므로 예외적으로 `stopTracking()`을 호출해야 합니다. 반면 `terminal`은 native session이 이미 종료된 상태입니다.
+버튼 문구와 동작도 같은 `shouldStop` 조건을 사용하세요. `recordingDead` 오류에서는 `isTracking === false`여도 native session이 열려 있으므로 예외적으로 `stopTracking()`을 호출해야 합니다. 반면 `terminal`은 native session이 이미 종료된 상태입니다.
 
 ## 6. 플랫폼 차이와 복구
 

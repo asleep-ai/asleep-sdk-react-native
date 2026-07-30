@@ -141,7 +141,7 @@ Always call `initAsleepConfig()` after `checkAndRestoreTracking()`, including wh
 
 ```tsx
 import { useEffect, useRef, useState } from "react";
-import { Button, Text, View } from "react-native";
+import { Button, Platform, Text, View } from "react-native";
 import { AsleepError, useAsleep } from "react-native-asleep";
 
 export function SleepTracker() {
@@ -156,7 +156,41 @@ export function SleepTracker() {
 
     async function bootstrap() {
       await asleep.checkAndRestoreTracking();
-      await asleep.initAsleepConfig({ apiKey: "YOUR_API_KEY" });
+
+      const config = { apiKey: "YOUR_API_KEY" };
+      if (Platform.OS === "ios") {
+        let removeJoined = () => {};
+        let removeFailed = () => {};
+        const configurationFinished = new Promise<void>((resolve, reject) => {
+          removeJoined = asleep.addEventListener("onUserJoined", () => resolve());
+          removeFailed = asleep.addEventListener("onUserJoinFailed", (failure) => {
+            reject(
+              new AsleepError(
+                "USER_JOIN_FAILED",
+                failure.detail ?? failure.error ?? "User join failed.",
+                {
+                  sdkCode: failure.sdkCode,
+                  caseName: failure.caseName,
+                  cause: failure,
+                },
+              ),
+            );
+          });
+        });
+
+        try {
+          await Promise.all([
+            asleep.initAsleepConfig(config),
+            configurationFinished,
+          ]);
+        } finally {
+          removeJoined();
+          removeFailed();
+        }
+      } else {
+        await asleep.initAsleepConfig(config);
+      }
+
       await asleep.checkBatteryOptimization();
       setIsReady(true);
     }
@@ -167,6 +201,7 @@ export function SleepTracker() {
   }, [
     asleep.checkAndRestoreTracking,
     asleep.initAsleepConfig,
+    asleep.addEventListener,
     asleep.checkBatteryOptimization,
   ]);
 
@@ -205,15 +240,18 @@ export function SleepTracker() {
     }
   }
 
+  const shouldStop =
+    asleep.isTracking || asleep.error?.category === "recordingDead";
+
   return (
     <View>
       <Text>Status: {asleep.status}</Text>
       {bootstrapMessage ? <Text>{bootstrapMessage}</Text> : null}
       {asleep.error ? <Text>{asleep.error.message}</Text> : null}
       <Button
-        title={asleep.isTracking ? "Stop tracking" : "Start tracking"}
+        title={shouldStop ? "Stop tracking" : "Start tracking"}
         disabled={!isReady}
-        onPress={asleep.isTracking ? stop : start}
+        onPress={shouldStop ? stop : start}
       />
     </View>
   );
@@ -221,6 +259,10 @@ export function SleepTracker() {
 ```
 
 Call `requestRequiredPermissions()` from a user-driven interaction. `startTracking()` checks permission but never opens a permission dialog. On Android, return from the battery settings screen and call `checkBatteryOptimization()` again before retrying.
+
+On iOS, `initAsleepConfig()` starts asynchronous user configuration but its bridge call can return before the native managers are ready. Register the user events before calling it and wait for `onUserJoined` or `onUserJoinFailed`, as shown above. Android resolves `initAsleepConfig()` after configuration; do not wait for `onUserJoined` there because a restored-service fast path does not emit it.
+
+The `recordingDead` category is another deliberate exception: `isTracking` is `false`, but the native session remains open, so the action must still call `stopTracking()` before starting a new session.
 
 For ODA (On-Device Analysis), `setup()` is the configuration entry point for a new ODA session. This Quick Start documents service mode; `setup()` cannot run while a restored session is tracking.
 

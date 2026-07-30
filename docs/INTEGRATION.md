@@ -12,7 +12,7 @@ The examples use service-based sleep tracking through `initAsleepConfig()`. ODA 
 flowchart LR
     A["App starts"] --> B["Mount useAsleep or initialize listeners"]
     B --> C["checkAndRestoreTracking()"]
-    C --> D["initAsleepConfig() always"]
+    C --> D["initAsleepConfig() and wait for iOS user event"]
     D --> E["checkBatteryOptimization()"]
     E --> F{"Android service restored?"}
     F -- "Yes" --> G["Render restored SDK state"]
@@ -87,8 +87,9 @@ releaseListeners();
 Run this sequence once from the app-level integration owner:
 
 ```tsx
+import { Platform } from "react-native";
 import { useCallback } from "react";
-import { useAsleep } from "react-native-asleep";
+import { AsleepError, useAsleep } from "react-native-asleep";
 
 export function useSleepTrackingBootstrap(stableUserId?: string) {
   const asleep = useAsleep();
@@ -96,10 +97,46 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
   const initialize = useCallback(async () => {
     const restoration = await asleep.checkAndRestoreTracking();
 
-    await asleep.initAsleepConfig({
+    const config = {
       apiKey: "YOUR_API_KEY",
       userId: stableUserId,
-    });
+    };
+
+    if (Platform.OS === "ios") {
+      let removeJoined = () => {};
+      let removeFailed = () => {};
+      const configurationFinished = new Promise<void>((resolve, reject) => {
+        removeJoined = asleep.addEventListener("onUserJoined", () => resolve());
+        removeFailed = asleep.addEventListener(
+          "onUserJoinFailed",
+          (failure) => {
+            reject(
+              new AsleepError(
+                "USER_JOIN_FAILED",
+                failure.detail ?? failure.error ?? "User join failed.",
+                {
+                  sdkCode: failure.sdkCode,
+                  caseName: failure.caseName,
+                  cause: failure,
+                },
+              ),
+            );
+          },
+        );
+      });
+
+      try {
+        await Promise.all([
+          asleep.initAsleepConfig(config),
+          configurationFinished,
+        ]);
+      } finally {
+        removeJoined();
+        removeFailed();
+      }
+    } else {
+      await asleep.initAsleepConfig(config);
+    }
 
     const battery = await asleep.checkBatteryOptimization();
 
@@ -110,6 +147,7 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
   }, [
     asleep.checkAndRestoreTracking,
     asleep.initAsleepConfig,
+    asleep.addEventListener,
     asleep.checkBatteryOptimization,
     stableUserId,
   ]);
@@ -122,6 +160,8 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
 
 - `checkAndRestoreTracking()` asks Android native code whether tracking survived the JavaScript process and reconnects the service when needed. On iOS, the method is a required cross-platform prerequisite but returns `{ hasActiveSession: false }`; iOS has no persistent service to reconnect.
 - `initAsleepConfig()` remains required after that check. A restored session does not mean the current JavaScript process has configured the SDK and report APIs.
+- On iOS, the bridge call starts asynchronous user configuration and can return before the native tracking and report managers exist. Register `onUserJoined` and `onUserJoinFailed` before calling it, then wait for one of those events. On Android, await the action itself; the restored-service fast path resolves without emitting `onUserJoined`.
+- Do not use `isSetupComplete` alone as the iOS readiness signal. The current bridge action can update it before the user-join delegate creates the native managers.
 - `checkBatteryOptimization()` marks the required prerequisite as checked. On iOS it resolves with `{ exempted: true, platform: "ios" }`.
 - `startTracking()` rejects with `MISSING_PREREQUISITE` if restoration or the battery check has not run.
 
@@ -165,9 +205,23 @@ async function startSleepTracking() {
 
   return { status: "started" as const };
 }
+
+async function handleTrackingPress() {
+  const shouldStop =
+    asleep.isTracking || asleep.error?.category === "recordingDead";
+
+  if (shouldStop) {
+    await asleep.stopTracking();
+    return { status: "stopped" as const };
+  }
+
+  return startSleepTracking();
+}
 ```
 
 When Android opens battery settings, the result only means the settings flow was requested. Recheck `checkBatteryOptimization()` after the app returns and let the user retry. `startTracking()` performs its own Android exemption check and throws `BATTERY_NOT_EXEMPTED` if the device is still not exempted.
+
+Use the same `shouldStop` predicate for the primary button label and action. In the `recordingDead` state, `isTracking` is `false` but the native session is still open, so the app must stop that session instead of starting another one.
 
 On Android 13 and later, `requestRequiredPermissions()` also requests notification permission for foreground-service visibility. Its boolean result reflects microphone-side permissions, matching `hasRequiredPermissions()`; notification denial alone does not prevent tracking.
 
