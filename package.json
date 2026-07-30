@@ -44,7 +44,9 @@
     "expo-module.config.json",
     "*.podspec",
     "LICENSE.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/INTEGRATION.md",
+    "docs/INTEGRATION.ko.md"
   ],
   "devDependencies": {
     "@types/react": "^19.0.0",
