@@ -27,23 +27,43 @@ public class AsleepModule: Module {
         Events("onSetupInProgress")
         Events("onAnalysisResult")
 
-        Function("setup") { (apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
+        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret.
+        Function("setup") { (apiKey: String?, appId: String?, appSecret: String?, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
             Asleep.setLogger(self)
-            Asleep.setup(apiKey: apiKey,
-                        baseUrl: URL(string: baseUrl ?? ""),
-                        callbackUrl: URL(string: callbackUrl ?? ""),
-                        service: service,
-                        enableODA: enableODA ?? false,
-                        delegate: self)
+            if let appId = appId, let appSecret = appSecret {
+                Asleep.setup(appId: appId,
+                            appSecret: appSecret,
+                            baseUrl: URL(string: baseUrl ?? ""),
+                            callbackUrl: URL(string: callbackUrl ?? ""),
+                            service: service,
+                            enableODA: enableODA ?? false,
+                            delegate: self)
+            } else {
+                Asleep.setup(apiKey: apiKey ?? "",
+                            baseUrl: URL(string: baseUrl ?? ""),
+                            callbackUrl: URL(string: callbackUrl ?? ""),
+                            service: service,
+                            enableODA: enableODA ?? false,
+                            delegate: self)
+            }
         }
 
-        Function("initAsleepConfig") { (apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?) in
+        Function("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?) in
             Asleep.setLogger(self)
-            Asleep.initAsleepConfig(apiKey: apiKey,
-                                    userId: userId,
-                                    baseUrl: URL(string: baseUrl ?? ""),
-                                    callbackUrl: URL(string: callbackUrl ?? ""),
-                                    delegate: self)
+            if let appId = appId, let appSecret = appSecret {
+                Asleep.initAsleepConfig(appId: appId,
+                                        appSecret: appSecret,
+                                        userId: userId,
+                                        baseUrl: URL(string: baseUrl ?? ""),
+                                        callbackUrl: URL(string: callbackUrl ?? ""),
+                                        delegate: self)
+            } else {
+                Asleep.initAsleepConfig(apiKey: apiKey,
+                                        userId: userId,
+                                        baseUrl: URL(string: baseUrl ?? ""),
+                                        callbackUrl: URL(string: callbackUrl ?? ""),
+                                        delegate: self)
+            }
         }
 
         // Gates SDK log forwarding natively so disabled logs never cross the

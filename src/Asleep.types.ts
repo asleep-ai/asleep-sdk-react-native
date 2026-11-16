@@ -1,12 +1,19 @@
-export type AsleepConfig = {
-  apiKey: string;
+/**
+ * Authentication passed to `setup()` and `initAsleepConfig()`: either an API
+ * key or a token-auth `appId` / `appSecret` pair. The two forms are mutually
+ * exclusive; supplying neither or both is rejected with `INVALID_ARGUMENT`.
+ */
+export type AsleepCredentials =
+  | { apiKey: string; appId?: never; appSecret?: never }
+  | { appId: string; appSecret: string; apiKey?: never };
+
+export type AsleepConfig = AsleepCredentials & {
   userId?: string;
   baseUrl?: string;
   callbackUrl?: string;
 };
 
-export type AsleepSetupConfig = {
-  apiKey: string;
+export type AsleepSetupConfig = AsleepCredentials & {
   baseUrl?: string;
   callbackUrl?: string;
   service?: string;

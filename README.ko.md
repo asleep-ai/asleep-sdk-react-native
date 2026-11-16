@@ -285,6 +285,18 @@ import {
 } from "react-native-asleep";
 ```
 
+### 인증 정보
+
+`setup()`과 `initAsleepConfig()`는 `AsleepCredentials` 타입의 인증 방식 중 정확히 하나만 받습니다.
+
+```ts
+await asleep.initAsleepConfig({ apiKey: "YOUR_API_KEY", userId });
+// 또는 토큰 인증
+await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRET", userId });
+```
+
+`apiKey`와 `appId`/`appSecret`을 함께 넣으면 타입 오류입니다. 런타임에서 둘 다 없거나, 둘 다 있거나, 한쪽만 있는 쌍이거나, 빈 문자열이면 native 호출 전에 `INVALID_ARGUMENT` 코드의 `AsleepError`로 reject합니다. secret도 API key처럼 소스에 커밋하지 마세요.
+
 ### `useAsleep()`
 
 React 컴포넌트에서 상태와 action을 사용하고 네이티브 listener 수명 주기를 관리하는 기본 API입니다.

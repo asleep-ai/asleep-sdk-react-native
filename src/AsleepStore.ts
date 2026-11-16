@@ -5,6 +5,7 @@ import type {
   AsleepAnalysisResult,
   AsleepAverageReport,
   AsleepConfig,
+  AsleepCredentials,
   AsleepErrorCategory,
   AsleepEventType,
   AsleepReport,
@@ -229,6 +230,35 @@ const clearErrorIfUnchanged = (errorBefore: AsleepError | null) => {
   if (current !== null && current === errorBefore) useAsleepStore.setState({ error: null });
 };
 
+type NativeCredentials = { apiKey?: string; appId?: string; appSecret?: string };
+
+// Runtime guard for JS callers and casts that bypass the AsleepCredentials union.
+const resolveCredentials = (config: AsleepCredentials): NativeCredentials => {
+  const { apiKey, appId, appSecret } = (config ?? {}) as { apiKey?: unknown; appId?: unknown; appSecret?: unknown };
+  const hasApiKey = apiKey !== undefined;
+  const hasToken = appId !== undefined || appSecret !== undefined;
+  if (hasApiKey && hasToken) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "Pass either apiKey or appId/appSecret credentials, not both."),
+    );
+  }
+  if (!hasApiKey && !hasToken) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "Credentials are required: pass apiKey or appId/appSecret."),
+    );
+  }
+  const isNonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+  if (hasApiKey) {
+    if (!isNonEmpty(apiKey))
+      return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "apiKey must be a non-empty string."));
+    return { apiKey };
+  }
+  if (!isNonEmpty(appId) || !isNonEmpty(appSecret)) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "appId and appSecret must both be non-empty strings."));
+  }
+  return { appId, appSecret };
+};
+
 const normalizeReport = (report: any, sessionId: string): AsleepReport => {
   const converted = convertKeysToCamelCase(report);
   if (converted && !converted.session && converted.sessionId) {
@@ -255,6 +285,7 @@ const normalizeReport = (report: any, sessionId: string): AsleepReport => {
 
 export const asleepActions: AsleepActions = {
   setup: async (config) => {
+    const credentials = resolveCredentials(config);
     const state = useAsleepStore.getState();
     if (state.setupStatus === "inProgress") {
       storeAndThrow(new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress."));
@@ -267,7 +298,15 @@ export const asleepActions: AsleepActions = {
     addLog("[setup] Start");
     useAsleepStore.setState({ setupStatus: "inProgress" });
     try {
-      await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
+      await AsleepModule.setup(
+        credentials.apiKey,
+        credentials.appId,
+        credentials.appSecret,
+        config.baseUrl,
+        config.callbackUrl,
+        config.service,
+        config.enableODA,
+      );
       useAsleepStore.setState({
         setupStatus: "complete",
         isODAEnabled: config.enableODA || false,
@@ -281,6 +320,7 @@ export const asleepActions: AsleepActions = {
   },
 
   initAsleepConfig: async (config) => {
+    const credentials = resolveCredentials(config);
     const state = useAsleepStore.getState();
     if (state.setupStatus === "inProgress") {
       return storeAndThrow(new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress."));
@@ -292,7 +332,14 @@ export const asleepActions: AsleepActions = {
     addLog("[initAsleepConfig] Start");
     useAsleepStore.setState({ setupStatus: "inProgress" });
     try {
-      await AsleepModule.initAsleepConfig(config.apiKey, config.userId, config.baseUrl, config.callbackUrl);
+      await AsleepModule.initAsleepConfig(
+        credentials.apiKey,
+        credentials.appId,
+        credentials.appSecret,
+        config.userId,
+        config.baseUrl,
+        config.callbackUrl,
+      );
       useAsleepStore.setState({ setupStatus: "complete", isInitialized: true });
       clearErrorIfUnchanged(errorBefore);
       addLog("[initAsleepConfig] Success");

@@ -29,7 +29,7 @@
 | 단계 | 역할 |
 |---|---|
 | `checkAndRestoreTracking()` | Android의 기존 native session 존재 여부를 확인하고 service에 다시 연결 |
-| `initAsleepConfig()` | 현재 앱 실행에 API key, `userId`, endpoint 구성을 적용 |
+| `initAsleepConfig()` | 현재 앱 실행에 인증 정보(API key 또는 `appId`/`appSecret`), `userId`, endpoint 구성을 적용 |
 | `checkBatteryOptimization()` | `startTracking()`의 선행 조건을 충족하고 Android 장기 측정 가능 여부를 확인 |
 | `requestRequiredPermissions()` | 사용자 동작에서 런타임 권한 요청 |
 | `startTracking()` | 새 native session 시작 |
@@ -115,7 +115,9 @@ iOS의 bridge 호출은 native user 설정을 시작한 뒤 tracking/report mana
 
 앱의 integration owner에서 `initialize()`를 한 번 호출하고 실패하면 tracking UI를 비활성화한 채 앱이 소유한 재시도 동작을 제공하세요.
 
-API key는 소스에 커밋하지 말고 앱의 배포 환경에 맞는 secret/config 관리 방식을 사용하세요. SDK의 `userId`와 앱 계정의 대응 관계, ID 저장 및 변경 정책은 소비 앱이 소유합니다. 활성 session 중에는 다른 `userId`로 다시 초기화하지 마세요.
+API key는 소스에 커밋하지 말고 앱의 배포 환경에 맞는 secret/config 관리 방식을 사용하세요.
+
+토큰 인증도 같은 action을 사용합니다. `setup()`이나 `initAsleepConfig()`에 `{ apiKey }` 대신 `{ appId, appSecret }`을 전달하세요. 두 방식은 서로 배타적이며(`AsleepCredentials`), 둘 다 없거나, 둘 다 있거나, 한쪽만 있는 쌍이거나, 빈 값이면 native 호출 전에 `INVALID_ARGUMENT`로 reject합니다. Android의 복원 service 빠른 경로는 실행 중인 session과 같은 `appId`, `userId`를 인식하므로 토큰 방식에서도 API key와 동일하게 복원됩니다. `appSecret`도 API key와 같은 방식으로 보호하세요. SDK의 `userId`와 앱 계정의 대응 관계, ID 저장 및 변경 정책은 소비 앱이 소유합니다. 활성 session 중에는 다른 `userId`로 다시 초기화하지 마세요.
 
 ## 2. 권한과 Android 배터리 최적화
 

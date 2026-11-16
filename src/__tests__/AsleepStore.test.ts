@@ -288,6 +288,70 @@ describe("tracking failure classification", () => {
   });
 });
 
+describe("credentials", () => {
+  it("setup forwards an API key without token fields", async () => {
+    await asleepActions.setup({ apiKey: "key", baseUrl: "https://api", service: "svc", enableODA: true });
+    expect(mockModule.setup).toHaveBeenCalledWith("key", undefined, undefined, "https://api", undefined, "svc", true);
+  });
+
+  it("setup forwards appId/appSecret token credentials", async () => {
+    await asleepActions.setup({ appId: "app", appSecret: "secret" });
+    expect(mockModule.setup).toHaveBeenCalledWith(
+      undefined,
+      "app",
+      "secret",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(useAsleepStore.getState().setupStatus).toBe("complete");
+  });
+
+  it("initAsleepConfig forwards token credentials and userId", async () => {
+    await asleepActions.initAsleepConfig({ appId: "app", appSecret: "secret", userId: "user" });
+    expect(mockModule.initAsleepConfig).toHaveBeenCalledWith(undefined, "app", "secret", "user", undefined, undefined);
+  });
+
+  it("initAsleepConfig forwards an API key", async () => {
+    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "user" });
+    expect(mockModule.initAsleepConfig).toHaveBeenCalledWith("key", undefined, undefined, "user", undefined, undefined);
+  });
+
+  const invalid: Array<[string, unknown]> = [
+    ["neither form", {}],
+    ["both forms", { apiKey: "key", appId: "app", appSecret: "secret" }],
+    ["apiKey with appId only", { apiKey: "key", appId: "app" }],
+    ["appId without appSecret", { appId: "app" }],
+    ["appSecret without appId", { appSecret: "secret" }],
+    ["empty apiKey", { apiKey: "" }],
+    ["empty appSecret", { appId: "app", appSecret: "" }],
+  ];
+
+  it.each(invalid)("setup rejects %s with INVALID_ARGUMENT before native", async (_name, config) => {
+    await expect(asleepActions.setup(config as any)).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    expect(mockModule.setup).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", error: { code: "INVALID_ARGUMENT" } });
+  });
+
+  it.each(invalid)("initAsleepConfig rejects %s with INVALID_ARGUMENT before native", async (_name, config) => {
+    await expect(asleepActions.initAsleepConfig(config as any)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(mockModule.initAsleepConfig).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState().setupStatus).toBe("idle");
+  });
+
+  it("an invalid-credential rejection notifies subscribers exactly once", async () => {
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await expect(asleepActions.setup({} as any)).rejects.toBeInstanceOf(AsleepError);
+    unsubscribe();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("action contracts", () => {
   it("startTracking checks permission without requesting it", async () => {
     resetState({ hasCheckedStatus: true, hasCheckedBatteryOptimization: true });

@@ -167,7 +167,7 @@ The library selects a mechanism by signal type:
 | Signal type | Mechanism | Example |
 |---|---|---|
 | Runtime failure | Normalize and throw `AsleepError`; store the same instance when applicable | Native bridge rejection |
-| Precondition violation | Throw `AsleepError` with `MISSING_PREREQUISITE`, `INVALID_STATE`, `OPERATION_IN_PROGRESS`, `PERMISSION_DENIED`, or `BATTERY_NOT_EXEMPTED` | `startTracking` before required checks |
+| Precondition violation | Throw `AsleepError` with `MISSING_PREREQUISITE`, `INVALID_STATE`, `OPERATION_IN_PROGRESS`, `PERMISSION_DENIED`, `BATTERY_NOT_EXEMPTED`, or `INVALID_ARGUMENT` | `startTracking` before required checks; `setup` with neither or both credential forms |
 | Unsupported platform | Throw `AsleepError("UNSUPPORTED_PLATFORM", ...)` | `resumeTracking()` on Android |
 | Native failure event | Normalize payload once and write it through the event reducer | `onTrackingFailed`, `onSetupDidFail`, `onUserJoinFailed` |
 | Deprecation/developer education | `[Asleep]`-prefixed `console.warn`, guarded by `typeof __DEV__ !== "undefined" && __DEV__` | Deprecated no-op |

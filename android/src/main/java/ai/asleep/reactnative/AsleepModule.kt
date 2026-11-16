@@ -58,7 +58,9 @@ class AsleepModule : Module() {
     
     // Added variables to replace PreferenceHelper
     private var isTracking = false
-    private var savedApiKey: String? = null
+    // Identity of the credentials used for the last initAsleepConfig: "apiKey:<key>" or
+    // "appId:<id>". Keys the reconnect short-circuit for both auth modes.
+    private var savedCredentialId: String? = null
     private var savedUserId: String? = null
 
     val trackingState: LiveData<TrackingState> get() = _trackingState
@@ -146,100 +148,131 @@ class AsleepModule : Module() {
                "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog",
                "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress", "onAnalysisResult")
 
-        AsyncFunction("setup") { apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, promise: Promise ->
+        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret.
+        AsyncFunction("setup") { apiKey: String?, appId: String?, appSecret: String?, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, promise: Promise ->
             try {
                 val context = appContext.reactContext!!.applicationContext as Application
-                
-                Asleep.setup(
-                    context = context,
-                    apiKey = apiKey,
-                    baseUrl = baseUrl,
-                    callbackUrl = callbackUrl,
-                    service = service ?: "SleepTracking",
-                    enableODA = enableODA,
-                    asleepSetupListener = object : Asleep.AsleepSetupListener {
-                        override fun onComplete() {
-                            sendEvent("onSetupDidComplete", emptyMap<String, Any>())
-                            promise.resolve("Setup completed")
-                        }
-                        
-                        override fun onProgress(progress: Int) {
-                            sendEvent("onSetupInProgress", mapOf("progress" to progress))
-                            sendEvent("onDebugLog", mapOf("message" to "Setup progress: $progress%"))
-                        }
-                        
-                        override fun onFail(errorCode: Int, detail: String) {
-                            sendEvent("onSetupDidFail", mapOf("error" to detail, "sdkCode" to errorCode))
-                            sendEvent("onDebugLog", mapOf("message" to "Setup failed: $errorCode - $detail"))
-                            promise.reject("SETUP_FAILED", "Setup failed: $errorCode - $detail", null)
-                        }
+                val setupListener = object : Asleep.AsleepSetupListener {
+                    override fun onComplete() {
+                        sendEvent("onSetupDidComplete", emptyMap<String, Any>())
+                        promise.resolve("Setup completed")
                     }
-                )
+
+                    override fun onProgress(progress: Int) {
+                        sendEvent("onSetupInProgress", mapOf("progress" to progress))
+                        sendEvent("onDebugLog", mapOf("message" to "Setup progress: $progress%"))
+                    }
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        sendEvent("onSetupDidFail", mapOf("error" to detail, "sdkCode" to errorCode))
+                        sendEvent("onDebugLog", mapOf("message" to "Setup failed: $errorCode - $detail"))
+                        promise.reject("SETUP_FAILED", "Setup failed: $errorCode - $detail", null)
+                    }
+                }
+
+                if (appId != null && appSecret != null) {
+                    Asleep.setup(
+                        context = context,
+                        appId = appId,
+                        appSecret = appSecret,
+                        baseUrl = baseUrl,
+                        callbackUrl = callbackUrl,
+                        service = service ?: "SleepTracking",
+                        enableODA = enableODA,
+                        asleepSetupListener = setupListener
+                    )
+                } else {
+                    Asleep.setup(
+                        context = context,
+                        apiKey = apiKey ?: "",
+                        baseUrl = baseUrl,
+                        callbackUrl = callbackUrl,
+                        service = service ?: "SleepTracking",
+                        enableODA = enableODA,
+                        asleepSetupListener = setupListener
+                    )
+                }
             } catch (e: Exception) {
                 sendEvent("onDebugLog", mapOf("message" to "Setup failed: ${e.message}"))
                 promise.reject("UNEXPECTED_ERROR", "Setup failed: ${e.message}", e)
             }
         }
 
-        AsyncFunction("initAsleepConfig") { apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise ->
+        AsyncFunction("initAsleepConfig") { apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise ->
             try {
                 val context = appContext.reactContext!!.applicationContext as Application
-                
-                if (isTracking && savedApiKey == apiKey && savedUserId == userId) {
+                val useToken = appId != null && appSecret != null
+                val credentialId = if (useToken) "appId:$appId" else "apiKey:$apiKey"
+
+                if (isTracking && savedCredentialId == credentialId && savedUserId == userId) {
                     promise.resolve(mapOf("userId" to (savedUserId ?: "")))
                     sendEvent("onDebugLog", mapOf("message" to "Service reconnected"))
                     return@AsyncFunction
                 }
 
-                // Store API key in memory instead of preferences
-                savedApiKey = apiKey
+                // Store the credential identity in memory instead of preferences
+                savedCredentialId = credentialId
 
-                Asleep.initAsleepConfig(
-                    context = context,
-                    apiKey = apiKey,
-                    userId = userId,
-                    baseUrl = baseUrl,
-                    callbackUrl = callbackUrl,
-                    service = "SleepTracking",
-                    object : Asleep.AsleepConfigListener {
-                        override fun onSuccess(userId: String?, asleepConfig: AsleepConfig?) {
-                            if (userId != null) {
-                                sendEvent("onDebugLog", mapOf("message" to "UserId is not null"))
-                                // Store userId in memory instead of preferences
-                                savedUserId = userId
-                                sendEvent("onUserJoined", mapOf("userId" to userId))
-                            }
-                            _asleepConfig = asleepConfig
+                val configListener = object : Asleep.AsleepConfigListener {
+                    override fun onSuccess(userId: String?, asleepConfig: AsleepConfig?) {
+                        if (userId != null) {
+                            sendEvent("onDebugLog", mapOf("message" to "UserId is not null"))
+                            // Store userId in memory instead of preferences
+                            savedUserId = userId
+                            sendEvent("onUserJoined", mapOf("userId" to userId))
+                        }
+                        _asleepConfig = asleepConfig
 
-                            if (_asleepConfig != null) { 
-                                sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not null"))
-                                _reportManager = Asleep.createReports(_asleepConfig)
-                            } else {
-                                sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is null"))
-                                promise.reject("CONFIG_ERROR", "AsleepConfig is null", null)
-                                return
-                            }
-
+                        if (_asleepConfig != null) { 
                             sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not null"))
-
-                            // Return userId in the response instead of just a success message
-                            promise.resolve(mapOf("userId" to (userId ?: "")))
-                            try {
-                                sendEvent("onDebugLog", mapOf("message" to "Initialization successful with userId: $userId"))
-                            } catch (e: Exception) {
-                                sendEvent("onDebugLog", mapOf("message" to "Error sending debug log: ${e.message}"))
-                                println("Error sending debug log: ${e.message}")
-                            }
+                            _reportManager = Asleep.createReports(_asleepConfig)
+                        } else {
+                            sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is null"))
+                            promise.reject("CONFIG_ERROR", "AsleepConfig is null", null)
+                            return
                         }
 
-                        override fun onFail(errorCode: Int, detail: String) {
-                            sendEvent("onDebugLog", mapOf("message" to "Initialization failed: $errorCode - $detail"))
-                            sendEvent("onUserJoinFailed", mapOf("errorCode" to errorCode, "detail" to detail, "sdkCode" to errorCode))
-                            promise.reject("INITIALIZATION_FAILED", "Initialization failed: $errorCode - $detail", null)
+                        sendEvent("onDebugLog", mapOf("message" to "AsleepConfig is not null"))
+
+                        // Return userId in the response instead of just a success message
+                        promise.resolve(mapOf("userId" to (userId ?: "")))
+                        try {
+                            sendEvent("onDebugLog", mapOf("message" to "Initialization successful with userId: $userId"))
+                        } catch (e: Exception) {
+                            sendEvent("onDebugLog", mapOf("message" to "Error sending debug log: ${e.message}"))
+                            println("Error sending debug log: ${e.message}")
                         }
                     }
-                )
-                
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        sendEvent("onDebugLog", mapOf("message" to "Initialization failed: $errorCode - $detail"))
+                        sendEvent("onUserJoinFailed", mapOf("errorCode" to errorCode, "detail" to detail, "sdkCode" to errorCode))
+                        promise.reject("INITIALIZATION_FAILED", "Initialization failed: $errorCode - $detail", null)
+                    }
+                }
+
+                if (useToken) {
+                    Asleep.initAsleepConfig(
+                        context = context,
+                        appId = appId,
+                        appSecret = appSecret,
+                        userId = userId,
+                        baseUrl = baseUrl,
+                        callbackUrl = callbackUrl,
+                        service = "SleepTracking",
+                        asleepConfigListener = configListener
+                    )
+                } else {
+                    Asleep.initAsleepConfig(
+                        context = context,
+                        apiKey = apiKey,
+                        userId = userId,
+                        baseUrl = baseUrl,
+                        callbackUrl = callbackUrl,
+                        service = "SleepTracking",
+                        asleepConfigListener = configListener
+                    )
+                }
             } catch (e: Exception) {
                 sendEvent("onDebugLog", mapOf("message" to "Initialization failed: ${e.message}"))
                 promise.reject("UNEXPECTED_ERROR", "Initialization failed: ${e.message}", e)

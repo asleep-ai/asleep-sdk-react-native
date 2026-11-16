@@ -284,6 +284,18 @@ import {
 } from "react-native-asleep";
 ```
 
+### Credentials
+
+`setup()` and `initAsleepConfig()` accept exactly one credential form, typed as `AsleepCredentials`:
+
+```ts
+await asleep.initAsleepConfig({ apiKey: "YOUR_API_KEY", userId });
+// or token authentication
+await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRET", userId });
+```
+
+Mixing `apiKey` with `appId`/`appSecret` is a type error. At runtime, passing neither form, both forms, an incomplete pair, or an empty string rejects with `AsleepError` code `INVALID_ARGUMENT` before any native call. Keep the secret out of source control like the API key.
+
 ### `useAsleep()`
 
 The primary React API. It attaches the ref-counted native listeners while mounted and returns state plus actions from the shared SDK store.

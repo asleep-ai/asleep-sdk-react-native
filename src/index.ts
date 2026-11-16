@@ -43,6 +43,7 @@ export type {
   AsleepAnalysisResult,
   AsleepAverageReport,
   AsleepConfig,
+  AsleepCredentials,
   AsleepErrorCategory,
   AsleepEventType,
   AsleepNeverSleptSession,
