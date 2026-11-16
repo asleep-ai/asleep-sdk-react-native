@@ -231,6 +231,34 @@ describe("tracking failure classification", () => {
     expect(useAsleepStore.getState().error?.category).toBe("terminal");
   });
 
+  it("classifies iOS interruption-recovery exhaustion as recording-dead with the session still open", () => {
+    mockEmitter.__emit("onTrackingFailed", {
+      code: "INTERRUPTION_RECOVERY_FAILED",
+      message: "recovery failed",
+      sdkCode: 11007,
+    });
+    const state = useAsleepStore.getState();
+    expect(state.error?.category).toBe("recordingDead");
+    expect(state.trackingStatus).toBe("idle");
+    expect(state.didClose).toBe(false);
+  });
+
+  it.each([22400, 11403, 11404, 11008])("classifies start failure %i as terminal and leaves tracking", (sdkCode) => {
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    mockEmitter.__emit("onTrackingFailed", { code: "UNKNOWN_ERROR", message: "start failed", sdkCode });
+    unsubscribe();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAsleepStore.getState()).toMatchObject({ trackingStatus: "idle", trackingStartTime: null });
+    expect(useAsleepStore.getState().error).toMatchObject({ category: "terminal", sdkCode });
+  });
+
+  it("keeps the live session for iOS alreadyTracking (11010)", () => {
+    mockEmitter.__emit("onTrackingFailed", { code: "UNKNOWN_ERROR", message: "already tracking", sdkCode: 11010 });
+    expect(useAsleepStore.getState().error?.category).toBe("unknown");
+    expect(useAsleepStore.getState().trackingStatus).toBe("tracking");
+  });
+
   it("classifies survivable upload failures as transient without changing liveness", () => {
     mockEmitter.__emit("onTrackingFailed", {
       code: "TRACKING_FAILED",

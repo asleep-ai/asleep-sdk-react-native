@@ -298,13 +298,14 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
             errorInfo["message"] = "Audio recording could not be initialized and the recording engine has been torn down. resumeTracking() will not help; the session must be stopped and restarted."
         case .cannotActivateInBackground:
             errorInfo["code"] = "CANNOT_ACTIVATE_IN_BACKGROUND"
-            errorInfo["message"] = "Recording could not resume in background. resumeTracking() must be called in foreground."
+            errorInfo["message"] = "Recording could not resume in background. The SDK retries when the app becomes active; call resumeTracking() in foreground if uploads do not resume."
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)
         }
         // (error as NSError).code is the Swift enum declaration ordinal, not the
         // documented Asleep error code; kept for backward compatibility only.
+        // It shifts when the SDK adds enum cases (3.3.x moved 38/39 to 59/60).
         errorInfo["errorCode"] = (error as NSError).code
         // Documented numeric code (10000-34999) via the SDK's errorCode computed
         // property — the v3.2.0+ recommended API (Asleep.Interface.swift). This is

@@ -68,11 +68,11 @@ class AsleepModule : Module() {
     companion object {
         public const val MICROPHONE_PERMISSION_REQUEST_CODE = 1001
 
-        // Error codes for which Android SDK 3.2.x AsleepCore.onErrorCodeReceived tears
+        // Error codes for which Android SDK 3.2.x-3.3.1 AsleepCore.onErrorCodeReceived tears
         // the session down and fires BOTH onFail and onFinish (dual dispatch). Only
         // these may suppress the follow-up onFinish; for any other code the native
         // session is still alive and a later onFinish is a genuine close.
-        // Must stay in sync with TERMINAL_TRACKING_SDK_CODES in src/AsleepStore.ts.
+        // Must stay in sync with the first 13 TERMINAL_TRACKING_SDK_CODES in src/AsleepStore.ts.
         private val TERMINAL_TRACKING_ERROR_CODES = setOf(
             11003, // ERR_AUDIO
             22000, 22401, 22409, 22422, 22500, // ERR_CREATE_*

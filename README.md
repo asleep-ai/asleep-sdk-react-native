@@ -25,12 +25,17 @@ Sleep tracking for React Native and Expo apps, powered by Asleep's AI technology
 
 The example app is currently verified with React Native 0.79.2, Expo 53, React 19.0.0, and Android compile/target SDK 34.
 
-Bundled native SDK versions:
+Bundled native SDK versions. The React Native package follows its own semver; its version number does not mirror the native SDKs.
 
-| Platform | Native SDK version |
-|---|---|
-| iOS | 3.2.0 |
-| Android | 3.2.1 |
+| react-native-asleep | iOS SDK | Android SDK |
+|---|---|---|
+| 2.0.0 | 3.3.2 | 3.3.1 |
+| 1.0.17 – 1.2.0 | 3.2.0 | 3.2.1 |
+| 1.0.15 | 3.2.0 | 3.2.0 |
+| 1.0.14 | 3.1.8 | 3.1.5 |
+| 1.0.13 | 3.1.6 | 3.1.4 |
+
+1.2.0 already contained the breaking v2 API; 2.0.0 is the semver-correct release of that API.
 
 ## Installation
 

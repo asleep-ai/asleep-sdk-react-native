@@ -243,7 +243,9 @@ export type AsleepEventType = {
     message?: string;
     /**
      * @deprecated On iOS this is the Swift enum declaration ordinal from
-     * NSError bridging, not the documented Asleep error code. Use `sdkCode`.
+     * NSError bridging, not the documented Asleep error code, and it shifts
+     * when the native enum gains cases (iOS SDK 3.3.x moved 38/39 to 59/60).
+     * Use `sdkCode`, `caseName`, or `category`.
      */
     errorCode?: number;
     /** Numeric code documented by the native Asleep SDKs (both platforms). */
