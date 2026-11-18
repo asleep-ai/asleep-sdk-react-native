@@ -54,6 +54,8 @@ const App = () => {
     saveUserMetadata,
     fetchUserMetadata,
     reanalyze,
+    setup,
+    addEventListener,
   } = useAsleep();
   const [lastClosedSessionId, setLastClosedSessionId] = useState<string | null>(null);
 
@@ -196,6 +198,26 @@ const App = () => {
       addLog(`[example] metadata fetched: ${JSON.stringify(metadata)}`);
     } catch (error: any) {
       addLog(`[example] metadata fetch failed ${error?.code} ${error?.sdkCode} ${error?.message}`);
+    }
+  };
+
+  // Exercises setup() without productInfo (no device registration).
+  const _setupWithoutProduct = async () => {
+    const removeComplete = addEventListener("onSetupDidComplete", () => {
+      addLog("[example] setup complete event");
+    });
+    const removeFail = addEventListener("onSetupDidFail", (event) => {
+      addLog(`[example] setup failed event ${JSON.stringify(event)}`);
+    });
+    setTimeout(() => {
+      removeComplete();
+      removeFail();
+    }, 60 * 1000);
+    try {
+      await setup({ apiKey: process.env.EXPO_PUBLIC_API_KEY || "" });
+      addLog("[example] setup resolved");
+    } catch (error: any) {
+      addLog(`[example] setup rejected ${error?.code} ${error?.sdkCode} ${error?.message}`);
     }
   };
 
@@ -685,6 +707,7 @@ const App = () => {
           <Button title="Save Metadata" onPress={_saveMetadata} />
           <Button title="Fetch Metadata" onPress={_fetchMetadata} />
           <Button title="Reanalyze Last" onPress={_reanalyzeLast} />
+          <Button title="Setup (no product)" onPress={_setupWithoutProduct} />
         </View>
 
         <View style={styles.buttonContainer}>
