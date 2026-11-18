@@ -722,3 +722,96 @@ describe("stopTracking analysis range", () => {
     expect(mockModule.stopTracking).toHaveBeenCalledWith(1999, 2000);
   });
 });
+
+describe("reanalyze", () => {
+  const start = new Date("2026-11-18T00:00:00.000Z");
+  const end = new Date("2026-11-18T06:30:00.000Z");
+
+  it("passes explicit nulls when no range is supplied", async () => {
+    resetState({ setupStatus: "complete" });
+    await expect(asleepActions.reanalyze("session-1")).resolves.toBeUndefined();
+    expect(mockModule.reanalyze).toHaveBeenCalledWith("session-1", null, null);
+  });
+
+  it("forwards the range as epoch milliseconds", async () => {
+    resetState({ setupStatus: "complete" });
+    await asleepActions.reanalyze("session-1", { analysisRange: { start, end } });
+    expect(mockModule.reanalyze).toHaveBeenCalledWith("session-1", start.getTime(), end.getTime());
+  });
+
+  it("success does not notify subscribers or touch tracking state", async () => {
+    resetState({ setupStatus: "complete", sessionId: "current", didClose: true });
+    const before = useAsleepStore.getState();
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await asleepActions.reanalyze("session-1");
+    unsubscribe();
+    expect(listener).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState()).toBe(before);
+  });
+
+  it.each<[string, unknown, unknown]>([
+    ["an empty sessionId", "", undefined],
+    ["a blank sessionId", "   ", undefined],
+    ["a non-string sessionId", 42, undefined],
+    ["start equal to end", "session-1", { analysisRange: { start, end: new Date(start.getTime()) } }],
+    ["start after end", "session-1", { analysisRange: { start: end, end: start } }],
+    ["bounds within one second", "session-1", { analysisRange: { start, end: new Date(start.getTime() + 500) } }],
+    ["an invalid Date", "session-1", { analysisRange: { start, end: new Date("nope") } }],
+  ])("rejects %s with INVALID_ARGUMENT before native", async (_name, sessionId, options) => {
+    resetState({ setupStatus: "complete" });
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await expect(asleepActions.reanalyze(sessionId as any, options as any)).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    unsubscribe();
+    expect(mockModule.reanalyze).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects MISSING_PREREQUISITE before initAsleepConfig", async () => {
+    await expect(asleepActions.reanalyze("session-1")).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+    expect(mockModule.reanalyze).not.toHaveBeenCalled();
+  });
+
+  it.each([30000, 30400, 30401, 30403, 30404, 30409, 30410, 30422, 30500])(
+    "preserves native sdkCode %i",
+    async (sdkCode) => {
+      resetState({ setupStatus: "complete" });
+      mockModule.reanalyze.mockRejectedValueOnce(
+        Object.assign(new Error("reanalyze failed"), { code: `REANALYZE_FAILED:${sdkCode}` }),
+      );
+      const listener = jest.fn();
+      const unsubscribe = useAsleepStore.subscribe(listener);
+      await expect(asleepActions.reanalyze("session-1")).rejects.toMatchObject({ code: "REANALYZE_FAILED", sdkCode });
+      unsubscribe();
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(useAsleepStore.getState().error).toMatchObject({ code: "REANALYZE_FAILED", sdkCode });
+    },
+  );
+
+  it("passes a native MISSING_PREREQUISITE rejection through", async () => {
+    resetState({ setupStatus: "complete" });
+    mockModule.reanalyze.mockRejectedValueOnce(
+      Object.assign(new Error("no reports"), { code: "MISSING_PREREQUISITE" }),
+    );
+    await expect(asleepActions.reanalyze("session-1")).rejects.toMatchObject({
+      code: "MISSING_PREREQUISITE",
+      sdkCode: undefined,
+    });
+  });
+
+  it("keeps a tracking failure emitted during the await", async () => {
+    resetState({ setupStatus: "complete", trackingStatus: "tracking" });
+    let resolveNative!: () => void;
+    mockModule.reanalyze.mockReturnValueOnce(new Promise<void>((resolve) => (resolveNative = resolve)));
+    const promise = asleepActions.reanalyze("session-1");
+    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", message: "concurrent", sdkCode: 23000 });
+    const concurrent = useAsleepStore.getState().error;
+    resolveNative();
+    await promise;
+    expect(useAsleepStore.getState().error).toBe(concurrent);
+  });
+});

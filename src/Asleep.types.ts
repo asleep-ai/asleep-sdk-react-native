@@ -174,6 +174,14 @@ export type StopTrackingOptions = {
   analysisRange?: AsleepAnalysisRange;
 };
 
+export type ReanalyzeOptions = {
+  /**
+   * Re-run analysis only for this window. Omitting it re-analyzes the full
+   * session and replaces any range set earlier, including one set at stop.
+   */
+  analysisRange?: AsleepAnalysisRange;
+};
+
 export type AsleepGender = "male" | "female" | "non_binary" | "other" | "prefer_not_to_say";
 
 /**

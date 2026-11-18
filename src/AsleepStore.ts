@@ -13,6 +13,7 @@ import type {
   AsleepSession,
   AsleepSetupConfig,
   AsleepUserMetadata,
+  ReanalyzeOptions,
   SetupStatus,
   StopTrackingOptions,
   TrackingConfig,
@@ -77,6 +78,7 @@ export interface AsleepActions {
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
   getAverageReport: (fromDate: string, toDate: string) => Promise<AsleepAverageReport>;
   deleteSession: (sessionId: string) => Promise<void>;
+  reanalyze: (sessionId: string, options?: ReanalyzeOptions) => Promise<void>;
   saveUserMetadata: (metadata: AsleepUserMetadata) => Promise<void>;
   fetchUserMetadata: () => Promise<AsleepUserMetadata | null>;
   requestAnalysis: () => Promise<AsleepAnalysisResult | AsleepAnalysisAck>;
@@ -652,6 +654,23 @@ export const asleepActions: AsleepActions = {
       clearErrorIfUnchanged(errorBefore);
     } catch (error) {
       return guardedFailure(error, "DELETE_SESSION_FAILED", errorBefore);
+    }
+  },
+
+  reanalyze: async (sessionId, options) => {
+    if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+      storeAndThrow(new AsleepError("INVALID_ARGUMENT", "sessionId must be a non-empty string."));
+    }
+    const range = resolveAnalysisRange(options?.analysisRange);
+    requireUserConfig("reanalyze");
+    const errorBefore = useAsleepStore.getState().error;
+    try {
+      // Resolves once the server accepts the request, not when analysis finishes.
+      // Nulls are explicit: iOS treats arguments before a Promise as required.
+      await AsleepModule.reanalyze(sessionId, range?.[0] ?? null, range?.[1] ?? null);
+      clearErrorIfUnchanged(errorBefore);
+    } catch (error) {
+      return guardedFailure(error, "REANALYZE_FAILED", errorBefore);
     }
   },
 

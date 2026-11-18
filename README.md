@@ -322,7 +322,7 @@ Important actions:
 | Configuration and restore | `setup`, `initAsleepConfig`, `checkAndRestoreTracking` |
 | Prerequisites | `checkBatteryOptimization`, `requestBatteryOptimizationExemption`, `hasRequiredPermissions`, `requestRequiredPermissions` |
 | Tracking | `startTracking`, `stopTracking`, `resumeTracking` |
-| Reports | `getReport`, `getReportList`, `getAverageReport`, `deleteSession` |
+| Reports | `getReport`, `getReportList`, `getAverageReport`, `deleteSession`, `reanalyze` |
 | Analysis | `requestAnalysis` |
 | User metadata | `saveUserMetadata`, `fetchUserMetadata` |
 | Utilities | `addEventListener`, `enableLog`, `clearError` |
@@ -338,6 +338,20 @@ await asleep.stopTracking({
 ```
 
 `start` must be at least one whole second before `end`, and both must be valid `Date` objects; otherwise the call rejects with `INVALID_ARGUMENT` before any native call. Without options, `stopTracking()` behaves exactly as before. The server may silently ignore a range it does not accept and analyze the full session; the session still closes normally and the app receives no signal that the range was dropped, so verify the result with `getReport()` when the window matters.
+
+### Reanalysis
+
+`reanalyze(sessionId, options?)` asks the server to analyze a closed session again, optionally restricted to `options.analysisRange`:
+
+```ts
+await asleep.reanalyze(sessionId, { analysisRange: { start, end } });
+// Resolves when the server accepted the request, not when analysis finished.
+// Poll getReport(sessionId) until report.session.state is "COMPLETE".
+```
+
+> **Reanalyzing without a range replaces any earlier range on the server**, including one passed to `stopTracking({ analysisRange })`. Pass the range again to keep it.
+
+An empty `sessionId` or an invalid range rejects with `INVALID_ARGUMENT` before any native call, and calling before configuration rejects with `MISSING_PREREQUISITE`. Server failures reject with code `REANALYZE_FAILED` and keep the SDK code in `error.sdkCode`: 30000 (generic/network), 30400, 30401, 30403, 30404, 30409 (reanalysis already in progress: back off, do not retry unboundedly), 30410 (data retention expired), 30422 (the session is still tracking), 30500.
 
 ### User metadata
 

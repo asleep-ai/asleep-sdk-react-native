@@ -501,6 +501,38 @@ class AsleepModule : Module() {
             }
         }
 
+        // Resolves when the server accepts the request. Range bounds are epoch
+        // milliseconds and are always passed explicitly (null when absent).
+        AsyncFunction("reanalyze") { sessionId: String, analysisStartMs: Double?, analysisEndMs: Double?, promise: Promise ->
+            val reportManager = _reportManager
+            if (reportManager == null) {
+                promise.reject("MISSING_PREREQUISITE", "Report manager is not initialized", null)
+                return@AsyncFunction
+            }
+            val listener = object : Reports.ReanalyzeListener {
+                override fun onSuccess(sessionId: String) {
+                    sendEvent("onDebugLog", mapOf("message" to "reanalyze accepted: $sessionId"))
+                    promise.resolve(null)
+                }
+
+                override fun onFail(errorCode: Int, detail: String) {
+                    sendEvent("onDebugLog", mapOf("message" to "reanalyze failed: $errorCode - $detail"))
+                    // 11009 ERR_INVALID_PARAMETER: start >= end (JS validates this first).
+                    val code = if (errorCode == 11009) "INVALID_ARGUMENT" else "REANALYZE_FAILED"
+                    rejectWithSdkCode(promise, code, errorCode, detail)
+                }
+            }
+            try {
+                if (analysisStartMs != null && analysisEndMs != null) {
+                    reportManager.reanalyze(sessionId, Date(analysisStartMs.toLong()), Date(analysisEndMs.toLong()), listener)
+                } else {
+                    reportManager.reanalyze(sessionId, listener)
+                }
+            } catch (e: Exception) {
+                rejectWithSdkCode(promise, "REANALYZE_FAILED", 30000, e.message ?: "Failed to request reanalysis")
+            }
+        }
+
         AsyncFunction("saveUserMetadata") { metadata: UserMetadataRecord, promise: Promise ->
             val config = _asleepConfig
             if (config == null) {

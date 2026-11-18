@@ -356,12 +356,32 @@ wrapper는 bridge 호출 전에 native와 같은 범위를 검증하고 `INVALID
 | `getReportList(fromDate, toDate)` | `AsleepSession[]` |
 | `getAverageReport(fromDate, toDate)` | `AsleepAverageReport` |
 | `deleteSession(sessionId)` | session 삭제 완료 |
+| `reanalyze(sessionId, options?)` | 서버가 재분석 요청을 수락하면 resolve. 결과는 `getReport()`로 polling |
 
 모든 조회 실패는 `AsleepError`로 throw됩니다. 네이티브 코드가 리포트 payload 없이 resolve하면 wrapper가 `REPORT_NOT_FOUND`를 생성하지만, 플랫폼 SDK의 실패는 Android의 `REPORT_ERROR`처럼 다른 `AsleepError.code`로 도착할 수 있습니다. 모든 리포트 오류를 일괄 재시도하지 마세요. 앱이 실제로 확인한 미생성 리포트 조건만 제한적으로 재시도하고, 네트워크·인증을 비롯한 다른 실패는 그대로 노출해야 합니다.
 
 `getReportList()`는 현재 native SDK에서 최대 100개를 반환하며 별도 pagination API는 없습니다. 날짜는 `YYYY-MM-DD` 형식으로 전달하세요.
 
 재시도 횟수, 간격, backoff, 취소와 사용자 안내는 앱 정책입니다.
+
+### 재분석
+
+`reanalyze(sessionId)`는 종료된 session의 서버 분석을 다시 실행하고, `reanalyze(sessionId, { analysisRange: { start, end } })`는 그 구간으로 제한합니다. Promise는 분석이 끝났을 때가 아니라 서버가 요청을 수락했을 때 resolve됩니다. `report.session.state`가 `"COMPLETE"`가 될 때까지 `getReport(sessionId)`를 polling하세요. 간격, timeout, 사용자 안내는 앱 정책입니다.
+
+**구간 없이 재분석하면 서버에 저장된 이전 구간이 대체됩니다.** `stopTracking({ analysisRange })`로 지정한 구간도 마찬가지로, session 전체가 다시 분석되어 잘라 낸 결과를 덮어씁니다. 구간을 유지하려면 다시 전달하세요.
+
+`error.sdkCode`로 분기하세요(code는 `REANALYZE_FAILED`).
+
+| `sdkCode` | 의미 | 권장 처리 |
+|---|---|---|
+| 30409 | 재분석이 이미 진행 중 | 대신 `getReport()`를 polling. 재시도한다면 backoff와 횟수 상한을 두고, 무한 반복하지 마세요 |
+| 30422 | session이 아직 측정 중 | 먼저 측정을 종료 |
+| 30404 / 30410 | session 없음 / 데이터 보존 기간 만료 | 재시도하지 않음 |
+| 30400 | 서버가 구간을 거부 | 입력 수정 |
+| 30401 / 30403 | 인증 실패 / 이 고객에게 허용되지 않음 | 재시도하지 않음. 인증 정보와 계약 확인 |
+| 30000 / 30500 | 네트워크 또는 서버 실패 | 상한이 있는 정책으로 재시도 |
+
+입력 검사(빈 `sessionId`, 잘못된 구간)는 native 호출 전에 `INVALID_ARGUMENT`로, `initAsleepConfig()` 전 호출은 `MISSING_PREREQUISITE`로 reject됩니다.
 
 ## 8. 프로덕션 체크리스트
 

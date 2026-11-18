@@ -383,8 +383,28 @@ Report APIs:
 | `getReportList(fromDate, toDate)` | `AsleepSession[]`; an empty array is a valid result |
 | `getAverageReport(fromDate, toDate)` | `AsleepAverageReport`; may throw `REPORT_NOT_FOUND` when native resolves no payload |
 | `deleteSession(sessionId)` | Deletes a session or throws |
+| `reanalyze(sessionId, options?)` | Resolves when the server accepted a reanalysis request; poll `getReport()` for the result |
 
 `getReportList()` currently returns at most 100 sessions and has no public pagination API. Pass dates as `YYYY-MM-DD`.
+
+### Reanalysis
+
+`reanalyze(sessionId)` re-runs server analysis for a closed session; `reanalyze(sessionId, { analysisRange: { start, end } })` restricts it to a window. The promise resolves when the server accepts the request, not when analysis is done. Poll `getReport(sessionId)` until `report.session.state` is `"COMPLETE"`; interval, timeout, and user messaging are app policy.
+
+**Reanalyzing without a range replaces any earlier range on the server**, including one set through `stopTracking({ analysisRange })`: the whole session is analyzed and that result overwrites the trimmed one. To keep a window, pass it again.
+
+Branch on `error.sdkCode` (code `REANALYZE_FAILED`):
+
+| `sdkCode` | Meaning | Suggested handling |
+|---|---|---|
+| 30409 | A reanalysis is already in progress | Poll `getReport()` instead; if retrying, cap attempts with backoff, never loop unboundedly |
+| 30422 | The session is still being tracked | Stop tracking first |
+| 30404 / 30410 | Session not found / data retention expired | Do not retry |
+| 30400 | Server rejected the range | Fix the input |
+| 30401 / 30403 | Unauthorized / not allowed for this customer | Do not retry; check credentials and contract |
+| 30000 / 30500 | Network or server failure | Retry with a bounded policy |
+
+Input checks (empty `sessionId`, invalid range) reject with `INVALID_ARGUMENT` before any native call, and calls before `initAsleepConfig()` reject with `MISSING_PREREQUISITE`.
 
 ## 9. Consume analysis consistently
 

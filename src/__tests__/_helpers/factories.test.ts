@@ -32,6 +32,7 @@ export type MockAsleepModule = {
   getReportList: jest.Mock;
   getAverageReport: jest.Mock;
   deleteSession: jest.Mock;
+  reanalyze: jest.Mock;
   saveUserMetadata: jest.Mock;
   fetchUserMetadata: jest.Mock;
   hasRequiredPermissions: jest.Mock;
@@ -63,6 +64,7 @@ export const createMockAsleepModule = (): MockAsleepModule => ({
   getReportList: jest.fn().mockResolvedValue([]),
   getAverageReport: jest.fn().mockResolvedValue(null),
   deleteSession: jest.fn().mockResolvedValue(undefined),
+  reanalyze: jest.fn().mockResolvedValue(undefined),
   saveUserMetadata: jest.fn().mockResolvedValue(undefined),
   fetchUserMetadata: jest.fn().mockResolvedValue(null),
   hasRequiredPermissions: jest.fn().mockResolvedValue(true),

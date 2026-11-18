@@ -320,7 +320,7 @@ React 컴포넌트에서 상태와 action을 사용하고 네이티브 listener 
 - 초기화: `checkAndRestoreTracking`, `initAsleepConfig`, `setup`
 - 측정: `startTracking`, `stopTracking`, `resumeTracking`
 - 권한과 배터리: `hasRequiredPermissions`, `requestRequiredPermissions`, `checkBatteryOptimization`, `requestBatteryOptimizationExemption`
-- 데이터: `requestAnalysis`, `getReport`, `getReportList`, `getAverageReport`, `deleteSession`
+- 데이터: `requestAnalysis`, `getReport`, `getReportList`, `getAverageReport`, `deleteSession`, `reanalyze`
 - 사용자 메타데이터: `saveUserMetadata`, `fetchUserMetadata`
 
 ### 종료 시 분석 구간
@@ -334,6 +334,20 @@ await asleep.stopTracking({
 ```
 
 `start`는 `end`보다 최소 1초(초 단위 기준) 앞서야 하고 둘 다 유효한 `Date`여야 합니다. 그렇지 않으면 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다. 옵션 없이 호출한 `stopTracking()`의 동작은 기존과 같습니다. 서버가 받아들이지 않는 구간은 별도 통지 없이 무시되고 session 전체가 분석될 수 있습니다. session은 정상 종료되며 앱은 구간이 버려졌다는 신호를 받지 못하므로, 구간이 중요하다면 `getReport()`로 결과를 확인하세요.
+
+### 재분석
+
+`reanalyze(sessionId, options?)`는 종료된 session을 서버가 다시 분석하도록 요청하며, `options.analysisRange`로 구간을 제한할 수 있습니다.
+
+```ts
+await asleep.reanalyze(sessionId, { analysisRange: { start, end } });
+// 분석 완료가 아니라 서버가 요청을 수락했을 때 resolve됩니다.
+// report.session.state가 "COMPLETE"가 될 때까지 getReport(sessionId)를 polling하세요.
+```
+
+> **구간 없이 재분석하면 서버에 저장된 이전 구간이 대체됩니다.** `stopTracking({ analysisRange })`로 지정한 구간도 마찬가지입니다. 구간을 유지하려면 다시 전달하세요.
+
+빈 `sessionId`나 잘못된 구간은 native 호출 전에 `INVALID_ARGUMENT`로, 설정 전 호출은 `MISSING_PREREQUISITE`로 reject됩니다. 서버 실패는 code `REANALYZE_FAILED`로 reject되며 `error.sdkCode`에 SDK 코드를 유지합니다: 30000(일반/네트워크), 30400, 30401, 30403, 30404, 30409(재분석이 이미 진행 중: 간격을 두고, 무한 재시도하지 마세요), 30410(데이터 보존 기간 만료), 30422(session이 아직 측정 중), 30500.
 
 ### 사용자 메타데이터
 

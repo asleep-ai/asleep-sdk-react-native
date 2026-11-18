@@ -56,6 +56,7 @@ export type {
   AsleepStat,
   AsleepUserMetadata,
   AudioSessionOption,
+  ReanalyzeOptions,
   SetupStatus,
   StopTrackingOptions,
   TrackingConfig,

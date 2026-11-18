@@ -189,6 +189,34 @@ public class AsleepModule: Module {
             }
         }
 
+        // Resolves when the server accepts the request; the completion block is
+        // not called on the main queue (Reports.Interface.swift). Range bounds are
+        // epoch milliseconds and are always passed explicitly (null when absent).
+        AsyncFunction("reanalyze") { (sessionId: String, analysisStartMs: Double?, analysisEndMs: Double?, promise: Promise) in
+            guard let reportManager = self.reportManager else {
+                promise.reject("MISSING_PREREQUISITE", "Reports not initialized")
+                return
+            }
+            let completion: (String?, Asleep.AsleepError?) -> Void = { _, error in
+                if let error = error {
+                    let sdkCode = error.errorCode.code
+                    // 11009 invalidParameter: start >= end (JS validates this first).
+                    let code = sdkCode == 11009 ? "INVALID_ARGUMENT" : "REANALYZE_FAILED"
+                    promise.reject(sdkRejection(code, sdkCode: sdkCode, message: error.localizedDescription))
+                } else {
+                    promise.resolve(nil)
+                }
+            }
+            if let analysisStartMs = analysisStartMs, let analysisEndMs = analysisEndMs {
+                reportManager.reanalyze(sessionId: sessionId,
+                                        analysisStartTime: Date(timeIntervalSince1970: analysisStartMs / 1000),
+                                        analysisEndTime: Date(timeIntervalSince1970: analysisEndMs / 1000),
+                                        completionBlock: completion)
+            } else {
+                reportManager.reanalyze(sessionId: sessionId, completionBlock: completion)
+            }
+        }
+
         AsyncFunction("saveUserMetadata") { (metadata: UserMetadataRecord) -> Void in
             guard let config = self.config else {
                 throw Exception(name: "MISSING_PREREQUISITE", description: "AsleepConfig is not initialized", code: "MISSING_PREREQUISITE")
