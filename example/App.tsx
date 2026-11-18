@@ -161,8 +161,10 @@ const App = () => {
   };
 
   const _stopTrackingWithRange = async () => {
+    // Keep the range inside the measured window: the app's own start time can be a
+    // few seconds earlier than the native session start.
     const end = new Date(Date.now() - 5 * 1000);
-    const start = new Date(trackingStartTime ?? Date.now() - 60 * 1000);
+    const start = new Date((trackingStartTime ? new Date(trackingStartTime).getTime() : Date.now() - 90 * 1000) + 30 * 1000);
     addLog(`[example] stop range ${start.toISOString()}..${end.toISOString()}`);
     try {
       await stopTrackingWithOptions({ analysisRange: { start, end } });

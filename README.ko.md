@@ -333,7 +333,7 @@ await asleep.stopTracking({
 });
 ```
 
-`start`는 `end`보다 최소 1초(초 단위 기준) 앞서야 하고 둘 다 유효한 `Date`여야 합니다. 그렇지 않으면 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다. 옵션 없이 호출한 `stopTracking()`의 동작은 기존과 같습니다. 서버가 받아들이지 않는 구간은 별도 통지 없이 무시되고 session 전체가 분석될 수 있습니다. session은 정상 종료되며 앱은 구간이 버려졌다는 신호를 받지 못하므로, 구간이 중요하다면 `getReport()`로 결과를 확인하세요.
+`start`는 `end`보다 최소 1초(초 단위 기준) 앞서야 하고 둘 다 유효한 `Date`여야 합니다. 그렇지 않으면 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다. 옵션 없이 호출한 `stopTracking()`의 동작은 기존과 같습니다. 서버가 받아들이지 않는 구간은 별도 통지 없이 무시되고 session 전체가 분석될 수 있습니다. session은 정상 종료되며 앱은 구간이 버려졌다는 신호를 받지 못하므로, 구간이 중요하다면 `getReport()`로 결과를 확인하세요. 구간은 측정된 session 안에 있어야 합니다. native session 시작보다 앞선 `start`는 분석된 데이터가 없는 session(`missing_data_ratio` 1.0, `TOO_MANY_DEFECTS_IN_SLEEP_STAGES`)을 만든다는 것을 실기기에서 확인했으므로, 추적 시작 이후임이 확실한 시각을 `start`로 쓰세요.
 
 ### 재분석
 

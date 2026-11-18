@@ -337,7 +337,7 @@ await asleep.stopTracking({
 });
 ```
 
-`start` must be at least one whole second before `end`, and both must be valid `Date` objects; otherwise the call rejects with `INVALID_ARGUMENT` before any native call. Without options, `stopTracking()` behaves exactly as before. The server may silently ignore a range it does not accept and analyze the full session; the session still closes normally and the app receives no signal that the range was dropped, so verify the result with `getReport()` when the window matters.
+`start` must be at least one whole second before `end`, and both must be valid `Date` objects; otherwise the call rejects with `INVALID_ARGUMENT` before any native call. Without options, `stopTracking()` behaves exactly as before. The server may silently ignore a range it does not accept and analyze the full session; the session still closes normally and the app receives no signal that the range was dropped, so verify the result with `getReport()` when the window matters. Keep the range inside the measured session: a range that starts before the native session start was verified on devices to produce a session with no analyzed data (`missing_data_ratio` 1.0, `TOO_MANY_DEFECTS_IN_SLEEP_STAGES`), so derive `start` from a time you know is after tracking began rather than from an earlier app-side timestamp.
 
 ### Reanalysis
 
