@@ -13,7 +13,7 @@ import {
   Platform,
 } from "react-native";
 import { useTracking } from "./useTracking";
-import { useAsleep, type AsleepSleptSession, type AsleepNeverSleptSession } from "react-native-asleep";
+import { useAsleep, type AsleepSleptSession, type AsleepNeverSleptSession } from "../src";
 
 const SHOW_DEBUG_LOG = true;
 
@@ -184,7 +184,7 @@ const App = () => {
       });
       addLog("[example] metadata saved");
     } catch (error: any) {
-      addLog(`[example] metadata save failed ${error?.code} ${error?.sdkCode}`);
+      addLog(`[example] metadata save failed ${error?.code} ${error?.sdkCode} ${error?.message}`);
     }
   };
 
@@ -193,7 +193,7 @@ const App = () => {
       const metadata = await fetchUserMetadata();
       addLog(`[example] metadata fetched: ${JSON.stringify(metadata)}`);
     } catch (error: any) {
-      addLog(`[example] metadata fetch failed ${error?.code} ${error?.sdkCode}`);
+      addLog(`[example] metadata fetch failed ${error?.code} ${error?.sdkCode} ${error?.message}`);
     }
   };
 
@@ -206,7 +206,7 @@ const App = () => {
       await reanalyze(lastClosedSessionId);
       addLog(`[example] reanalyze accepted ${lastClosedSessionId}`);
     } catch (error: any) {
-      addLog(`[example] reanalyze failed ${error?.code} ${error?.sdkCode}`);
+      addLog(`[example] reanalyze failed ${error?.code} ${error?.sdkCode} ${error?.message}`);
     }
   };
 
