@@ -1,8 +1,8 @@
 PODS:
   - Asleep (1.0.0):
-    - AsleepSDK (= 3.2.0)
+    - AsleepSDK (= 3.3.2)
     - ExpoModulesCore
-  - AsleepSDK (3.2.0)
+  - AsleepSDK (3.3.2)
   - boost (1.84.0)
   - DoubleConversion (1.1.6)
   - EXConstants (17.1.8):
@@ -1727,12 +1727,12 @@ DEPENDENCIES:
   - Asleep (from `../../ios`)
   - boost (from `../../node_modules/react-native/third-party-podspecs/boost.podspec`)
   - DoubleConversion (from `../../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec`)
-  - EXConstants (from `../node_modules/expo-constants/ios`)
-  - Expo (from `../node_modules/expo`)
-  - ExpoAsset (from `../node_modules/expo-asset/ios`)
-  - ExpoFileSystem (from `../node_modules/expo-file-system/ios`)
-  - ExpoFont (from `../node_modules/expo-font/ios`)
-  - ExpoKeepAwake (from `../node_modules/expo-keep-awake/ios`)
+  - EXConstants (from `../../node_modules/expo-constants/ios`)
+  - Expo (from `../../node_modules/expo`)
+  - ExpoAsset (from `../../node_modules/expo-asset/ios`)
+  - ExpoFileSystem (from `../../node_modules/expo-file-system/ios`)
+  - ExpoFont (from `../../node_modules/expo-font/ios`)
+  - ExpoKeepAwake (from `../../node_modules/expo-keep-awake/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - fast_float (from `../../node_modules/react-native/third-party-podspecs/fast_float.podspec`)
   - FBLazyVector (from `../../node_modules/react-native/Libraries/FBLazyVector`)
@@ -1818,17 +1818,17 @@ EXTERNAL SOURCES:
   DoubleConversion:
     :podspec: "../../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec"
   EXConstants:
-    :path: "../node_modules/expo-constants/ios"
+    :path: "../../node_modules/expo-constants/ios"
   Expo:
-    :path: "../node_modules/expo"
+    :path: "../../node_modules/expo"
   ExpoAsset:
-    :path: "../node_modules/expo-asset/ios"
+    :path: "../../node_modules/expo-asset/ios"
   ExpoFileSystem:
-    :path: "../node_modules/expo-file-system/ios"
+    :path: "../../node_modules/expo-file-system/ios"
   ExpoFont:
-    :path: "../node_modules/expo-font/ios"
+    :path: "../../node_modules/expo-font/ios"
   ExpoKeepAwake:
-    :path: "../node_modules/expo-keep-awake/ios"
+    :path: "../../node_modules/expo-keep-awake/ios"
   ExpoModulesCore:
     :path: "../node_modules/expo-modules-core"
   fast_float:
@@ -1970,8 +1970,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  Asleep: 6abd52ec5da6b8972b4395dce411fc3207eca326
-  AsleepSDK: 7dd69125875be3e028bd5274aa6edebbb6f1a5fd
+  Asleep: c49ed565cbe59e31718167877595bf6f533f3534
+  AsleepSDK: 9bc74d74451b87ab787348e66cf942ca9f7f3f63
   boost: 7e761d76ca2ce687f7cc98e698152abd03a18f90
   DoubleConversion: cb417026b2400c8f53ae97020b2be961b59470cb
   EXConstants: d3d551cb154718f5161c4247304e96aa59f6cca7
@@ -2051,6 +2051,6 @@ SPEC CHECKSUMS:
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: c758bfb934100bb4bf9cbaccb52557cee35e8bdf
 
-PODFILE CHECKSUM: 859a51d7de0729e08fbc4045fab53c076630d83d
+PODFILE CHECKSUM: 39bf024a09cf3372faf5a6e9ecf73c93f1741aa7
 
 COCOAPODS: 1.17.0

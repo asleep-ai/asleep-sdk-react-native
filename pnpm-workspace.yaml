@@ -23,4 +23,17 @@ overrides:
   "uuid@<14.0.0": "^14.0.0"
   "ws@^8.0.0": "^8.20.1"
   "yaml@<2.8.3": ">=2.8.3"
+  # expo-module-scripts resolves its expo peer to the latest SDK, whose metro 0.83
+  # packages get hoisted to the root and break the example's expo 53 CLI, which
+  # requires metro 0.82 internals through hoisting. Keep the whole tree on the
+  # metro version the example's react-native 0.79 ships with.
+  "metro-babel-transformer": "0.82.5"
+  "metro-cache": "0.82.5"
+  "metro-cache-key": "0.82.5"
+  "metro-file-map": "0.82.5"
+  "metro-minify-terser": "0.82.5"
+  "metro-resolver": "0.82.5"
+  "metro-symbolicate": "0.82.5"
+  "metro-transform-plugins": "0.82.5"
+  "metro-transform-worker": "0.82.5"
 nodeLinker: hoisted

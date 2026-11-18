@@ -27,23 +27,43 @@ public class AsleepModule: Module {
         Events("onSetupInProgress")
         Events("onAnalysisResult")
 
-        Function("setup") { (apiKey: String, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
+        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret.
+        Function("setup") { (apiKey: String?, appId: String?, appSecret: String?, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
             Asleep.setLogger(self)
-            Asleep.setup(apiKey: apiKey,
-                        baseUrl: URL(string: baseUrl ?? ""),
-                        callbackUrl: URL(string: callbackUrl ?? ""),
-                        service: service,
-                        enableODA: enableODA ?? false,
-                        delegate: self)
+            if let appId = appId, let appSecret = appSecret {
+                Asleep.setup(appId: appId,
+                            appSecret: appSecret,
+                            baseUrl: URL(string: baseUrl ?? ""),
+                            callbackUrl: URL(string: callbackUrl ?? ""),
+                            service: service,
+                            enableODA: enableODA ?? false,
+                            delegate: self)
+            } else {
+                Asleep.setup(apiKey: apiKey ?? "",
+                            baseUrl: URL(string: baseUrl ?? ""),
+                            callbackUrl: URL(string: callbackUrl ?? ""),
+                            service: service,
+                            enableODA: enableODA ?? false,
+                            delegate: self)
+            }
         }
 
-        Function("initAsleepConfig") { (apiKey: String, userId: String?, baseUrl: String?, callbackUrl: String?) in
+        Function("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?) in
             Asleep.setLogger(self)
-            Asleep.initAsleepConfig(apiKey: apiKey,
-                                    userId: userId,
-                                    baseUrl: URL(string: baseUrl ?? ""),
-                                    callbackUrl: URL(string: callbackUrl ?? ""),
-                                    delegate: self)
+            if let appId = appId, let appSecret = appSecret {
+                Asleep.initAsleepConfig(appId: appId,
+                                        appSecret: appSecret,
+                                        userId: userId,
+                                        baseUrl: URL(string: baseUrl ?? ""),
+                                        callbackUrl: URL(string: callbackUrl ?? ""),
+                                        delegate: self)
+            } else {
+                Asleep.initAsleepConfig(apiKey: apiKey,
+                                        userId: userId,
+                                        baseUrl: URL(string: baseUrl ?? ""),
+                                        callbackUrl: URL(string: callbackUrl ?? ""),
+                                        delegate: self)
+            }
         }
 
         // Gates SDK log forwarding natively so disabled logs never cross the
@@ -298,13 +318,14 @@ extension AsleepModule: AsleepSleepTrackingManagerDelegate {
             errorInfo["message"] = "Audio recording could not be initialized and the recording engine has been torn down. resumeTracking() will not help; the session must be stopped and restarted."
         case .cannotActivateInBackground:
             errorInfo["code"] = "CANNOT_ACTIVATE_IN_BACKGROUND"
-            errorInfo["message"] = "Recording could not resume in background. resumeTracking() must be called in foreground."
+            errorInfo["message"] = "Recording could not resume in background. The SDK retries when the app becomes active; call resumeTracking() in foreground if uploads do not resume."
         default:
             errorInfo["code"] = "UNKNOWN_ERROR"
             errorInfo["caseName"] = String(describing: error)
         }
         // (error as NSError).code is the Swift enum declaration ordinal, not the
         // documented Asleep error code; kept for backward compatibility only.
+        // It shifts when the SDK adds enum cases (3.3.x moved 38/39 to 59/60).
         errorInfo["errorCode"] = (error as NSError).code
         // Documented numeric code (10000-34999) via the SDK's errorCode computed
         // property — the v3.2.0+ recommended API (Asleep.Interface.swift). This is

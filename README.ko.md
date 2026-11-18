@@ -26,12 +26,17 @@ Asleep의 AI 기술로 기기 마이크의 오디오를 분석하는 React Nativ
 
 현재 예제 앱은 React Native 0.79.2, Expo 53, React 19.0.0, Android compile/target SDK 34를 기준으로 검증합니다.
 
-번들된 네이티브 SDK 버전은 다음과 같습니다.
+번들된 네이티브 SDK 버전은 다음과 같습니다. React Native 패키지는 독립 semver를 사용하며, 버전 번호가 네이티브 SDK 버전을 따르지 않습니다.
 
-| 플랫폼 | 네이티브 SDK |
-|---|---|
-| iOS | 3.2.0 |
-| Android | 3.2.1 |
+| react-native-asleep | iOS SDK | Android SDK |
+|---|---|---|
+| 2.0.0 | 3.3.2 | 3.3.1 |
+| 1.0.17 – 1.2.0 | 3.2.0 | 3.2.1 |
+| 1.0.15 | 3.2.0 | 3.2.0 |
+| 1.0.14 | 3.1.8 | 3.1.5 |
+| 1.0.13 | 3.1.6 | 3.1.4 |
+
+1.2.0에는 이미 호환이 깨지는 v2 API가 들어 있었고, 2.0.0은 같은 API를 semver에 맞게 다시 배포한 버전입니다.
 
 ## 설치
 
@@ -284,6 +289,20 @@ import {
   type TrackingStatus,
 } from "react-native-asleep";
 ```
+
+### 인증 정보
+
+`setup()`과 `initAsleepConfig()`는 `AsleepCredentials` 타입의 인증 방식 중 정확히 하나만 받습니다.
+
+```ts
+const asleep = useAsleep();
+
+await asleep.initAsleepConfig({ apiKey: "YOUR_API_KEY", userId });
+// 또는 토큰 인증
+await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRET", userId });
+```
+
+`apiKey`와 `appId`/`appSecret`을 함께 넣으면 타입 오류입니다. 런타임에서 둘 다 없거나, 둘 다 있거나, 한쪽만 있는 쌍이거나, 빈 문자열이면 native 호출 전에 `INVALID_ARGUMENT` 코드의 `AsleepError`로 reject합니다. secret도 API key처럼 소스에 커밋하지 마세요.
 
 ### `useAsleep()`
 

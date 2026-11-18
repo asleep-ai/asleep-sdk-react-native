@@ -68,3 +68,38 @@ class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
 #endif
   }
 }
+
+// Apps built with the iOS 27 SDK must adopt the UIScene lifecycle or UIKit traps at
+// launch (_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption). React Native
+// still creates its window in AppDelegate, so the scene only adopts that window and
+// forwards URL / user-activity callbacks that UIKit now routes to the scene.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+    guard let windowScene = scene as? UIWindowScene,
+          let appWindow = (UIApplication.shared.delegate as? AppDelegate)?.window else { return }
+    appWindow.windowScene = windowScene
+    window = appWindow
+    appWindow.makeKeyAndVisible()
+
+    // A cold launch from a URL or user activity delivers it here instead of the
+    // callbacks below.
+    if !connectionOptions.urlContexts.isEmpty {
+      self.scene(scene, openURLContexts: connectionOptions.urlContexts)
+    }
+    for userActivity in connectionOptions.userActivities {
+      self.scene(scene, continue: userActivity)
+    }
+  }
+
+  func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    for context in URLContexts {
+      _ = RCTLinkingManager.application(UIApplication.shared, open: context.url, options: [:])
+    }
+  }
+
+  func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+    _ = RCTLinkingManager.application(UIApplication.shared, continue: userActivity) { _ in }
+  }
+}

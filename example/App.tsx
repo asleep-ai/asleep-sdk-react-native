@@ -49,6 +49,10 @@ const App = () => {
 
   const { didClose, deleteSession } = useAsleep();
 
+  // recordingDead leaves the native session open while isTracking is false, so
+  // the session must still be stopped before a new one can start.
+  const shouldStop = isTracking || error?.category === "recordingDead";
+
   // useTracking hook에서 로그 처리
   useEffect(() => {
     if (log) {
@@ -596,12 +600,12 @@ const App = () => {
         <View style={styles.buttonContainer}>
           <Button
             title="Start Tracking"
-            disabled={!isSetupComplete || isTracking}
+            disabled={!isSetupComplete || shouldStop}
             onPress={_startTracking}
           />
           <Button
             title="Stop Tracking"
-            disabled={!isTracking}
+            disabled={!shouldStop}
             onPress={_stopTracking}
           />
         </View>

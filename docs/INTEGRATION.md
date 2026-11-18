@@ -171,6 +171,8 @@ If initialization fails, keep tracking controls disabled and offer an app-owned 
 
 Do not commit the API key to source control. Load it through the secret or configuration mechanism used by the app's build environment.
 
+Token authentication uses the same actions: pass `{ appId, appSecret }` instead of `{ apiKey }` to `setup()` or `initAsleepConfig()`. The two forms are mutually exclusive (`AsleepCredentials`); neither, both, an incomplete pair, or an empty value rejects with `INVALID_ARGUMENT` before the native call. On Android, the restored-service fast path recognizes the same `appId` and `userId` as the running session, so restore works in token mode as it does with an API key. Treat `appSecret` with the same secret handling as the API key.
+
 ### Stable user identity
 
 If the app supplies `userId`, persist the stable identifier in app storage and reuse it on later initialization. The SDK exposes the current native `userId`, but account mapping and guest-to-member policy belong to the app.

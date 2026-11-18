@@ -5,6 +5,7 @@ import type {
   AsleepAnalysisResult,
   AsleepAverageReport,
   AsleepConfig,
+  AsleepCredentials,
   AsleepErrorCategory,
   AsleepEventType,
   AsleepReport,
@@ -21,18 +22,22 @@ import { createStore } from "./store/createStore";
 const emitter = new EventEmitter(AsleepModule);
 
 // Native sessions are already gone for these errors and no close event follows.
-const TERMINAL_TRACKING_ERROR_CODES = new Set<string>(["UPLOAD_TRACKING_TERMINATED", "INTERRUPTION_RECOVERY_FAILED"]);
+const TERMINAL_TRACKING_ERROR_CODES = new Set<string>(["UPLOAD_TRACKING_TERMINATED"]);
 
-// iOS 3.2.0 stops recording but leaves the native session open.
-const RECORDING_DEAD_ERROR_CODES = new Set<string>(["AUDIO_INITIALIZATION_FAILED"]);
+// iOS stops recording but leaves the native session open; stopTracking() closes it.
+const RECORDING_DEAD_ERROR_CODES = new Set<string>(["AUDIO_INITIALIZATION_FAILED", "INTERRUPTION_RECOVERY_FAILED"]);
 
 // iOS 3.2.0 needs an explicit foreground resume after this failure.
 const RECOVERY_REQUIRED_ERROR_CODES = new Set<string>(["CANNOT_ACTIVATE_IN_BACKGROUND"]);
 
-// Android SDK 3.2.x tears the session down for exactly these codes. Keep this
-// synchronized with AsleepModule.kt's TERMINAL_TRACKING_ERROR_CODES.
+// The first 13 codes are the Android SDK 3.3.x session-teardown set; keep them
+// synchronized with AsleepModule.kt's TERMINAL_TRACKING_ERROR_CODES. The rest are
+// start failures after which no native session exists: iOS 3.3.2 create HTTP
+// 400/403/429/404 (22400, 11403, 11404) and insufficient storage (11008, both
+// platforms). Android reports create failures as 22000. 11010 (alreadyTracking)
+// is deliberately absent because the existing session survives it.
 const TERMINAL_TRACKING_SDK_CODES = new Set<number>([
-  11003, 22000, 22401, 22409, 22422, 22500, 23499, 24000, 24400, 24401, 24403, 24404, 24500,
+  11003, 22000, 22401, 22409, 22422, 22500, 23499, 24000, 24400, 24401, 24403, 24404, 24500, 11008, 11403, 11404, 22400,
 ]);
 
 // The native session survives these exhausted upload attempts.
@@ -225,6 +230,35 @@ const clearErrorIfUnchanged = (errorBefore: AsleepError | null) => {
   if (current !== null && current === errorBefore) useAsleepStore.setState({ error: null });
 };
 
+type NativeCredentials = { apiKey?: string; appId?: string; appSecret?: string };
+
+// Runtime guard for JS callers and casts that bypass the AsleepCredentials union.
+const resolveCredentials = (config: AsleepCredentials): NativeCredentials => {
+  const { apiKey, appId, appSecret } = (config ?? {}) as { apiKey?: unknown; appId?: unknown; appSecret?: unknown };
+  const hasApiKey = apiKey !== undefined;
+  const hasToken = appId !== undefined || appSecret !== undefined;
+  if (hasApiKey && hasToken) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "Pass either apiKey or appId/appSecret credentials, not both."),
+    );
+  }
+  if (!hasApiKey && !hasToken) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "Credentials are required: pass apiKey or appId/appSecret."),
+    );
+  }
+  const isNonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+  if (hasApiKey) {
+    if (!isNonEmpty(apiKey))
+      return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "apiKey must be a non-empty string."));
+    return { apiKey };
+  }
+  if (!isNonEmpty(appId) || !isNonEmpty(appSecret)) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "appId and appSecret must both be non-empty strings."));
+  }
+  return { appId, appSecret };
+};
+
 const normalizeReport = (report: any, sessionId: string): AsleepReport => {
   const converted = convertKeysToCamelCase(report);
   if (converted && !converted.session && converted.sessionId) {
@@ -251,6 +285,7 @@ const normalizeReport = (report: any, sessionId: string): AsleepReport => {
 
 export const asleepActions: AsleepActions = {
   setup: async (config) => {
+    const credentials = resolveCredentials(config);
     const state = useAsleepStore.getState();
     if (state.setupStatus === "inProgress") {
       storeAndThrow(new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress."));
@@ -263,7 +298,15 @@ export const asleepActions: AsleepActions = {
     addLog("[setup] Start");
     useAsleepStore.setState({ setupStatus: "inProgress" });
     try {
-      await AsleepModule.setup(config.apiKey, config.baseUrl, config.callbackUrl, config.service, config.enableODA);
+      await AsleepModule.setup(
+        credentials.apiKey,
+        credentials.appId,
+        credentials.appSecret,
+        config.baseUrl,
+        config.callbackUrl,
+        config.service,
+        config.enableODA,
+      );
       useAsleepStore.setState({
         setupStatus: "complete",
         isODAEnabled: config.enableODA || false,
@@ -277,6 +320,7 @@ export const asleepActions: AsleepActions = {
   },
 
   initAsleepConfig: async (config) => {
+    const credentials = resolveCredentials(config);
     const state = useAsleepStore.getState();
     if (state.setupStatus === "inProgress") {
       return storeAndThrow(new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress."));
@@ -288,7 +332,14 @@ export const asleepActions: AsleepActions = {
     addLog("[initAsleepConfig] Start");
     useAsleepStore.setState({ setupStatus: "inProgress" });
     try {
-      await AsleepModule.initAsleepConfig(config.apiKey, config.userId, config.baseUrl, config.callbackUrl);
+      await AsleepModule.initAsleepConfig(
+        credentials.apiKey,
+        credentials.appId,
+        credentials.appSecret,
+        config.userId,
+        config.baseUrl,
+        config.callbackUrl,
+      );
       useAsleepStore.setState({ setupStatus: "complete", isInitialized: true });
       clearErrorIfUnchanged(errorBefore);
       addLog("[initAsleepConfig] Success");
@@ -698,8 +749,9 @@ const transitionForEvent = (
       if (terminal) {
         return {
           partial: {
-            // iOS 3.2.1 closeSessionSilently does not emit didClose, so this
-            // branch must clear the projected session state itself.
+            // iOS closeSessionSilently (upload 4xx) does not emit didClose, and
+            // start failures never create a session, so this branch must clear
+            // the projected session state itself.
             error,
             trackingStatus: "idle",
             isAnalyzing: false,
@@ -712,8 +764,8 @@ const transitionForEvent = (
       if (recordingDead) {
         return {
           partial: {
-            // iOS 3.2.0 audioInitializationFailed stops its recorder but
-            // intentionally keeps the native session open (didClose=false).
+            // iOS audioInitializationFailed and interruptionRecoveryFailed stop
+            // the recorder but keep the native session open (didClose=false).
             error,
             trackingStatus: "idle",
             isAnalyzing: false,
@@ -725,8 +777,8 @@ const transitionForEvent = (
       }
       if (recoveryRequired) {
         return {
-          // iOS 3.2.0 cannotActivateInBackground keeps the session alive and
-          // requires an explicit foreground resume.
+          // iOS cannotActivateInBackground keeps the session alive. 3.3.x also
+          // retries on foreground; only a later upload proves recovery.
           partial: { error, trackingStatus: "recoveryRequired" },
           log: `[onTrackingError] error: ${error.message}`,
         };
@@ -739,8 +791,9 @@ const transitionForEvent = (
       return {
         partial: {
           error: null,
-          // iOS 3.2.1 can emit didResume twice. Always clear the error, but
-          // mutate the paused state only for the first event.
+          // iOS 3.2.1-3.3.0 can emit didResume twice, and recovery paths can
+          // resume without a prior pause. Always clear the error, but mutate
+          // the paused state only for the first event.
           ...(state.trackingStatus === "paused" ? { trackingStatus: "tracking" as const } : {}),
         },
         log:
