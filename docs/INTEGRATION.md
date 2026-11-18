@@ -371,6 +371,8 @@ Forward the `AsleepError` itself to observability so `cause`, `sdkCode`, and `ca
 
 `stopTracking()` closes the active session and marks the public state closed. The final `sessionId` may also arrive through the native close event. Product cleanup—alarms, app timers, cloud state, and navigation—belongs to the app and should occur only after the SDK stop succeeds or a terminal event proves the session is gone.
 
+To analyze only part of the recording, pass `stopTracking({ analysisRange: { start, end } })`. The wrapper rejects `INVALID_ARGUMENT` before any native call unless both bounds are valid `Date` objects and `start` is at least one whole second before `end`; the native SDKs would otherwise drop the range and report the failure only after the stop promise resolved. The rest of the stop flow and state handling are identical to a plain stop. A range that passes this check can still be ignored by the server, which then analyzes the full session without notifying the app. Which window to send (for example, from an in-bed time the user confirmed) is app policy.
+
 Report generation may lag behind session close. The wrapper produces `REPORT_NOT_FOUND` when native code resolves without a report payload, but platform SDK failures can arrive under another `AsleepError.code` such as Android `REPORT_ERROR`. Do not blanket-retry every report failure. Until all native not-found codes are normalized by the wrapper, choose retry behavior only for error cases the app has explicitly verified; keep network, authentication, and other failures visible.
 
 Report APIs:

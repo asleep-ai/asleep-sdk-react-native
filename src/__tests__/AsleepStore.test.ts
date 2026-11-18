@@ -668,3 +668,57 @@ describe("user metadata", () => {
     expect(error).toMatchObject({ code: "FETCH_USER_METADATA_FAILED", sdkCode: undefined });
   });
 });
+
+describe("stopTracking analysis range", () => {
+  const start = new Date("2026-11-18T00:00:00.000Z");
+  const end = new Date("2026-11-18T06:30:00.000Z");
+
+  it("keeps the zero-argument native call when no range is supplied", async () => {
+    resetState({ trackingStatus: "tracking" });
+    await asleepActions.stopTracking();
+    await asleepActions.stopTracking({});
+    expect(mockModule.stopTracking).toHaveBeenCalledTimes(2);
+    expect(mockModule.stopTracking.mock.calls).toEqual([[], []]);
+  });
+
+  it("forwards the range as epoch milliseconds and closes like a plain stop", async () => {
+    resetState({ trackingStatus: "tracking", sessionId: "session-1" });
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await asleepActions.stopTracking({ analysisRange: { start, end } });
+    unsubscribe();
+    expect(mockModule.stopTracking).toHaveBeenCalledWith(start.getTime(), end.getTime());
+    expect(useAsleepStore.getState()).toMatchObject({ trackingStatus: "idle", didClose: true, isAnalyzing: false });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, unknown]>([
+    ["start equal to end", { start, end: new Date(start.getTime()) }],
+    ["start after end", { start: end, end: start }],
+    ["start and end within the same second", { start, end: new Date(start.getTime() + 999) }],
+    ["an invalid Date", { start: new Date(Number.NaN), end }],
+    ["a non-Date bound", { start: start.toISOString(), end }],
+    ["a missing end", { start }],
+  ])("rejects %s with INVALID_ARGUMENT before native", async (_name, analysisRange) => {
+    resetState({ trackingStatus: "tracking" });
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await expect(asleepActions.stopTracking({ analysisRange } as any)).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    unsubscribe();
+    expect(mockModule.stopTracking).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAsleepStore.getState()).toMatchObject({
+      trackingStatus: "tracking",
+      error: { code: "INVALID_ARGUMENT" },
+    });
+  });
+
+  it("accepts bounds exactly one whole second apart", async () => {
+    resetState({ trackingStatus: "tracking" });
+    await asleepActions.stopTracking({ analysisRange: { start: new Date(1999), end: new Date(2000) } });
+    expect(mockModule.stopTracking).toHaveBeenCalledWith(1999, 2000);
+  });
+});

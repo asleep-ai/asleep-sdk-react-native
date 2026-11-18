@@ -327,6 +327,18 @@ Important actions:
 | User metadata | `saveUserMetadata`, `fetchUserMetadata` |
 | Utilities | `addEventListener`, `enableLog`, `clearError` |
 
+### Analysis range at stop
+
+`stopTracking()` accepts an optional window that the server analyzes instead of the whole recording:
+
+```ts
+await asleep.stopTracking({
+  analysisRange: { start: bedtime, end: new Date() },
+});
+```
+
+`start` must be at least one whole second before `end`, and both must be valid `Date` objects; otherwise the call rejects with `INVALID_ARGUMENT` before any native call. Without options, `stopTracking()` behaves exactly as before. The server may silently ignore a range it does not accept and analyze the full session; the session still closes normally and the app receives no signal that the range was dropped, so verify the result with `getReport()` when the window matters.
+
 ### User metadata
 
 After `initAsleepConfig()` completes, the app can save optional profile data that the server uses for analysis:

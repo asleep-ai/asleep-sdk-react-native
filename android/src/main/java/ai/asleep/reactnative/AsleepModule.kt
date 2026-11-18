@@ -47,6 +47,7 @@ import android.util.Log
 import android.os.PowerManager
 import android.provider.Settings
 import android.net.Uri
+import java.util.Date
 
 class AsleepModule : Module() {
     private val gson = Gson()
@@ -380,8 +381,13 @@ class AsleepModule : Module() {
             return@Function isTracking
         }
 
-        AsyncFunction("stopTracking") { promise: Promise ->
-            Asleep.endSleepTracking()
+        // Range bounds are epoch milliseconds; JS validates start < end before calling.
+        AsyncFunction("stopTracking") { analysisStartMs: Double?, analysisEndMs: Double?, promise: Promise ->
+            if (analysisStartMs != null && analysisEndMs != null) {
+                Asleep.endSleepTracking(Date(analysisStartMs.toLong()), Date(analysisEndMs.toLong()))
+            } else {
+                Asleep.endSleepTracking()
+            }
             isTracking = false
             promise.resolve(null)
         }

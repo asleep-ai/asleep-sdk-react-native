@@ -40,6 +40,7 @@ export { AsleepError } from "./Asleep.types";
 
 export type {
   AsleepAnalysisAck,
+  AsleepAnalysisRange,
   AsleepAnalysisResult,
   AsleepAverageReport,
   AsleepConfig,
@@ -56,6 +57,7 @@ export type {
   AsleepUserMetadata,
   AudioSessionOption,
   SetupStatus,
+  StopTrackingOptions,
   TrackingConfig,
   TrackingStatus,
 } from "./Asleep.types";

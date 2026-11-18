@@ -323,6 +323,18 @@ React 컴포넌트에서 상태와 action을 사용하고 네이티브 listener 
 - 데이터: `requestAnalysis`, `getReport`, `getReportList`, `getAverageReport`, `deleteSession`
 - 사용자 메타데이터: `saveUserMetadata`, `fetchUserMetadata`
 
+### 종료 시 분석 구간
+
+`stopTracking()`에 녹음 전체 대신 서버가 분석할 구간을 선택적으로 전달할 수 있습니다.
+
+```ts
+await asleep.stopTracking({
+  analysisRange: { start: bedtime, end: new Date() },
+});
+```
+
+`start`는 `end`보다 최소 1초(초 단위 기준) 앞서야 하고 둘 다 유효한 `Date`여야 합니다. 그렇지 않으면 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다. 옵션 없이 호출한 `stopTracking()`의 동작은 기존과 같습니다. 서버가 받아들이지 않는 구간은 별도 통지 없이 무시되고 session 전체가 분석될 수 있습니다. session은 정상 종료되며 앱은 구간이 버려졌다는 신호를 받지 못하므로, 구간이 중요하다면 `getReport()`로 결과를 확인하세요.
+
 ### 사용자 메타데이터
 
 `initAsleepConfig()`가 완료된 뒤 서버 분석에 사용되는 선택적 프로필 정보를 저장할 수 있습니다.

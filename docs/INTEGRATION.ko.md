@@ -249,6 +249,8 @@ async function handleTrackingPress() {
 - 마이크 권한이 있는가
 - Android 배터리 최적화에서 제외됐는가
 
+녹음 일부만 분석하려면 `stopTracking({ analysisRange: { start, end } })`를 전달합니다. 두 경계가 모두 유효한 `Date`이고 `start`가 `end`보다 최소 1초(초 단위 기준) 앞서지 않으면 wrapper가 native 호출 전에 `INVALID_ARGUMENT`로 reject합니다. 이 검사가 없으면 native SDK는 구간을 버리고 종료 Promise가 resolve된 뒤에야 실패를 알립니다. 나머지 종료 흐름과 상태 처리는 일반 종료와 같습니다. 검사를 통과한 구간도 서버가 무시할 수 있으며, 그 경우 앱에 통지 없이 session 전체가 분석됩니다. 어떤 구간을 보낼지(예: 사용자가 확인한 취침 시각부터)는 앱 정책입니다.
+
 정상 종료는 `stopTracking()`이 성공한 뒤 앱이 관리하는 타이머와 부가 상태를 정리합니다. 먼저 앱 상태를 지우면 native 종료 실패 후 복구할 근거를 잃을 수 있습니다.
 
 버튼 문구와 동작도 같은 `shouldStop` 조건을 사용하세요. `recordingDead` 오류에서는 `isTracking === false`여도 native session이 열려 있으므로 예외적으로 `stopTracking()`을 호출해야 합니다. 반면 `terminal`은 native session이 이미 종료된 상태입니다.

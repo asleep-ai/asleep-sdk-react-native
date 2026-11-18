@@ -156,6 +156,24 @@ export type AsleepAverageReport = {
   sleptSessions?: AsleepSleptSession[];
 };
 
+/**
+ * Wall-clock window the server analyzes instead of the whole recording.
+ * `start` must be at least one second before `end` (whole-second precision);
+ * otherwise the action rejects with `INVALID_ARGUMENT` before any native call.
+ */
+export type AsleepAnalysisRange = {
+  start: Date;
+  end: Date;
+};
+
+export type StopTrackingOptions = {
+  /**
+   * Analyze only this window of the session. The server may silently ignore
+   * an invalid range and analyze the full session; no event reports that.
+   */
+  analysisRange?: AsleepAnalysisRange;
+};
+
 export type AsleepGender = "male" | "female" | "non_binary" | "other" | "prefer_not_to_say";
 
 /**

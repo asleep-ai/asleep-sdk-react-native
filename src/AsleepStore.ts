@@ -2,6 +2,7 @@ import { EventEmitter } from "expo-modules-core";
 import { PermissionsAndroid, Platform } from "react-native";
 import type {
   AsleepAnalysisAck,
+  AsleepAnalysisRange,
   AsleepAnalysisResult,
   AsleepAverageReport,
   AsleepConfig,
@@ -13,6 +14,7 @@ import type {
   AsleepSetupConfig,
   AsleepUserMetadata,
   SetupStatus,
+  StopTrackingOptions,
   TrackingConfig,
   TrackingStatus,
 } from "./Asleep.types";
@@ -69,7 +71,7 @@ export interface AsleepActions {
   checkBatteryOptimization: () => Promise<{ exempted: boolean; platform: string; message?: string }>;
   requestBatteryOptimizationExemption: () => Promise<boolean>;
   startTracking: (config?: TrackingConfig) => Promise<void>;
-  stopTracking: () => Promise<void>;
+  stopTracking: (options?: StopTrackingOptions) => Promise<void>;
   resumeTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
@@ -267,6 +269,27 @@ const resolveCredentials = (config: AsleepCredentials): NativeCredentials => {
     return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "appId and appSecret must both be non-empty strings."));
   }
   return { appId, appSecret };
+};
+
+const isValidDate = (value: unknown): value is Date => value instanceof Date && Number.isFinite(value.getTime());
+
+// Both native SDKs reject start >= end (iOS 11009 via didFail after stop has
+// already resolved), and they compare at whole-second precision. Returns epoch
+// milliseconds for the bridge, or null when no range was supplied.
+const resolveAnalysisRange = (range: AsleepAnalysisRange | undefined): [number, number] | null => {
+  if (range == null) return null;
+  const { start, end } = range as { start?: unknown; end?: unknown };
+  if (!isValidDate(start) || !isValidDate(end)) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "analysisRange.start and analysisRange.end must be valid Date objects."),
+    );
+  }
+  if (Math.floor(start.getTime() / 1000) >= Math.floor(end.getTime() / 1000)) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "analysisRange.start must be at least one second before analysisRange.end."),
+    );
+  }
+  return [start.getTime(), end.getTime()];
 };
 
 const USER_METADATA_INTEGER_RANGES = {
@@ -536,10 +559,11 @@ export const asleepActions: AsleepActions = {
     }
   },
 
-  stopTracking: async () => {
+  stopTracking: async (options) => {
+    const range = resolveAnalysisRange(options?.analysisRange);
     const errorBefore = useAsleepStore.getState().error;
     try {
-      const result = await AsleepModule.stopTracking();
+      const result = await (range ? AsleepModule.stopTracking(range[0], range[1]) : AsleepModule.stopTracking());
       useAsleepStore.setState({
         didClose: true,
         ...(typeof result === "string" && result ? { sessionId: result } : {}),

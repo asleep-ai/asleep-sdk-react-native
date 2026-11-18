@@ -114,11 +114,17 @@ public class AsleepModule: Module {
             trackingManager.startTracking(additionalAudioSessionOptions: additionalOptions)
         }
 
-        AsyncFunction("stopTracking") { () -> Void in
+        // Range bounds are epoch milliseconds; JS validates start < end before calling.
+        AsyncFunction("stopTracking") { (analysisStartMs: Double?, analysisEndMs: Double?) -> Void in
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
             }
-            trackingManager.stopTracking()
+            if let analysisStartMs = analysisStartMs, let analysisEndMs = analysisEndMs {
+                trackingManager.stopTracking(analysisStartTime: Date(timeIntervalSince1970: analysisStartMs / 1000),
+                                             analysisEndTime: Date(timeIntervalSince1970: analysisEndMs / 1000))
+            } else {
+                trackingManager.stopTracking()
+            }
         }
 
         AsyncFunction("resumeTracking") { () -> Void in
