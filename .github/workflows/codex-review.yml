@@ -1,0 +1,16 @@
+name: Codex PR review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    uses: asleep-ai/actions/.github/workflows/code-review.yml@11c5fba194e8c33bae81c814c6974c01ff7325f4
+    with:
+      post-comment: true
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
