@@ -190,6 +190,41 @@ const metadata = await asleep.fetchUserMetadata(); // null when nothing was save
 
 The wrapper validates the native ranges before any bridge call and rejects with `INVALID_ARGUMENT`; see the README for the ranges. The server can still reject a value (for example a future `birthYear`) with `INVALID_ARGUMENT` and `sdkCode` 27400. Other failures arrive as `SAVE_USER_METADATA_FAILED` (`sdkCode` 27000) or `FETCH_USER_METADATA_FAILED` (`sdkCode` 27100). Both native SDKs truncate `height` and `weight` to one decimal place, so a fetched value can differ from the saved input. Whether and when to collect this data, consent, and editing UI are app-owned.
 
+### Device registration
+
+Hardware products register the device with Asleep by passing `productInfo` to `setup()` (`POST customer/v1/products`); `initAsleepConfig()` does not accept it. Register before `startTracking()`: only sessions created after a successful registration are bound to the product. Behavior below is as of iOS SDK 3.3.2 and Android SDK 3.3.1.
+
+```ts
+await asleep.setup({
+  appId: "YOUR_APP_ID",
+  appSecret: "YOUR_APP_SECRET",
+  productInfo: { model: "YOUR_PRODUCT_MODEL", identifierType: "mac_address", identifierValue: deviceMacAddress },
+});
+```
+
+| Field | Rule |
+|---|---|
+| `model` | 1-100 characters, not blank |
+| `identifierType` | `"serial"` or `"mac_address"` |
+| `identifierValue` | 1-255 characters, not blank |
+
+Values are sent untrimmed. Invalid values and unknown fields reject with `INVALID_ARGUMENT` before any native call; without `productInfo`, `setup()` behaves as before and nothing is registered.
+
+- **Idempotent per identifier.** The same `identifierType` and `identifierValue` return the existing product credential. A device that already holds a credential for the same credentials owner and the same `productInfo` makes no network call, so passing the same value on every launch is safe.
+- **The first `model` wins.** The server keeps the model of the first registration for an identifier; the SDK cannot change it.
+- **A new identifier is a new product.** It may be billable. Use real device identifiers and never send placeholder or test values with production credentials.
+- **Changing credentials re-registers.** A different `apiKey` or `appId` drops the stored credential, and the next `setup()` with `productInfo` registers again.
+- **Registration blocks setup.** On failure the whole `setup()` fails with code `SETUP_FAILED` and no `onSetupDidComplete`, and the native SDK is reset so `setup()` can be called again:
+
+| `error.sdkCode` | Meaning | Suggested handling |
+|---|---|---|
+| 13400 | Rejected: a 4xx other than 429, or failed input checks | Do not retry unchanged; fix the input or the contract |
+| 13000 | Network failure, 5xx, 429, or an unreadable response. The SDK already retried network failures, 5xx and 429 after 2, 4 and 8 seconds | Retry later with a bounded policy |
+
+Offline, a 13000 failure can take about 1.5-3 minutes to arrive; keep tracking controls disabled until setup finishes.
+
+On Android, `setup()` resolves after registration and setup complete, and rejects with the failure. On iOS, `setup()` returns once the native call starts and `isSetupComplete` can turn `true` before registration finishes. Register `onSetupDidComplete` and `onSetupDidFail` before calling `setup()`, as with `onUserJoined` for `initAsleepConfig()`, and wait for one of them. Do not call `setup()` again before it arrives: the native SDK ignores a second `setup()` while one is running and sends no callback.
+
 ## 4. Check prerequisites and start
 
 Permission prompts must originate from a user-driven interaction:

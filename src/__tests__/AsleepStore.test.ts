@@ -306,19 +306,18 @@ describe("tracking failure classification", () => {
 describe("credentials", () => {
   it("setup forwards an API key without token fields", async () => {
     await asleepActions.setup({ apiKey: "key", baseUrl: "https://api", service: "svc", enableODA: true });
-    expect(mockModule.setup).toHaveBeenCalledWith("key", undefined, undefined, "https://api", undefined, "svc", true);
+    expect(mockModule.setup).toHaveBeenCalledWith({ apiKey: "key" }, "https://api", undefined, "svc", true, null);
   });
 
   it("setup forwards appId/appSecret token credentials", async () => {
     await asleepActions.setup({ appId: "app", appSecret: "secret" });
     expect(mockModule.setup).toHaveBeenCalledWith(
-      undefined,
-      "app",
-      "secret",
+      { appId: "app", appSecret: "secret" },
       undefined,
       undefined,
       undefined,
       undefined,
+      null,
     );
     expect(useAsleepStore.getState().setupStatus).toBe("complete");
   });
@@ -813,5 +812,116 @@ describe("reanalyze", () => {
     resolveNative();
     await promise;
     expect(useAsleepStore.getState().error).toBe(concurrent);
+  });
+});
+
+describe("setup productInfo", () => {
+  const productInfo = { model: "SleepHub-1", identifierType: "serial", identifierValue: "SN-0001" } as const;
+
+  it.each<[string, Record<string, string>]>([
+    ["apiKey", { apiKey: "key" }],
+    ["appId/appSecret", { appId: "app", appSecret: "secret" }],
+  ])("forwards productInfo with %s credentials", async (_name, credentials) => {
+    await asleepActions.setup({ ...credentials, productInfo } as any);
+    expect(mockModule.setup).toHaveBeenCalledWith(credentials, undefined, undefined, undefined, undefined, productInfo);
+    expect(useAsleepStore.getState().setupStatus).toBe("complete");
+  });
+
+  it("forwards a mac_address identifier unchanged", async () => {
+    const mac = { model: " M ", identifierType: "mac_address", identifierValue: "AA:BB:CC:DD:EE:FF" } as const;
+    await asleepActions.setup({ apiKey: "key", productInfo: mac });
+    expect(mockModule.setup.mock.calls[0][5]).toEqual(mac);
+  });
+
+  it.each([
+    ["omitted", undefined],
+    ["null", null],
+  ])("forwards null when productInfo is %s", async (_name, value) => {
+    await asleepActions.setup({ apiKey: "key", productInfo: value as any });
+    expect(mockModule.setup.mock.calls[0][5]).toBeNull();
+  });
+
+  it("accepts length boundaries", async () => {
+    await asleepActions.setup({
+      apiKey: "key",
+      productInfo: { model: "m".repeat(100), identifierType: "serial", identifierValue: "v".repeat(255) },
+    });
+    expect(mockModule.setup).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, unknown]>([
+    ["a non-object", "SN-0001"],
+    ["an array", []],
+    ["a missing model", { identifierType: "serial", identifierValue: "SN" }],
+    ["an empty model", { ...productInfo, model: "" }],
+    ["a blank model", { ...productInfo, model: " \t\n " }],
+    ["a 101-character model", { ...productInfo, model: "m".repeat(101) }],
+    ["a non-string model", { ...productInfo, model: 1 }],
+    ["a missing identifierValue", { model: "M", identifierType: "serial" }],
+    ["a blank identifierValue", { ...productInfo, identifierValue: "   " }],
+    ["a 256-character identifierValue", { ...productInfo, identifierValue: "v".repeat(256) }],
+    ["a missing identifierType", { model: "M", identifierValue: "SN" }],
+    ["an unknown identifierType", { ...productInfo, identifierType: "imei" }],
+    ["the native enum spelling", { ...productInfo, identifierType: "MAC_ADDRESS" }],
+    ["an unknown field", { ...productInfo, serial: "SN" }],
+  ])("rejects %s with INVALID_ARGUMENT before native", async (_name, invalid) => {
+    await expect(asleepActions.setup({ apiKey: "key", productInfo: invalid as any })).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    expect(mockModule.setup).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", error: { code: "INVALID_ARGUMENT" } });
+  });
+
+  it("an invalid-productInfo rejection notifies subscribers exactly once", async () => {
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await asleepActions.setup({ apiKey: "key", productInfo: { ...productInfo, model: "" } }).catch(() => undefined);
+    unsubscribe();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  // iOS also sends `code`, the Swift enum ordinal; its value here is arbitrary.
+  it.each([
+    [
+      "iOS rejected (13400)",
+      { error: "Product registration rejected", caseName: "productRegisterRejected", code: 61, sdkCode: 13400 },
+    ],
+    [
+      "iOS transient (13000)",
+      { error: "Failed to register a product", caseName: "productRegisterFailed", code: 60, sdkCode: 13000 },
+    ],
+    ["Android rejected (13400)", { error: "Invalid model: must not be empty", sdkCode: 13400 }],
+    ["Android transient (13000)", { error: "network error", sdkCode: 13000 }],
+  ])("onSetupDidFail for %s keeps sdkCode and resets setup", (_name, payload) => {
+    resetState({ setupStatus: "complete", isInitialized: true });
+    mockEmitter.__emit("onSetupDidFail", payload);
+    expect(useAsleepStore.getState()).toMatchObject({
+      setupStatus: "idle",
+      error: { name: "AsleepError", code: "SETUP_FAILED", sdkCode: payload.sdkCode, message: payload.error },
+    });
+  });
+
+  it.each([13400, 13000])("an Android setup rejection carrying %i keeps sdkCode", async (sdkCode) => {
+    const rejection = Object.assign(new Error(`Setup failed: ${sdkCode} - detail`), {
+      code: `SETUP_FAILED:${sdkCode}`,
+    });
+    mockModule.setup.mockRejectedValueOnce(rejection);
+    await expect(asleepActions.setup({ apiKey: "key", productInfo })).rejects.toMatchObject({
+      code: "SETUP_FAILED",
+      sdkCode,
+      cause: rejection,
+    });
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", error: { code: "SETUP_FAILED", sdkCode } });
+  });
+
+  it("throws the event error published while the Android setup promise was pending", async () => {
+    mockModule.setup.mockImplementationOnce(async () => {
+      mockEmitter.__emit("onSetupDidFail", { error: "rejected", sdkCode: 13400 });
+      throw Object.assign(new Error("Setup failed: 13400 - rejected"), { code: "SETUP_FAILED:13400" });
+    });
+    const error = await asleepActions.setup({ apiKey: "key", productInfo }).catch((e) => e);
+    expect(error).toBe(useAsleepStore.getState().error);
+    expect(error).toMatchObject({ code: "SETUP_FAILED", sdkCode: 13400, message: "rejected" });
   });
 });

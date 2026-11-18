@@ -9,6 +9,7 @@ import type {
   AsleepCredentials,
   AsleepErrorCategory,
   AsleepEventType,
+  AsleepProductInfo,
   AsleepReport,
   AsleepSession,
   AsleepSetupConfig,
@@ -273,6 +274,46 @@ const resolveCredentials = (config: AsleepCredentials): NativeCredentials => {
   return { appId, appSecret };
 };
 
+const PRODUCT_INFO_FIELDS = new Set<string>(["model", "identifierType", "identifierValue"]);
+const PRODUCT_INFO_LENGTH_LIMITS = { model: 100, identifierValue: 255 } as const;
+
+// Mirrors the native pre-checks (iOS ProductManager.validate, Android
+// ProductRegistrar.validate), which otherwise fail the whole setup with 13400:
+// not blank after trimming, and the untrimmed value within the length limit.
+// Returns null when no productInfo was supplied.
+const resolveProductInfo = (productInfo: unknown): AsleepProductInfo | null => {
+  if (productInfo == null) return null;
+  if (typeof productInfo !== "object" || Array.isArray(productInfo)) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "productInfo must be an object."));
+  }
+  const source = productInfo as Record<string, unknown>;
+  const unknownField = Object.keys(source).find((field) => !PRODUCT_INFO_FIELDS.has(field));
+  if (unknownField !== undefined) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", `productInfo.${unknownField} is not a known field.`));
+  }
+  for (const [field, max] of Object.entries(PRODUCT_INFO_LENGTH_LIMITS)) {
+    const value = source[field];
+    if (typeof value !== "string" || value.trim().length === 0 || value.length > max) {
+      return storeAndThrow(
+        new AsleepError(
+          "INVALID_ARGUMENT",
+          `productInfo.${field} must be a non-blank string of at most ${max} characters.`,
+        ),
+      );
+    }
+  }
+  if (source.identifierType !== "serial" && source.identifierType !== "mac_address") {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", 'productInfo.identifierType must be "serial" or "mac_address".'),
+    );
+  }
+  return {
+    model: source.model as string,
+    identifierType: source.identifierType,
+    identifierValue: source.identifierValue as string,
+  };
+};
+
 const isValidDate = (value: unknown): value is Date => value instanceof Date && Number.isFinite(value.getTime());
 
 // Both native SDKs reject start >= end (iOS 11009 via didFail after stop has
@@ -382,6 +423,7 @@ const normalizeReport = (report: any, sessionId: string): AsleepReport => {
 export const asleepActions: AsleepActions = {
   setup: async (config) => {
     const credentials = resolveCredentials(config);
+    const productInfo = resolveProductInfo(config.productInfo);
     const state = useAsleepStore.getState();
     if (state.setupStatus === "inProgress") {
       storeAndThrow(new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress."));
@@ -394,14 +436,15 @@ export const asleepActions: AsleepActions = {
     addLog("[setup] Start");
     useAsleepStore.setState({ setupStatus: "inProgress" });
     try {
+      // Credentials travel as one record: Expo's Kotlin AsyncFunction accepts at
+      // most eight parameters including the promise.
       await AsleepModule.setup(
-        credentials.apiKey,
-        credentials.appId,
-        credentials.appSecret,
+        credentials,
         config.baseUrl,
         config.callbackUrl,
         config.service,
         config.enableODA,
+        productInfo,
       );
       useAsleepStore.setState({
         setupStatus: "complete",

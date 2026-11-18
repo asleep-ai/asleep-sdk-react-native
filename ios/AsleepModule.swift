@@ -27,23 +27,35 @@ public class AsleepModule: Module {
         Events("onSetupInProgress")
         Events("onAnalysisResult")
 
-        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret.
-        Function("setup") { (apiKey: String?, appId: String?, appSecret: String?, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
+        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret,
+        // and validates productInfo. A nil productInfo skips product registration.
+        Function("setup") { (credentials: SetupCredentialsRecord, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?, productInfo: ProductInfoRecord?) in
+            var product: Asleep.ProductInfo?
+            if let productInfo = productInfo {
+                guard let identifierType = Asleep.ProductIdentifierType(rawValue: productInfo.identifierType) else {
+                    throw Exception(name: "INVALID_ARGUMENT", description: "Unknown productInfo.identifierType: \(productInfo.identifierType)", code: "INVALID_ARGUMENT")
+                }
+                product = Asleep.ProductInfo(model: productInfo.model,
+                                             identifierType: identifierType,
+                                             identifierValue: productInfo.identifierValue)
+            }
             Asleep.setLogger(self)
-            if let appId = appId, let appSecret = appSecret {
+            if let appId = credentials.appId, let appSecret = credentials.appSecret {
                 Asleep.setup(appId: appId,
                             appSecret: appSecret,
                             baseUrl: URL(string: baseUrl ?? ""),
                             callbackUrl: URL(string: callbackUrl ?? ""),
                             service: service,
                             enableODA: enableODA ?? false,
+                            productInfo: product,
                             delegate: self)
             } else {
-                Asleep.setup(apiKey: apiKey ?? "",
+                Asleep.setup(apiKey: credentials.apiKey ?? "",
                             baseUrl: URL(string: baseUrl ?? ""),
                             callbackUrl: URL(string: callbackUrl ?? ""),
                             service: service,
                             enableODA: enableODA ?? false,
+                            productInfo: product,
                             delegate: self)
             }
         }
@@ -339,6 +351,18 @@ private func sdkMessage(_ error: Asleep.AsleepError) -> String {
 private func sdkRejection(_ code: String, sdkCode: Int, message: String) -> Exception {
     let encoded = "\(code):\(sdkCode)"
     return Exception(name: encoded, description: message, code: encoded)
+}
+
+struct SetupCredentialsRecord: Record {
+    @Field var apiKey: String?
+    @Field var appId: String?
+    @Field var appSecret: String?
+}
+
+struct ProductInfoRecord: Record {
+    @Field var model: String = ""
+    @Field var identifierType: String = ""
+    @Field var identifierValue: String = ""
 }
 
 struct UserMetadataRecord: Record {

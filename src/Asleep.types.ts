@@ -13,11 +13,31 @@ export type AsleepConfig = AsleepCredentials & {
   callbackUrl?: string;
 };
 
+export type AsleepProductIdentifierType = "serial" | "mac_address";
+
+/**
+ * The hardware product this app runs on, registered with Asleep during
+ * `setup()`. `setup()` rejects invalid input with `INVALID_ARGUMENT` before any
+ * native call. Values are sent as given; they are not trimmed.
+ */
+export type AsleepProductInfo = {
+  /** Product model name, 1-100 characters, not blank. */
+  model: string;
+  identifierType: AsleepProductIdentifierType;
+  /** The device's serial number or MAC address, 1-255 characters, not blank. */
+  identifierValue: string;
+};
+
 export type AsleepSetupConfig = AsleepCredentials & {
   baseUrl?: string;
   callbackUrl?: string;
   service?: string;
   enableODA?: boolean;
+  /**
+   * Registers this device as a product before setup completes. Omit it to skip
+   * registration. See "Device registration" in the README.
+   */
+  productInfo?: AsleepProductInfo;
 };
 
 export type AsleepReport = {

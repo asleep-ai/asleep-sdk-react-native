@@ -49,6 +49,8 @@ export type {
   AsleepEventType,
   AsleepGender,
   AsleepNeverSleptSession,
+  AsleepProductIdentifierType,
+  AsleepProductInfo,
   AsleepReport,
   AsleepSession,
   AsleepSetupConfig,

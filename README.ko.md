@@ -304,6 +304,31 @@ await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRE
 
 `apiKey`와 `appId`/`appSecret`을 함께 넣으면 타입 오류입니다. 런타임에서 둘 다 없거나, 둘 다 있거나, 한쪽만 있는 쌍이거나, 빈 문자열이면 native 호출 전에 `INVALID_ARGUMENT` 코드의 `AsleepError`로 reject합니다. secret도 API key처럼 소스에 커밋하지 마세요.
 
+### 기기 등록
+
+`setup()`은 앱이 실행되는 하드웨어 제품을 Asleep에 등록할 수 있습니다(`POST customer/v1/products`). 두 인증 방식 모두에서 `productInfo`를 전달합니다.
+
+```ts
+import type { AsleepProductInfo } from "react-native-asleep";
+
+const productInfo: AsleepProductInfo = {
+  model: "YOUR_PRODUCT_MODEL",
+  identifierType: "serial", // 또는 "mac_address"
+  identifierValue: deviceSerialNumber,
+};
+await asleep.setup({ apiKey: "YOUR_API_KEY", productInfo });
+```
+
+iOS SDK 3.3.2, Android SDK 3.3.1 기준 동작입니다.
+
+- `productInfo`는 `setup()`만 받으며 `initAsleepConfig()`는 받지 않습니다. 등록이 성공한 뒤 생성된 session이 제품에 연결되므로 `startTracking()` 전에 등록하세요. `productInfo`를 생략하면 등록을 건너뛰고 기존 `setup()` 동작을 유지합니다.
+- `model`은 1-100자, `identifierValue`는 1-255자이며 둘 다 공백만으로 이루어질 수 없습니다. 값은 trim하지 않고 그대로 전송됩니다. `identifierType`은 `"serial"` 또는 `"mac_address"`입니다. 잘못된 값이나 알 수 없는 필드는 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다.
+- 등록은 식별자 단위로 멱등입니다. 같은 `identifierType`과 `identifierValue`는 기존 제품 credential을 돌려주며, 같은 인증 주체와 같은 `productInfo`로 이미 credential을 가진 기기는 네트워크 호출을 하지 않습니다. 서버는 식별자에 처음 등록된 `model`을 유지하며, SDK로는 변경할 수 없습니다.
+- 다른 식별자는 서버에 새 제품을 만들고, 이는 과금 대상이 될 수 있습니다. 기기의 실제 시리얼 번호나 MAC 주소를 사용하고, 운영 credential로 placeholder나 테스트 값을 보내지 마세요.
+- `apiKey`나 `appId`를 바꾸면 저장된 credential이 삭제되고, 다음 `productInfo` 포함 `setup()`에서 다시 등록합니다.
+- 등록은 `setup()`을 막는 단계입니다. 실패하면 setup 전체가 `SETUP_FAILED` 코드로 실패하며 `error.sdkCode`는 13400(거부: 429를 제외한 4xx 또는 입력 사전 검사 실패. 입력이나 계약을 수정하세요) 또는 13000(네트워크, 5xx, 429, 응답 해석 실패. 나중에 다시 시도하세요)입니다. SDK는 네트워크 실패, 5xx, 429를 2, 4, 8초 뒤에 재시도한 다음 13000을 보고합니다. 오프라인에서는 실패가 도착하기까지 약 1.5-3분이 걸릴 수 있습니다. 실패 후 native SDK는 설정되지 않은 상태로 돌아가며 `setup()`을 다시 호출할 수 있습니다.
+- Android에서 `setup()`은 등록과 setup이 끝난 뒤 resolve됩니다. iOS에서 `setup()`은 native 호출이 시작되면 반환되고, 등록이 끝나기 전에 `isSetupComplete`가 `true`일 수 있습니다. tracking을 시작하기 전에 `addEventListener()`로 `onSetupDidComplete` 또는 `onSetupDidFail`을 기다리고, 둘 중 하나가 도착하기 전에는 `setup()`을 다시 호출하지 마세요. native SDK는 실행 중인 setup이 있으면 두 번째 `setup()`을 callback 없이 무시합니다.
+
 ### `useAsleep()`
 
 React 컴포넌트에서 상태와 action을 사용하고 네이티브 listener 수명 주기를 관리하는 기본 API입니다.

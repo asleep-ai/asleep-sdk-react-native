@@ -119,6 +119,41 @@ API key는 소스에 커밋하지 말고 앱의 배포 환경에 맞는 secret/c
 
 토큰 인증도 같은 action을 사용합니다. `setup()`이나 `initAsleepConfig()`에 `{ apiKey }` 대신 `{ appId, appSecret }`을 전달하세요. 두 방식은 서로 배타적이며(`AsleepCredentials`), 둘 다 없거나, 둘 다 있거나, 한쪽만 있는 쌍이거나, 빈 값이면 native 호출 전에 `INVALID_ARGUMENT`로 reject합니다. Android의 복원 service 빠른 경로는 실행 중인 session과 같은 `appId`, `userId`를 인식하므로 토큰 방식에서도 API key와 동일하게 복원됩니다. `appSecret`도 API key와 같은 방식으로 보호하세요. SDK의 `userId`와 앱 계정의 대응 관계, ID 저장 및 변경 정책은 소비 앱이 소유합니다. 활성 session 중에는 다른 `userId`로 다시 초기화하지 마세요.
 
+### 기기 등록
+
+하드웨어 제품은 `setup()`에 `productInfo`를 전달해 기기를 Asleep에 등록합니다(`POST customer/v1/products`). `initAsleepConfig()`는 `productInfo`를 받지 않습니다. 등록이 성공한 뒤 생성된 session만 제품에 연결되므로 `startTracking()` 전에 등록하세요. 아래 동작은 iOS SDK 3.3.2, Android SDK 3.3.1 기준입니다.
+
+```ts
+await asleep.setup({
+  appId: "YOUR_APP_ID",
+  appSecret: "YOUR_APP_SECRET",
+  productInfo: { model: "YOUR_PRODUCT_MODEL", identifierType: "mac_address", identifierValue: deviceMacAddress },
+});
+```
+
+| 필드 | 규칙 |
+|---|---|
+| `model` | 1-100자, 공백만으로 구성 불가 |
+| `identifierType` | `"serial"` 또는 `"mac_address"` |
+| `identifierValue` | 1-255자, 공백만으로 구성 불가 |
+
+값은 trim하지 않고 그대로 전송됩니다. 잘못된 값과 알 수 없는 필드는 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다. `productInfo`가 없으면 `setup()`은 기존과 같이 동작하고 아무것도 등록하지 않습니다.
+
+- **식별자 단위로 멱등입니다.** 같은 `identifierType`과 `identifierValue`는 기존 제품 credential을 돌려줍니다. 같은 인증 주체와 같은 `productInfo`로 이미 credential을 가진 기기는 네트워크 호출을 하지 않으므로, 실행할 때마다 같은 값을 전달해도 됩니다.
+- **처음 등록한 `model`이 유지됩니다.** 서버는 식별자의 첫 등록 model을 유지하며 SDK로는 변경할 수 없습니다.
+- **새 식별자는 새 제품입니다.** 과금 대상이 될 수 있습니다. 실제 기기 식별자를 사용하고, 운영 credential로 placeholder나 테스트 값을 보내지 마세요.
+- **인증 정보를 바꾸면 다시 등록합니다.** 다른 `apiKey`나 `appId`를 쓰면 저장된 credential이 삭제되고, 다음 `productInfo` 포함 `setup()`에서 다시 등록합니다.
+- **등록은 setup을 막는 단계입니다.** 실패하면 `setup()` 전체가 `SETUP_FAILED` 코드로 실패하고 `onSetupDidComplete`는 오지 않으며, native SDK가 초기화되어 `setup()`을 다시 호출할 수 있습니다.
+
+| `error.sdkCode` | 의미 | 권장 처리 |
+|---|---|---|
+| 13400 | 거부: 429를 제외한 4xx 또는 입력 사전 검사 실패 | 같은 값으로 재시도하지 말고 입력이나 계약을 수정 |
+| 13000 | 네트워크 실패, 5xx, 429, 응답 해석 실패. SDK가 네트워크 실패, 5xx, 429를 2, 4, 8초 뒤에 이미 재시도함 | 횟수를 제한한 정책으로 나중에 재시도 |
+
+오프라인에서는 13000 실패가 도착하기까지 약 1.5-3분이 걸릴 수 있으므로, setup이 끝날 때까지 tracking 조작을 비활성화하세요.
+
+Android에서 `setup()`은 등록과 setup이 끝난 뒤 resolve되고, 실패하면 reject됩니다. iOS에서 `setup()`은 native 호출이 시작되면 반환되며 등록이 끝나기 전에 `isSetupComplete`가 `true`가 될 수 있습니다. `initAsleepConfig()`의 `onUserJoined`처럼 `setup()` 호출 전에 `onSetupDidComplete`와 `onSetupDidFail`을 등록하고 둘 중 하나를 기다리세요. 도착하기 전에 `setup()`을 다시 호출하지 마세요. native SDK는 실행 중인 setup이 있으면 두 번째 `setup()`을 무시하고 callback도 보내지 않습니다.
+
 ## 2. 권한과 Android 배터리 최적화
 
 `startTracking()`은 권한 대화상자를 열지 않습니다. 먼저 비대화형 확인을 하고, 버튼 탭처럼 사용자가 원인을 이해할 수 있는 동작에서 권한을 요청하세요.

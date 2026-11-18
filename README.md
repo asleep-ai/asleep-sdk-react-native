@@ -298,6 +298,31 @@ await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRE
 
 Mixing `apiKey` with `appId`/`appSecret` is a type error. At runtime, passing neither form, both forms, an incomplete pair, or an empty string rejects with `AsleepError` code `INVALID_ARGUMENT` before any native call. Keep the secret out of source control like the API key.
 
+### Device registration
+
+`setup()` can register the hardware product the app runs on with Asleep (`POST customer/v1/products`). Pass `productInfo` with either credential form:
+
+```ts
+import type { AsleepProductInfo } from "react-native-asleep";
+
+const productInfo: AsleepProductInfo = {
+  model: "YOUR_PRODUCT_MODEL",
+  identifierType: "serial", // or "mac_address"
+  identifierValue: deviceSerialNumber,
+};
+await asleep.setup({ apiKey: "YOUR_API_KEY", productInfo });
+```
+
+Behavior as of iOS SDK 3.3.2 and Android SDK 3.3.1:
+
+- Only `setup()` accepts `productInfo`; `initAsleepConfig()` does not. Sessions created after a successful registration are bound to the product, so register before `startTracking()`. Omitting `productInfo` skips registration and keeps the previous `setup()` behavior.
+- `model` is 1-100 characters and `identifierValue` 1-255 characters; neither may be blank, and values are sent untrimmed. `identifierType` is `"serial"` or `"mac_address"`. Invalid or unknown fields reject with `INVALID_ARGUMENT` before any native call.
+- Registration is idempotent per identifier: the same `identifierType` and `identifierValue` return the existing product credential, and a device that already holds a credential for the same credentials owner and the same `productInfo` makes no network call. The server keeps the first `model` registered for an identifier; it cannot be changed through the SDK.
+- A different identifier creates a new product on the server, which may be billable. Use the device's real serial number or MAC address, and never send placeholder or test values with production credentials.
+- Changing the `apiKey` or `appId` drops the stored credential, and the next `setup()` with `productInfo` registers again.
+- Registration blocks `setup()`. A failure fails the whole setup with code `SETUP_FAILED` and `error.sdkCode` 13400 (rejected: a 4xx other than 429, or failed input checks; fix the input or the contract) or 13000 (network, 5xx, 429, or an unreadable response; retry later). The SDK retries network failures, 5xx and 429 after 2, 4 and 8 seconds before reporting 13000. Offline, the failure can take about 1.5-3 minutes to arrive. After a failure the native SDK is left unconfigured and `setup()` can be called again.
+- On Android, `setup()` resolves after registration and setup complete. On iOS, `setup()` returns once the native call starts, and `isSetupComplete` can be `true` before registration finishes. Wait for `onSetupDidComplete` or `onSetupDidFail` through `addEventListener()` before starting tracking, and do not call `setup()` again until one arrives: the native SDK ignores a second `setup()` while one is running, without a callback.
+
 ### `useAsleep()`
 
 The primary React API. It attaches the ref-counted native listeners while mounted and returns state plus actions from the shared SDK store.

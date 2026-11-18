@@ -3,6 +3,7 @@ package ai.asleep.reactnative
 import ai.asleep.asleepsdk.Asleep
 import ai.asleep.asleepsdk.data.AsleepConfig
 import ai.asleep.asleepsdk.data.Gender
+import ai.asleep.asleepsdk.data.ProductInfo
 import ai.asleep.asleepsdk.data.UserInfo
 import ai.asleep.asleepsdk.data.UserMetadata
 import ai.asleep.asleepsdk.data.Report
@@ -154,8 +155,24 @@ class AsleepModule : Module() {
                "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog",
                "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress", "onAnalysisResult")
 
-        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret.
-        AsyncFunction("setup") { apiKey: String?, appId: String?, appSecret: String?, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, promise: Promise ->
+        // JS validates the credential form and productInfo. Credentials travel as one record
+        // because AsyncFunction accepts at most eight parameters including the promise.
+        // A null productInfo skips product registration.
+        AsyncFunction("setup") { credentials: SetupCredentialsRecord, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, productInfo: ProductInfoRecord?, promise: Promise ->
+            val apiKey = credentials.apiKey
+            val appId = credentials.appId
+            val appSecret = credentials.appSecret
+            val product = productInfo?.let { record ->
+                val identifierType = when (record.identifierType) {
+                    "serial" -> Asleep.ProductIdentifierType.SERIAL
+                    "mac_address" -> Asleep.ProductIdentifierType.MAC_ADDRESS
+                    else -> {
+                        promise.reject("INVALID_ARGUMENT", "Unknown productInfo.identifierType: ${record.identifierType}", null)
+                        return@AsyncFunction
+                    }
+                }
+                ProductInfo(record.model, identifierType, record.identifierValue)
+            }
             try {
                 val context = appContext.reactContext!!.applicationContext as Application
                 val setupListener = object : Asleep.AsleepSetupListener {
@@ -172,7 +189,7 @@ class AsleepModule : Module() {
                     override fun onFail(errorCode: Int, detail: String) {
                         sendEvent("onSetupDidFail", mapOf("error" to detail, "sdkCode" to errorCode))
                         sendEvent("onDebugLog", mapOf("message" to "Setup failed: $errorCode - $detail"))
-                        promise.reject("SETUP_FAILED", "Setup failed: $errorCode - $detail", null)
+                        rejectWithSdkCode(promise, "SETUP_FAILED", errorCode, "Setup failed: $errorCode - $detail")
                     }
                 }
 
@@ -185,7 +202,8 @@ class AsleepModule : Module() {
                         callbackUrl = callbackUrl,
                         service = service ?: "SleepTracking",
                         enableODA = enableODA,
-                        asleepSetupListener = setupListener
+                        asleepSetupListener = setupListener,
+                        productInfo = product
                     )
                 } else {
                     Asleep.setup(
@@ -195,7 +213,8 @@ class AsleepModule : Module() {
                         callbackUrl = callbackUrl,
                         service = service ?: "SleepTracking",
                         enableODA = enableODA,
-                        asleepSetupListener = setupListener
+                        asleepSetupListener = setupListener,
+                        productInfo = product
                     )
                 }
             } catch (e: Exception) {
@@ -829,6 +848,18 @@ class AsleepModule : Module() {
             cont.resumeWithException(Exception("Activity is null, cannot request microphone permission"))
         }
     }
+}
+
+class SetupCredentialsRecord : Record {
+    @Field val apiKey: String? = null
+    @Field val appId: String? = null
+    @Field val appSecret: String? = null
+}
+
+class ProductInfoRecord : Record {
+    @Field val model: String = ""
+    @Field val identifierType: String = ""
+    @Field val identifierValue: String = ""
 }
 
 class UserMetadataRecord : Record {
