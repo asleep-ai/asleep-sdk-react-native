@@ -202,7 +202,7 @@ public class AsleepModule: Module {
                     let sdkCode = error.errorCode.code
                     // 11009 invalidParameter: start >= end (JS validates this first).
                     let code = sdkCode == 11009 ? "INVALID_ARGUMENT" : "REANALYZE_FAILED"
-                    promise.reject(sdkRejection(code, sdkCode: sdkCode, message: error.localizedDescription))
+                    promise.reject(sdkRejection(code, sdkCode: sdkCode, message: sdkMessage(error)))
                 } else {
                     promise.resolve(nil)
                 }
@@ -238,7 +238,7 @@ public class AsleepModule: Module {
                 try await Asleep.saveUserMetadata(model, config: config)
             } catch let error as Asleep.AsleepError {
                 let sdkCode = error.errorCode.code
-                throw sdkRejection(sdkCode == 27400 ? "INVALID_ARGUMENT" : "SAVE_USER_METADATA_FAILED", sdkCode: sdkCode, message: error.localizedDescription)
+                throw sdkRejection(sdkCode == 27400 ? "INVALID_ARGUMENT" : "SAVE_USER_METADATA_FAILED", sdkCode: sdkCode, message: sdkMessage(error))
             } catch {
                 // Non-SDK failures (e.g. URLError) map to ERR_SAVE_METADATA_FAILED.
                 throw sdkRejection("SAVE_USER_METADATA_FAILED", sdkCode: 27000, message: error.localizedDescription)
@@ -253,7 +253,7 @@ public class AsleepModule: Module {
             do {
                 metadata = try await Asleep.fetchUserMetadata(config: config)
             } catch let error as Asleep.AsleepError {
-                throw sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: error.errorCode.code, message: error.localizedDescription)
+                throw sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: error.errorCode.code, message: sdkMessage(error))
             } catch {
                 // Non-SDK failures (e.g. URLError) map to ERR_FETCH_METADATA_FAILED.
                 throw sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: 27100, message: error.localizedDescription)
@@ -329,6 +329,13 @@ public class AsleepModule: Module {
 
 // Expo rejections carry only a code string and a message. JS normalizeError
 // splits "<CODE>:<sdkCode>" back into AsleepError.code and AsleepError.sdkCode.
+// AsleepError is not a LocalizedError, so localizedDescription is only the generic
+// "The operation couldn't be completed" text. Prefer the SDK/server message.
+private func sdkMessage(_ error: Asleep.AsleepError) -> String {
+    if let message = error.errorCode.message, !message.isEmpty { return message }
+    return String(describing: error)
+}
+
 private func sdkRejection(_ code: String, sdkCode: Int, message: String) -> Exception {
     let encoded = "\(code):\(sdkCode)"
     return Exception(name: encoded, description: message, code: encoded)
