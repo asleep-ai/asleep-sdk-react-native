@@ -2,6 +2,9 @@ package ai.asleep.reactnative
 
 import ai.asleep.asleepsdk.Asleep
 import ai.asleep.asleepsdk.data.AsleepConfig
+import ai.asleep.asleepsdk.data.Gender
+import ai.asleep.asleepsdk.data.UserInfo
+import ai.asleep.asleepsdk.data.UserMetadata
 import ai.asleep.asleepsdk.data.Report
 import ai.asleep.asleepsdk.data.SleepSession
 import ai.asleep.asleepsdk.tracking.Reports
@@ -11,6 +14,8 @@ import com.google.gson.reflect.TypeToken
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 import expo.modules.kotlin.Promise
 import android.Manifest
 import android.app.Activity
@@ -490,6 +495,70 @@ class AsleepModule : Module() {
             }
         }
 
+        AsyncFunction("saveUserMetadata") { metadata: UserMetadataRecord, promise: Promise ->
+            val config = _asleepConfig
+            if (config == null) {
+                promise.reject("MISSING_PREREQUISITE", "AsleepConfig is not initialized", null)
+                return@AsyncFunction
+            }
+            val model = try {
+                val gender = metadata.gender?.let { raw ->
+                    Gender.values().firstOrNull { it.value == raw }
+                        ?: throw IllegalArgumentException("Unknown gender: $raw")
+                }
+                // The UserMetadata constructor throws IllegalArgumentException for out-of-range values.
+                UserMetadata(
+                    birthYear = metadata.birthYear,
+                    birthMonth = metadata.birthMonth,
+                    birthDay = metadata.birthDay,
+                    gender = gender,
+                    height = metadata.height?.toFloat(),
+                    weight = metadata.weight?.toFloat()
+                )
+            } catch (e: IllegalArgumentException) {
+                rejectWithSdkCode(promise, "INVALID_ARGUMENT", 27400, e.message ?: "Invalid user metadata")
+                return@AsyncFunction
+            }
+            try {
+                config.saveUserMetadata(model, object : Asleep.SaveUserMetadataListener {
+                    override fun onSuccess(userInfo: UserInfo) {
+                        sendEvent("onDebugLog", mapOf("message" to "saveUserMetadata completed"))
+                        promise.resolve(null)
+                    }
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        sendEvent("onDebugLog", mapOf("message" to "saveUserMetadata failed: $errorCode - $detail"))
+                        val code = if (errorCode == 27400) "INVALID_ARGUMENT" else "SAVE_USER_METADATA_FAILED"
+                        rejectWithSdkCode(promise, code, errorCode, detail)
+                    }
+                })
+            } catch (e: Exception) {
+                rejectWithSdkCode(promise, "SAVE_USER_METADATA_FAILED", 27000, e.message ?: "Failed to save user metadata")
+            }
+        }
+
+        AsyncFunction("fetchUserMetadata") { promise: Promise ->
+            val config = _asleepConfig
+            if (config == null) {
+                promise.reject("MISSING_PREREQUISITE", "AsleepConfig is not initialized", null)
+                return@AsyncFunction
+            }
+            try {
+                config.fetchUserMetadata(object : Asleep.FetchUserMetadataListener {
+                    override fun onSuccess(metadata: UserMetadata?) {
+                        promise.resolve(metadata?.serializeToMap())
+                    }
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        sendEvent("onDebugLog", mapOf("message" to "fetchUserMetadata failed: $errorCode - $detail"))
+                        rejectWithSdkCode(promise, "FETCH_USER_METADATA_FAILED", errorCode, detail)
+                    }
+                })
+            } catch (e: Exception) {
+                rejectWithSdkCode(promise, "FETCH_USER_METADATA_FAILED", 27100, e.message ?: "Failed to fetch user metadata")
+            }
+        }
+
         AsyncFunction("hasRequiredPermissions") { promise: Promise ->
             promise.resolve(hasRequiredPermissions())
         }
@@ -674,6 +743,12 @@ class AsleepModule : Module() {
         }
     }
 
+    // Expo rejections carry only a code string and a message. JS normalizeError
+    // splits "<CODE>:<sdkCode>" back into AsleepError.code and AsleepError.sdkCode.
+    private fun rejectWithSdkCode(promise: Promise, code: String, sdkCode: Int, message: String) {
+        promise.reject("$code:$sdkCode", message, null)
+    }
+
     private fun <T> T.serializeToMap(): Map<String, Any> {
         return convert()
     }
@@ -716,4 +791,13 @@ class AsleepModule : Module() {
             cont.resumeWithException(Exception("Activity is null, cannot request microphone permission"))
         }
     }
+}
+
+class UserMetadataRecord : Record {
+    @Field val birthYear: Int? = null
+    @Field val birthMonth: Int? = null
+    @Field val birthDay: Int? = null
+    @Field val gender: String? = null
+    @Field val height: Double? = null
+    @Field val weight: Double? = null
 }

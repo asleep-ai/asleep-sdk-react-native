@@ -321,6 +321,22 @@ React 컴포넌트에서 상태와 action을 사용하고 네이티브 listener 
 - 측정: `startTracking`, `stopTracking`, `resumeTracking`
 - 권한과 배터리: `hasRequiredPermissions`, `requestRequiredPermissions`, `checkBatteryOptimization`, `requestBatteryOptimizationExemption`
 - 데이터: `requestAnalysis`, `getReport`, `getReportList`, `getAverageReport`, `deleteSession`
+- 사용자 메타데이터: `saveUserMetadata`, `fetchUserMetadata`
+
+### 사용자 메타데이터
+
+`initAsleepConfig()`가 완료된 뒤 서버 분석에 사용되는 선택적 프로필 정보를 저장할 수 있습니다.
+
+```ts
+import type { AsleepUserMetadata } from "react-native-asleep";
+
+const metadata: AsleepUserMetadata = { birthYear: 1990, gender: "female", height: 165.5 };
+await asleep.saveUserMetadata(metadata);
+
+const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
+```
+
+모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 설정 전에 호출하면 `MISSING_PREREQUISITE`로 reject됩니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
 
 ### `Asleep`
 

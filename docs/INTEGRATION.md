@@ -179,6 +179,17 @@ If the app supplies `userId`, persist the stable identifier in app storage and r
 
 Do not reconfigure a live session with a different product identity. Define any identity migration policy outside the SDK.
 
+### User metadata
+
+`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after `initAsleepConfig()` succeeds; earlier calls reject with `MISSING_PREREQUISITE`.
+
+```ts
+await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });
+const metadata = await asleep.fetchUserMetadata(); // null when nothing was saved
+```
+
+The wrapper validates the native ranges before any bridge call and rejects with `INVALID_ARGUMENT`; see the README for the ranges. The server can still reject a value (for example a future `birthYear`) with `INVALID_ARGUMENT` and `sdkCode` 27400. Other failures arrive as `SAVE_USER_METADATA_FAILED` (`sdkCode` 27000) or `FETCH_USER_METADATA_FAILED` (`sdkCode` 27100). Both native SDKs truncate `height` and `weight` to one decimal place, so a fetched value can differ from the saved input. Whether and when to collect this data, consent, and editing UI are app-owned.
+
 ## 4. Check prerequisites and start
 
 Permission prompts must originate from a user-driven interaction:

@@ -89,6 +89,21 @@ describe("error normalization", () => {
     });
   });
 
+  it("splits an encoded native rejection code into code and sdkCode", () => {
+    const rejection = Object.assign(new Error("server said no"), { code: "REANALYZE_FAILED:30409" });
+    expect(normalizeError(rejection, "FALLBACK")).toMatchObject({
+      code: "REANALYZE_FAILED",
+      sdkCode: 30409,
+      message: "server said no",
+      cause: rejection,
+    });
+  });
+
+  it("leaves unencoded native rejection codes unchanged", () => {
+    const rejection = Object.assign(new Error("x"), { code: "ERR_UNEXPECTED" });
+    expect(normalizeError(rejection, "FALLBACK")).toMatchObject({ code: "ERR_UNEXPECTED", sdkCode: undefined });
+  });
+
   it("returns an existing AsleepError unchanged when no overrides are supplied", () => {
     const error = new AsleepError("EXISTING", "message");
     expect(normalizeError(error, "FALLBACK")).toBe(error);
@@ -503,5 +518,153 @@ describe("action contracts", () => {
     await expect(asleepActions.getReport("session")).rejects.toBeInstanceOf(AsleepError);
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe("user metadata", () => {
+  const metadata = {
+    birthYear: 1990,
+    birthMonth: 5,
+    birthDay: 17,
+    gender: "female",
+    height: 165.5,
+    weight: 55.2,
+  } as const;
+
+  const countNotifications = async (call: () => Promise<unknown>) => {
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await call().catch(() => undefined);
+    unsubscribe();
+    return listener.mock.calls.length;
+  };
+
+  it("saveUserMetadata forwards only provided fields and resolves void", async () => {
+    resetState({ setupStatus: "complete" });
+    await expect(asleepActions.saveUserMetadata({ ...metadata, weight: undefined })).resolves.toBeUndefined();
+    expect(mockModule.saveUserMetadata).toHaveBeenCalledWith({
+      birthYear: 1990,
+      birthMonth: 5,
+      birthDay: 17,
+      gender: "female",
+      height: 165.5,
+    });
+  });
+
+  it("saveUserMetadata success does not notify subscribers", async () => {
+    resetState({ setupStatus: "complete" });
+    expect(await countNotifications(() => asleepActions.saveUserMetadata(metadata))).toBe(0);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["birthYear below range", { birthYear: 1899 }],
+    ["birthYear above range", { birthYear: 2101 }],
+    ["non-integer birthYear", { birthYear: 1990.5 }],
+    ["birthMonth 0", { birthMonth: 0 }],
+    ["birthMonth 13", { birthMonth: 13 }],
+    ["birthDay 32", { birthDay: 32 }],
+    ["string birthDay", { birthDay: "17" }],
+    ["unknown gender", { gender: "unknown" }],
+    ["height below range", { height: 0.5 }],
+    ["height above range", { height: 500.1 }],
+    ["NaN height", { height: Number.NaN }],
+    ["weight above range", { weight: 1000.1 }],
+    ["weight below range", { weight: 0 }],
+  ])("saveUserMetadata rejects %s with INVALID_ARGUMENT before native", async (_name, invalid) => {
+    resetState({ setupStatus: "complete" });
+    await expect(asleepActions.saveUserMetadata(invalid as any)).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    expect(mockModule.saveUserMetadata).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState().error).toMatchObject({ code: "INVALID_ARGUMENT" });
+  });
+
+  it("saveUserMetadata rejects a non-object argument before native", async () => {
+    resetState({ setupStatus: "complete" });
+    await expect(asleepActions.saveUserMetadata(null as any)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(mockModule.saveUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("accepts range boundaries", async () => {
+    resetState({ setupStatus: "complete" });
+    await asleepActions.saveUserMetadata({ birthYear: 1900, birthMonth: 12, birthDay: 31, height: 1, weight: 1000 });
+    await asleepActions.saveUserMetadata({ birthYear: 2100, birthMonth: 1, birthDay: 1, height: 500, weight: 1 });
+    expect(mockModule.saveUserMetadata).toHaveBeenCalledTimes(2);
+  });
+
+  it("an invalid-metadata rejection notifies subscribers exactly once", async () => {
+    resetState({ setupStatus: "complete" });
+    expect(await countNotifications(() => asleepActions.saveUserMetadata({ birthMonth: 13 }))).toBe(1);
+  });
+
+  it.each([
+    ["saveUserMetadata", () => asleepActions.saveUserMetadata(metadata)],
+    ["fetchUserMetadata", () => asleepActions.fetchUserMetadata()],
+  ])("%s rejects MISSING_PREREQUISITE before initAsleepConfig", async (nativeName, call) => {
+    await expect(call()).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+    expect((mockModule as any)[nativeName]).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["INVALID_ARGUMENT:27400", "INVALID_ARGUMENT", 27400],
+    ["SAVE_USER_METADATA_FAILED:27000", "SAVE_USER_METADATA_FAILED", 27000],
+  ])("saveUserMetadata preserves the native SDK code from %s", async (nativeCode, code, sdkCode) => {
+    resetState({ setupStatus: "complete" });
+    const rejection = Object.assign(new Error("native"), { code: nativeCode });
+    mockModule.saveUserMetadata.mockRejectedValueOnce(rejection);
+    await expect(asleepActions.saveUserMetadata(metadata)).rejects.toMatchObject({
+      code,
+      sdkCode,
+      message: "native",
+      cause: rejection,
+    });
+    expect(useAsleepStore.getState().error).toMatchObject({ code, sdkCode });
+  });
+
+  it("a native save failure notifies subscribers exactly once", async () => {
+    resetState({ setupStatus: "complete" });
+    mockModule.saveUserMetadata.mockRejectedValueOnce(
+      Object.assign(new Error("x"), { code: "SAVE_USER_METADATA_FAILED:27000" }),
+    );
+    expect(await countNotifications(() => asleepActions.saveUserMetadata(metadata))).toBe(1);
+  });
+
+  it("fetchUserMetadata normalizes Android snake_case keys", async () => {
+    resetState({ setupStatus: "complete" });
+    mockModule.fetchUserMetadata.mockResolvedValueOnce({ birth_year: 1990, birth_month: 5, gender: "non_binary" });
+    await expect(asleepActions.fetchUserMetadata()).resolves.toEqual({
+      birthYear: 1990,
+      birthMonth: 5,
+      gender: "non_binary",
+    });
+  });
+
+  it("fetchUserMetadata resolves null when nothing was saved", async () => {
+    resetState({ setupStatus: "complete" });
+    await expect(asleepActions.fetchUserMetadata()).resolves.toBeNull();
+  });
+
+  it("fetchUserMetadata success does not notify subscribers", async () => {
+    resetState({ setupStatus: "complete" });
+    expect(await countNotifications(() => asleepActions.fetchUserMetadata())).toBe(0);
+  });
+
+  it("fetchUserMetadata preserves the native SDK code", async () => {
+    resetState({ setupStatus: "complete" });
+    mockModule.fetchUserMetadata.mockRejectedValueOnce(
+      Object.assign(new Error("fetch failed"), { code: "FETCH_USER_METADATA_FAILED:27100" }),
+    );
+    await expect(asleepActions.fetchUserMetadata()).rejects.toMatchObject({
+      code: "FETCH_USER_METADATA_FAILED",
+      sdkCode: 27100,
+    });
+  });
+
+  it("fetchUserMetadata falls back to its own code for an unencoded rejection", async () => {
+    resetState({ setupStatus: "complete" });
+    mockModule.fetchUserMetadata.mockRejectedValueOnce(new Error("bridge"));
+    const error = await asleepActions.fetchUserMetadata().catch((e) => e);
+    expect(error).toMatchObject({ code: "FETCH_USER_METADATA_FAILED", sdkCode: undefined });
   });
 });

@@ -335,6 +335,17 @@ export function useIosRecovery(asleep: AsleepPublicApi) {
 
 Android에서 Promise 결과를 별도로 store에 다시 쓰면 같은 분석에 대해 중복 update가 발생할 수 있습니다.
 
+### 사용자 메타데이터
+
+`saveUserMetadata(metadata)`와 `fetchUserMetadata()`는 설정된 사용자의 선택적 프로필 정보(생년월일, 성별, 키, 몸무게)를 저장하고 조회합니다. `initAsleepConfig()`가 성공한 뒤에만 호출하세요. 그 전에 호출하면 `MISSING_PREREQUISITE`로 reject됩니다.
+
+```ts
+await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });
+const metadata = await asleep.fetchUserMetadata(); // 저장된 값이 없으면 null
+```
+
+wrapper는 bridge 호출 전에 native와 같은 범위를 검증하고 `INVALID_ARGUMENT`로 reject합니다. 범위는 README를 참고하세요. 서버도 값(예: 미래의 `birthYear`)을 `INVALID_ARGUMENT`, `sdkCode` 27400으로 거부할 수 있습니다. 그 밖의 실패는 `SAVE_USER_METADATA_FAILED`(`sdkCode` 27000) 또는 `FETCH_USER_METADATA_FAILED`(`sdkCode` 27100)로 도착합니다. 두 native SDK 모두 `height`와 `weight`를 소수점 첫째 자리까지 버림하므로 조회한 값이 저장한 입력과 다를 수 있습니다. 수집 여부와 시점, 동의, 편집 UI는 앱이 소유합니다.
+
 ### 완료 리포트
 
 | API | 반환 |

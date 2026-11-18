@@ -183,6 +183,50 @@ public class AsleepModule: Module {
             }
         }
 
+        AsyncFunction("saveUserMetadata") { (metadata: UserMetadataRecord) -> Void in
+            guard let config = self.config else {
+                throw Exception(name: "MISSING_PREREQUISITE", description: "AsleepConfig is not initialized", code: "MISSING_PREREQUISITE")
+            }
+            var gender: Asleep.Model.Gender?
+            if let rawGender = metadata.gender {
+                guard let parsed = Asleep.Model.Gender(rawValue: rawGender) else {
+                    throw sdkRejection("INVALID_ARGUMENT", sdkCode: 27400, message: "Unknown gender: \(rawGender)")
+                }
+                gender = parsed
+            }
+            let model = Asleep.Model.UserMetadata(birthYear: metadata.birthYear,
+                                                  birthMonth: metadata.birthMonth,
+                                                  birthDay: metadata.birthDay,
+                                                  gender: gender,
+                                                  height: metadata.height,
+                                                  weight: metadata.weight)
+            do {
+                try await Asleep.saveUserMetadata(model, config: config)
+            } catch let error as Asleep.AsleepError {
+                let sdkCode = error.errorCode.code
+                throw sdkRejection(sdkCode == 27400 ? "INVALID_ARGUMENT" : "SAVE_USER_METADATA_FAILED", sdkCode: sdkCode, message: error.localizedDescription)
+            } catch {
+                // Non-SDK failures (e.g. URLError) map to ERR_SAVE_METADATA_FAILED.
+                throw sdkRejection("SAVE_USER_METADATA_FAILED", sdkCode: 27000, message: error.localizedDescription)
+            }
+        }
+
+        AsyncFunction("fetchUserMetadata") { () -> [String: Any]? in
+            guard let config = self.config else {
+                throw Exception(name: "MISSING_PREREQUISITE", description: "AsleepConfig is not initialized", code: "MISSING_PREREQUISITE")
+            }
+            let metadata: Asleep.Model.UserMetadata?
+            do {
+                metadata = try await Asleep.fetchUserMetadata(config: config)
+            } catch let error as Asleep.AsleepError {
+                throw sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: error.errorCode.code, message: error.localizedDescription)
+            } catch {
+                // Non-SDK failures (e.g. URLError) map to ERR_FETCH_METADATA_FAILED.
+                throw sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: 27100, message: error.localizedDescription)
+            }
+            return try metadata?.asDictionary()
+        }
+
         Function("isTracking") { () -> Bool in
             return trackingManager?.getTrackingStatus().sessionId != nil
         }
@@ -247,6 +291,22 @@ public class AsleepModule: Module {
             promise.resolve(true)
         }
     }
+}
+
+// Expo rejections carry only a code string and a message. JS normalizeError
+// splits "<CODE>:<sdkCode>" back into AsleepError.code and AsleepError.sdkCode.
+private func sdkRejection(_ code: String, sdkCode: Int, message: String) -> Exception {
+    let encoded = "\(code):\(sdkCode)"
+    return Exception(name: encoded, description: message, code: encoded)
+}
+
+struct UserMetadataRecord: Record {
+    @Field var birthYear: Int?
+    @Field var birthMonth: Int?
+    @Field var birthDay: Int?
+    @Field var gender: String?
+    @Field var height: Double?
+    @Field var weight: Double?
 }
 
 extension AsleepModule: AsleepSetupDelegate {

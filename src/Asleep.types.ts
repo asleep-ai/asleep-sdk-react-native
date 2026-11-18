@@ -156,6 +156,27 @@ export type AsleepAverageReport = {
   sleptSessions?: AsleepSleptSession[];
 };
 
+export type AsleepGender = "male" | "female" | "non_binary" | "other" | "prefer_not_to_say";
+
+/**
+ * Optional user profile used by the server to personalize analysis. Every
+ * field is optional; omitted fields are not sent. `saveUserMetadata()` rejects
+ * out-of-range values with `INVALID_ARGUMENT` before any native call.
+ */
+export type AsleepUserMetadata = {
+  /** Integer, 1900-2100. */
+  birthYear?: number;
+  /** Integer, 1-12. */
+  birthMonth?: number;
+  /** Integer, 1-31. */
+  birthDay?: number;
+  gender?: AsleepGender;
+  /** Centimeters, 1-500. The native SDKs truncate to one decimal place. */
+  height?: number;
+  /** Kilograms, 1-1000. The native SDKs truncate to one decimal place. */
+  weight?: number;
+};
+
 export type AsleepAnalysisResult = {
   id?: string;
   state?: string;

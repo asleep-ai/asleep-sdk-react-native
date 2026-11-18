@@ -11,6 +11,7 @@ import type {
   AsleepReport,
   AsleepSession,
   AsleepSetupConfig,
+  AsleepUserMetadata,
   SetupStatus,
   TrackingConfig,
   TrackingStatus,
@@ -74,6 +75,8 @@ export interface AsleepActions {
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
   getAverageReport: (fromDate: string, toDate: string) => Promise<AsleepAverageReport>;
   deleteSession: (sessionId: string) => Promise<void>;
+  saveUserMetadata: (metadata: AsleepUserMetadata) => Promise<void>;
+  fetchUserMetadata: () => Promise<AsleepUserMetadata | null>;
   requestAnalysis: () => Promise<AsleepAnalysisResult | AsleepAnalysisAck>;
   hasRequiredPermissions: () => Promise<boolean>;
   requestRequiredPermissions: () => Promise<boolean>;
@@ -138,6 +141,10 @@ const convertKeysToCamelCase = (value: any): any => {
   return value;
 };
 
+// Expo promise rejections carry only a code string and a message, so native
+// rejections that know the documented SDK code encode it as "<CODE>:<sdkCode>".
+const NATIVE_REJECTION_CODE = /^([A-Z][A-Z0-9_]*):(\d+)$/;
+
 type ErrorOptions = {
   category?: AsleepErrorCategory;
   sdkCode?: number;
@@ -158,7 +165,8 @@ export const normalizeError = (source: unknown, fallbackCode: string, options: E
           caseName?: unknown;
         })
       : undefined;
-  const code = typeof payload?.code === "string" ? payload.code : fallbackCode;
+  const encoded = typeof payload?.code === "string" ? NATIVE_REJECTION_CODE.exec(payload.code) : null;
+  const code = encoded ? encoded[1] : typeof payload?.code === "string" ? payload.code : fallbackCode;
   const message =
     typeof payload?.message === "string"
       ? payload.message
@@ -177,9 +185,11 @@ export const normalizeError = (source: unknown, fallbackCode: string, options: E
       options.sdkCode ??
       (typeof payload?.sdkCode === "number"
         ? payload.sdkCode
-        : source instanceof AsleepError
-          ? source.sdkCode
-          : undefined),
+        : encoded
+          ? Number(encoded[2])
+          : source instanceof AsleepError
+            ? source.sdkCode
+            : undefined),
     caseName:
       options.caseName ??
       (typeof payload?.caseName === "string"
@@ -257,6 +267,67 @@ const resolveCredentials = (config: AsleepCredentials): NativeCredentials => {
     return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "appId and appSecret must both be non-empty strings."));
   }
   return { appId, appSecret };
+};
+
+const USER_METADATA_INTEGER_RANGES = {
+  birthYear: [1900, 2100],
+  birthMonth: [1, 12],
+  birthDay: [1, 31],
+} as const;
+
+const USER_METADATA_NUMBER_RANGES = {
+  height: [1, 500],
+  weight: [1, 1000],
+} as const;
+
+const USER_METADATA_GENDERS = new Set<string>(["male", "female", "non_binary", "other", "prefer_not_to_say"]);
+
+// Mirrors the native range checks (iOS UserMetadata.validate(), Android
+// UserMetadata init) so invalid input never reaches the bridge. Only known
+// fields are forwarded; undefined and null mean "not provided".
+const resolveUserMetadata = (metadata: AsleepUserMetadata): AsleepUserMetadata => {
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "metadata must be an object."));
+  }
+  const source = metadata as Record<string, unknown>;
+  const resolved: Record<string, number | string> = {};
+  for (const [field, [min, max]] of Object.entries(USER_METADATA_INTEGER_RANGES)) {
+    const value = source[field];
+    if (value == null) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+      return storeAndThrow(
+        new AsleepError("INVALID_ARGUMENT", `${field} must be an integer between ${min} and ${max}.`),
+      );
+    }
+    resolved[field] = value;
+  }
+  for (const [field, [min, max]] of Object.entries(USER_METADATA_NUMBER_RANGES)) {
+    const value = source[field];
+    if (value == null) continue;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+      return storeAndThrow(new AsleepError("INVALID_ARGUMENT", `${field} must be a number between ${min} and ${max}.`));
+    }
+    resolved[field] = value;
+  }
+  if (source.gender != null) {
+    if (typeof source.gender !== "string" || !USER_METADATA_GENDERS.has(source.gender)) {
+      return storeAndThrow(
+        new AsleepError(
+          "INVALID_ARGUMENT",
+          'gender must be one of "male", "female", "non_binary", "other", or "prefer_not_to_say".',
+        ),
+      );
+    }
+    resolved.gender = source.gender;
+  }
+  return resolved as AsleepUserMetadata;
+};
+
+// The native user config exists only after initAsleepConfig() completes.
+const requireUserConfig = (action: string) => {
+  if (useAsleepStore.getState().setupStatus !== "complete") {
+    storeAndThrow(new AsleepError("MISSING_PREREQUISITE", `Must call initAsleepConfig() before ${action}().`));
+  }
 };
 
 const normalizeReport = (report: any, sessionId: string): AsleepReport => {
@@ -557,6 +628,32 @@ export const asleepActions: AsleepActions = {
       clearErrorIfUnchanged(errorBefore);
     } catch (error) {
       return guardedFailure(error, "DELETE_SESSION_FAILED", errorBefore);
+    }
+  },
+
+  saveUserMetadata: async (metadata) => {
+    const resolved = resolveUserMetadata(metadata);
+    requireUserConfig("saveUserMetadata");
+    const errorBefore = useAsleepStore.getState().error;
+    try {
+      await AsleepModule.saveUserMetadata(resolved);
+      clearErrorIfUnchanged(errorBefore);
+    } catch (error) {
+      return guardedFailure(error, "SAVE_USER_METADATA_FAILED", errorBefore);
+    }
+  },
+
+  fetchUserMetadata: async () => {
+    requireUserConfig("fetchUserMetadata");
+    const errorBefore = useAsleepStore.getState().error;
+    try {
+      const payload = await AsleepModule.fetchUserMetadata();
+      // Android serializes the native model with snake_case keys.
+      const result: AsleepUserMetadata | null = payload == null ? null : convertKeysToCamelCase(payload);
+      clearErrorIfUnchanged(errorBefore);
+      return result;
+    } catch (error) {
+      return guardedFailure(error, "FETCH_USER_METADATA_FAILED", errorBefore);
     }
   },
 
