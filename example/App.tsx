@@ -47,7 +47,21 @@ const App = () => {
     isSetupComplete,
   } = useTracking();
 
-  const { didClose, deleteSession } = useAsleep();
+  const {
+    didClose,
+    deleteSession,
+    stopTracking: stopTrackingWithOptions,
+    saveUserMetadata,
+    fetchUserMetadata,
+    reanalyze,
+  } = useAsleep();
+  const [lastClosedSessionId, setLastClosedSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (didClose && sessionId) {
+      setLastClosedSessionId(sessionId);
+    }
+  }, [didClose, sessionId]);
 
   // recordingDead leaves the native session open while isTracking is false, so
   // the session must still be stopped before a new one can start.
@@ -143,6 +157,56 @@ const App = () => {
       addLog("Tracking stopped");
     } catch (error: any) {
       addLog(`Stop error: ${error.message}`);
+    }
+  };
+
+  const _stopTrackingWithRange = async () => {
+    const end = new Date(Date.now() - 5 * 1000);
+    const start = new Date(trackingStartTime ?? Date.now() - 60 * 1000);
+    addLog(`[example] stop range ${start.toISOString()}..${end.toISOString()}`);
+    try {
+      await stopTrackingWithOptions({ analysisRange: { start, end } });
+      addLog("[example] stop range accepted");
+    } catch (error: any) {
+      addLog(`[example] stop range failed ${error?.code} ${error?.sdkCode}`);
+    }
+  };
+
+  const _saveMetadata = async () => {
+    try {
+      await saveUserMetadata({
+        birthYear: 1990,
+        birthMonth: 5,
+        birthDay: 17,
+        gender: "female",
+        height: 165.5,
+        weight: 55.2,
+      });
+      addLog("[example] metadata saved");
+    } catch (error: any) {
+      addLog(`[example] metadata save failed ${error?.code} ${error?.sdkCode}`);
+    }
+  };
+
+  const _fetchMetadata = async () => {
+    try {
+      const metadata = await fetchUserMetadata();
+      addLog(`[example] metadata fetched: ${JSON.stringify(metadata)}`);
+    } catch (error: any) {
+      addLog(`[example] metadata fetch failed ${error?.code} ${error?.sdkCode}`);
+    }
+  };
+
+  const _reanalyzeLast = async () => {
+    if (!lastClosedSessionId) {
+      addLog("[example] reanalyze skipped: no closed session");
+      return;
+    }
+    try {
+      await reanalyze(lastClosedSessionId);
+      addLog(`[example] reanalyze accepted ${lastClosedSessionId}`);
+    } catch (error: any) {
+      addLog(`[example] reanalyze failed ${error?.code} ${error?.sdkCode}`);
     }
   };
 
@@ -608,6 +672,17 @@ const App = () => {
             disabled={!shouldStop}
             onPress={_stopTracking}
           />
+          <Button
+            title="Stop (Range)"
+            disabled={!shouldStop}
+            onPress={_stopTrackingWithRange}
+          />
+        </View>
+
+        <View style={styles.buttonContainer}>
+          <Button title="Save Metadata" onPress={_saveMetadata} />
+          <Button title="Fetch Metadata" onPress={_fetchMetadata} />
+          <Button title="Reanalyze Last" onPress={_reanalyzeLast} />
         </View>
 
         <View style={styles.buttonContainer}>
