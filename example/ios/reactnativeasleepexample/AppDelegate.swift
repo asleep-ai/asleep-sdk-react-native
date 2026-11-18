@@ -82,6 +82,15 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     appWindow.windowScene = windowScene
     window = appWindow
     appWindow.makeKeyAndVisible()
+
+    // A cold launch from a URL or user activity delivers it here instead of the
+    // callbacks below.
+    if !connectionOptions.urlContexts.isEmpty {
+      self.scene(scene, openURLContexts: connectionOptions.urlContexts)
+    }
+    for userActivity in connectionOptions.userActivities {
+      self.scene(scene, continue: userActivity)
+    }
   }
 
   func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
