@@ -289,6 +289,8 @@ import {
 `setup()` and `initAsleepConfig()` accept exactly one credential form, typed as `AsleepCredentials`:
 
 ```ts
+const asleep = useAsleep();
+
 await asleep.initAsleepConfig({ apiKey: "YOUR_API_KEY", userId });
 // or token authentication
 await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRET", userId });

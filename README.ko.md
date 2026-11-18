@@ -295,6 +295,8 @@ import {
 `setup()`과 `initAsleepConfig()`는 `AsleepCredentials` 타입의 인증 방식 중 정확히 하나만 받습니다.
 
 ```ts
+const asleep = useAsleep();
+
 await asleep.initAsleepConfig({ apiKey: "YOUR_API_KEY", userId });
 // 또는 토큰 인증
 await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRET", userId });
