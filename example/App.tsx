@@ -707,6 +707,9 @@ const App = () => {
           <Button title="Save Metadata" onPress={_saveMetadata} />
           <Button title="Fetch Metadata" onPress={_fetchMetadata} />
           <Button title="Reanalyze Last" onPress={_reanalyzeLast} />
+        </View>
+
+        <View style={styles.buttonContainer}>
           <Button title="Setup (no product)" onPress={_setupWithoutProduct} />
         </View>
 
