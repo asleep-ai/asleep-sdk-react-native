@@ -320,7 +320,7 @@ const productInfo: AsleepProductInfo = {
 await asleep.setup({ apiKey: "YOUR_API_KEY", productInfo });
 ```
 
-iOS SDK 3.3.2, Android SDK 3.3.1 기준 동작입니다.
+iOS SDK 3.3.3, Android SDK 3.3.1 기준 동작입니다.
 
 - `productInfo`는 `setup()`만 받으며 `initAsleepConfig()`는 받지 않습니다. 등록이 성공한 뒤 생성된 session이 제품에 연결되므로 `startTracking()` 전에 등록하세요. `productInfo`를 생략하면 등록을 건너뛰고 기존 `setup()` 동작을 유지합니다.
 - `model`은 1-100자, `identifierValue`는 1-255자이며 둘 다 공백만으로 이루어질 수 없습니다. 값은 trim하지 않고 그대로 전송됩니다. `identifierType`은 `"serial"` 또는 `"mac_address"`입니다. 잘못된 값이나 알 수 없는 필드는 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다.
@@ -388,7 +388,7 @@ await asleep.saveUserMetadata(metadata);
 const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
 ```
 
-모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 설정 전에 호출하면 `MISSING_PREREQUISITE`로 reject됩니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
+모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 성공한 뒤에 호출하세요. 그 전이나, 이후의 `setup()`/`initAsleepConfig()`가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject됩니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
 
 ### `Asleep`
 

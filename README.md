@@ -314,7 +314,7 @@ const productInfo: AsleepProductInfo = {
 await asleep.setup({ apiKey: "YOUR_API_KEY", productInfo });
 ```
 
-Behavior as of iOS SDK 3.3.2 and Android SDK 3.3.1:
+Behavior as of iOS SDK 3.3.3 and Android SDK 3.3.1:
 
 - Only `setup()` accepts `productInfo`; `initAsleepConfig()` does not. Sessions created after a successful registration are bound to the product, so register before `startTracking()`. Omitting `productInfo` skips registration and keeps the previous `setup()` behavior.
 - `model` is 1-100 characters and `identifierValue` 1-255 characters; neither may be blank, and values are sent untrimmed. `identifierType` is `"serial"` or `"mac_address"`. Invalid or unknown fields reject with `INVALID_ARGUMENT` before any native call.
@@ -392,7 +392,7 @@ await asleep.saveUserMetadata(metadata);
 const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
 ```
 
-Every field is optional and omitted fields are not sent. Out-of-range values reject with `INVALID_ARGUMENT` before any native call: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31 (integers), `height` 1-500 cm, `weight` 1-1000 kg, and `gender` one of `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"`. Calling either action before configuration rejects with `MISSING_PREREQUISITE`. Native failures keep the SDK code in `error.sdkCode`: 27400 (server validation, code `INVALID_ARGUMENT`), 27000 (`SAVE_USER_METADATA_FAILED`), 27100 (`FETCH_USER_METADATA_FAILED`). `fetchUserMetadata()` resolves `null` when nothing has been saved.
+Every field is optional and omitted fields are not sent. Out-of-range values reject with `INVALID_ARGUMENT` before any native call: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31 (integers), `height` 1-500 cm, `weight` 1-1000 kg, and `gender` one of `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"`. Call them after the most recent `initAsleepConfig()` has succeeded; calling them before that, or while a later `setup()`/`initAsleepConfig()` is in progress or has failed, rejects with `MISSING_PREREQUISITE`. Native failures keep the SDK code in `error.sdkCode`: 27400 (server validation, code `INVALID_ARGUMENT`), 27000 (`SAVE_USER_METADATA_FAILED`), 27100 (`FETCH_USER_METADATA_FAILED`). `fetchUserMetadata()` resolves `null` when nothing has been saved.
 
 ### `Asleep`
 

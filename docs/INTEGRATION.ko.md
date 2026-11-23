@@ -121,7 +121,7 @@ API key는 소스에 커밋하지 말고 앱의 배포 환경에 맞는 secret/c
 
 ### 기기 등록
 
-하드웨어 제품은 `setup()`에 `productInfo`를 전달해 기기를 Asleep에 등록합니다(`POST customer/v1/products`). `initAsleepConfig()`는 `productInfo`를 받지 않습니다. 등록이 성공한 뒤 생성된 session만 제품에 연결되므로 `startTracking()` 전에 등록하세요. 아래 동작은 iOS SDK 3.3.2, Android SDK 3.3.1 기준입니다.
+하드웨어 제품은 `setup()`에 `productInfo`를 전달해 기기를 Asleep에 등록합니다(`POST customer/v1/products`). `initAsleepConfig()`는 `productInfo`를 받지 않습니다. 등록이 성공한 뒤 생성된 session만 제품에 연결되므로 `startTracking()` 전에 등록하세요. 아래 동작은 iOS SDK 3.3.3, Android SDK 3.3.1 기준입니다.
 
 ```ts
 await asleep.setup({

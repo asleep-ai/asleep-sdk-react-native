@@ -192,7 +192,7 @@ The wrapper validates the native ranges before any bridge call and rejects with 
 
 ### Device registration
 
-Hardware products register the device with Asleep by passing `productInfo` to `setup()` (`POST customer/v1/products`); `initAsleepConfig()` does not accept it. Register before `startTracking()`: only sessions created after a successful registration are bound to the product. Behavior below is as of iOS SDK 3.3.2 and Android SDK 3.3.1.
+Hardware products register the device with Asleep by passing `productInfo` to `setup()` (`POST customer/v1/products`); `initAsleepConfig()` does not accept it. Register before `startTracking()`: only sessions created after a successful registration are bound to the product. Behavior below is as of iOS SDK 3.3.3 and Android SDK 3.3.1.
 
 ```ts
 await asleep.setup({
