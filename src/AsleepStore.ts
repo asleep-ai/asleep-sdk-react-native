@@ -53,6 +53,10 @@ export interface InternalAsleepState {
   trackingStatus: TrackingStatus;
   sessionId: string | null;
   userId: string | null;
+  // The native user config for the most recent initAsleepConfig() exists.
+  // Written by initAsleepConfig() start/failure/Android resolution and by
+  // onUserJoined/onUserJoinFailed; iOS resolves before the join completes.
+  isUserConfigReady: boolean;
   error: AsleepError | null;
   analysisResult: AsleepAnalysisResult | null;
   isAnalyzing: boolean;
@@ -121,6 +125,7 @@ export const useAsleepStore = createStore<InternalAsleepState>(() => ({
   trackingStatus: initialTrackingStatus,
   sessionId: null,
   userId: null,
+  isUserConfigReady: false,
   error: null,
   analysisResult: null,
   isAnalyzing: false,
@@ -389,10 +394,17 @@ const resolveUserMetadata = (metadata: AsleepUserMetadata): AsleepUserMetadata =
   return resolved as AsleepUserMetadata;
 };
 
-// The native user config exists only after initAsleepConfig() completes.
+// The native user config exists only after the most recent initAsleepConfig()
+// joined its user. A re-init in progress or a failed re-init invalidates it, so
+// these calls never run against a previous user's config.
 const requireUserConfig = (action: string) => {
-  if (useAsleepStore.getState().setupStatus !== "complete") {
-    storeAndThrow(new AsleepError("MISSING_PREREQUISITE", `Must call initAsleepConfig() before ${action}().`));
+  if (!useAsleepStore.getState().isUserConfigReady) {
+    storeAndThrow(
+      new AsleepError(
+        "MISSING_PREREQUISITE",
+        `initAsleepConfig() must complete its user join (onUserJoined) before ${action}().`,
+      ),
+    );
   }
 };
 
@@ -469,9 +481,9 @@ export const asleepActions: AsleepActions = {
     // while trackingStatus is "tracking" (v1 behavior the restore flow relies on).
     const errorBefore = state.error;
     addLog("[initAsleepConfig] Start");
-    useAsleepStore.setState({ setupStatus: "inProgress" });
+    useAsleepStore.setState({ setupStatus: "inProgress", isUserConfigReady: false });
     try {
-      await AsleepModule.initAsleepConfig(
+      const result = await AsleepModule.initAsleepConfig(
         credentials.apiKey,
         credentials.appId,
         credentials.appSecret,
@@ -479,11 +491,22 @@ export const asleepActions: AsleepActions = {
         config.baseUrl,
         config.callbackUrl,
       );
-      useAsleepStore.setState({ setupStatus: "complete", isInitialized: true });
+      // Android resolves after its join with { userId }. iOS resolves before the
+      // join, so readiness waits for onUserJoined; never reset it here because
+      // that event may already have arrived.
+      const joined = typeof result?.userId === "string" && result.userId.length > 0;
+      useAsleepStore.setState({
+        setupStatus: "complete",
+        isInitialized: true,
+        ...(joined ? { isUserConfigReady: true } : {}),
+      });
       clearErrorIfUnchanged(errorBefore);
       addLog("[initAsleepConfig] Success");
     } catch (error) {
-      return guardedFailure(error, "INIT_CONFIG_FAILED", errorBefore, { setupStatus: "idle" });
+      return guardedFailure(error, "INIT_CONFIG_FAILED", errorBefore, {
+        setupStatus: "idle",
+        isUserConfigReady: false,
+      });
     }
   },
 
@@ -865,10 +888,13 @@ const transitionForEvent = (
 ): { partial: Partial<InternalAsleepState>; log: string; requestAnalysis?: boolean } => {
   switch (eventType) {
     case "onUserJoined":
-      return { partial: { userId: payload.userId }, log: `[onUserJoined] userId: ${payload.userId}` };
+      return {
+        partial: { userId: payload.userId, isUserConfigReady: true },
+        log: `[onUserJoined] userId: ${payload.userId}`,
+      };
     case "onUserJoinFailed":
       return {
-        partial: { error: normalizeError(payload, "USER_JOIN_FAILED") },
+        partial: { error: normalizeError(payload, "USER_JOIN_FAILED"), isUserConfigReady: false },
         log: `[onUserJoinFailed] error: ${payload?.message ?? payload?.detail ?? payload?.error ?? "Unknown error"}`,
       };
     case "onUserDeleted":

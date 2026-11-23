@@ -61,6 +61,11 @@ public class AsleepModule: Module {
         }
 
         Function("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?) in
+            // Drop the previous user's config until userDidJoin delivers the new one,
+            // so metadata and report calls never run as the previous user. The
+            // tracking manager is left alone so a running session is not disturbed.
+            self.config = nil
+            self.reportManager = nil
             Asleep.setLogger(self)
             if let appId = appId, let appSecret = appSecret {
                 Asleep.initAsleepConfig(appId: appId,
@@ -430,6 +435,8 @@ extension AsleepModule: AsleepConfigDelegate {
     }
 
     public func didFailUserJoin(error: Asleep.AsleepError) {
+        self.config = nil
+        self.reportManager = nil
         sendEvent("onUserJoinFailed", [
             "error": error.localizedDescription,
             "caseName": String(describing: error),

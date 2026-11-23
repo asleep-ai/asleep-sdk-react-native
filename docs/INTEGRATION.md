@@ -181,7 +181,7 @@ Do not reconfigure a live session with a different product identity. Define any 
 
 ### User metadata
 
-`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after `initAsleepConfig()` succeeds; earlier calls reject with `MISSING_PREREQUISITE`.
+`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after the most recent `initAsleepConfig()` has completed its user join (`onUserJoined`; on Android, its resolved promise). Earlier calls, calls while a re-init is in progress, and calls after a failed re-init reject with `MISSING_PREREQUISITE`; the previous user's config is never reused.
 
 ```ts
 await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });
@@ -439,7 +439,7 @@ Branch on `error.sdkCode` (code `REANALYZE_FAILED`):
 | 30401 / 30403 | Unauthorized / not allowed for this customer | Do not retry; check credentials and contract |
 | 30000 / 30500 | Network or server failure | Retry with a bounded policy |
 
-Input checks (empty `sessionId`, invalid range) reject with `INVALID_ARGUMENT` before any native call, and calls before `initAsleepConfig()` reject with `MISSING_PREREQUISITE`.
+Input checks (empty `sessionId`, invalid range) reject with `INVALID_ARGUMENT` before any native call, and calls before the most recent `initAsleepConfig()` has completed its user join, while a re-init is in progress, or after it failed reject with `MISSING_PREREQUISITE`.
 
 ## 9. Consume analysis consistently
 

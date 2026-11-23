@@ -374,7 +374,7 @@ Android에서 Promise 결과를 별도로 store에 다시 쓰면 같은 분석�
 
 ### 사용자 메타데이터
 
-`saveUserMetadata(metadata)`와 `fetchUserMetadata()`는 설정된 사용자의 선택적 프로필 정보(생년월일, 성별, 키, 몸무게)를 저장하고 조회합니다. `initAsleepConfig()`가 성공한 뒤에만 호출하세요. 그 전에 호출하면 `MISSING_PREREQUISITE`로 reject됩니다.
+`saveUserMetadata(metadata)`와 `fetchUserMetadata()`는 설정된 사용자의 선택적 프로필 정보(생년월일, 성별, 키, 몸무게)를 저장하고 조회합니다. 가장 최근 `initAsleepConfig()`가 user join(`onUserJoined`, Android에서는 resolve된 Promise)을 마친 뒤에만 호출하세요. 그 전, 재초기화 진행 중, 재초기화 실패 후에 호출하면 `MISSING_PREREQUISITE`로 reject되며 이전 사용자의 config는 재사용되지 않습니다.
 
 ```ts
 await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });
@@ -416,7 +416,7 @@ wrapper는 bridge 호출 전에 native와 같은 범위를 검증하고 `INVALID
 | 30401 / 30403 | 인증 실패 / 이 고객에게 허용되지 않음 | 재시도하지 않음. 인증 정보와 계약 확인 |
 | 30000 / 30500 | 네트워크 또는 서버 실패 | 상한이 있는 정책으로 재시도 |
 
-입력 검사(빈 `sessionId`, 잘못된 구간)는 native 호출 전에 `INVALID_ARGUMENT`로, `initAsleepConfig()` 전 호출은 `MISSING_PREREQUISITE`로 reject됩니다.
+입력 검사(빈 `sessionId`, 잘못된 구간)는 native 호출 전에 `INVALID_ARGUMENT`로, 가장 최근 `initAsleepConfig()`의 user join 완료 전, 재초기화 진행 중, 재초기화 실패 후의 호출은 `MISSING_PREREQUISITE`로 reject됩니다.
 
 ## 8. 프로덕션 체크리스트
 

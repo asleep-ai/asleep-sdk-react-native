@@ -235,6 +235,12 @@ class AsleepModule : Module() {
                     return@AsyncFunction
                 }
 
+                // Drop the previous user's config until onSuccess delivers the new one,
+                // so metadata and report calls never run as the previous user. On
+                // onFail both stay null.
+                _asleepConfig = null
+                _reportManager = null
+
                 // Store the credential identity in memory instead of preferences
                 savedCredentialId = credentialId
 

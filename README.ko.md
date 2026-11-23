@@ -373,7 +373,7 @@ await asleep.reanalyze(sessionId, { analysisRange: { start, end } });
 
 > **구간 없이 재분석하면 서버에 저장된 이전 구간이 대체됩니다.** `stopTracking({ analysisRange })`로 지정한 구간도 마찬가지입니다. 구간을 유지하려면 다시 전달하세요.
 
-빈 `sessionId`나 잘못된 구간은 native 호출 전에 `INVALID_ARGUMENT`로, 설정 전 호출은 `MISSING_PREREQUISITE`로 reject됩니다. 서버 실패는 code `REANALYZE_FAILED`로 reject되며 `error.sdkCode`에 SDK 코드를 유지합니다: 30000(일반/네트워크), 30400, 30401, 30403, 30404, 30409(재분석이 이미 진행 중: 간격을 두고, 무한 재시도하지 마세요), 30410(데이터 보존 기간 만료), 30422(session이 아직 측정 중), 30500.
+빈 `sessionId`나 잘못된 구간은 native 호출 전에 `INVALID_ARGUMENT`로, 가장 최근 `initAsleepConfig()`가 user join(`onUserJoined`, Android에서는 resolve된 Promise)을 마치기 전, 재초기화 진행 중, 재초기화 실패 후의 호출은 `MISSING_PREREQUISITE`로 reject됩니다. 서버 실패는 code `REANALYZE_FAILED`로 reject되며 `error.sdkCode`에 SDK 코드를 유지합니다: 30000(일반/네트워크), 30400, 30401, 30403, 30404, 30409(재분석이 이미 진행 중: 간격을 두고, 무한 재시도하지 마세요), 30410(데이터 보존 기간 만료), 30422(session이 아직 측정 중), 30500.
 
 ### 사용자 메타데이터
 
@@ -388,7 +388,7 @@ await asleep.saveUserMetadata(metadata);
 const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
 ```
 
-모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 성공한 뒤에 호출하세요. 그 전이나, 이후의 `setup()`/`initAsleepConfig()`가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject됩니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
+모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 user join(`onUserJoined`, Android에서는 resolve된 Promise)을 마친 뒤에 호출하세요. 그 전이나, 재초기화가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject되므로, 재초기화가 실패해도 이전 사용자의 프로필을 읽거나 덮어쓰지 않습니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
 
 ### `Asleep`
 

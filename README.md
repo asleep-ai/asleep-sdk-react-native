@@ -377,7 +377,7 @@ await asleep.reanalyze(sessionId, { analysisRange: { start, end } });
 
 > **Reanalyzing without a range replaces any earlier range on the server**, including one passed to `stopTracking({ analysisRange })`. Pass the range again to keep it.
 
-An empty `sessionId` or an invalid range rejects with `INVALID_ARGUMENT` before any native call, and calling before configuration rejects with `MISSING_PREREQUISITE`. Server failures reject with code `REANALYZE_FAILED` and keep the SDK code in `error.sdkCode`: 30000 (generic/network), 30400, 30401, 30403, 30404, 30409 (reanalysis already in progress: back off, do not retry unboundedly), 30410 (data retention expired), 30422 (the session is still tracking), 30500.
+An empty `sessionId` or an invalid range rejects with `INVALID_ARGUMENT` before any native call, and calling before the most recent `initAsleepConfig()` has completed its user join (`onUserJoined`; on Android, its resolved promise), while a re-init is in progress, or after it failed rejects with `MISSING_PREREQUISITE`. Server failures reject with code `REANALYZE_FAILED` and keep the SDK code in `error.sdkCode`: 30000 (generic/network), 30400, 30401, 30403, 30404, 30409 (reanalysis already in progress: back off, do not retry unboundedly), 30410 (data retention expired), 30422 (the session is still tracking), 30500.
 
 ### User metadata
 
@@ -392,7 +392,7 @@ await asleep.saveUserMetadata(metadata);
 const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
 ```
 
-Every field is optional and omitted fields are not sent. Out-of-range values reject with `INVALID_ARGUMENT` before any native call: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31 (integers), `height` 1-500 cm, `weight` 1-1000 kg, and `gender` one of `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"`. Call them after the most recent `initAsleepConfig()` has succeeded; calling them before that, or while a later `setup()`/`initAsleepConfig()` is in progress or has failed, rejects with `MISSING_PREREQUISITE`. Native failures keep the SDK code in `error.sdkCode`: 27400 (server validation, code `INVALID_ARGUMENT`), 27000 (`SAVE_USER_METADATA_FAILED`), 27100 (`FETCH_USER_METADATA_FAILED`). `fetchUserMetadata()` resolves `null` when nothing has been saved.
+Every field is optional and omitted fields are not sent. Out-of-range values reject with `INVALID_ARGUMENT` before any native call: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31 (integers), `height` 1-500 cm, `weight` 1-1000 kg, and `gender` one of `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"`. Call them after the most recent `initAsleepConfig()` has completed its user join (`onUserJoined`; on Android, its resolved promise). Calling them before that, while a re-init is in progress, or after it failed rejects with `MISSING_PREREQUISITE`, so a failed re-init never reads or writes the previous user's profile. Native failures keep the SDK code in `error.sdkCode`: 27400 (server validation, code `INVALID_ARGUMENT`), 27000 (`SAVE_USER_METADATA_FAILED`), 27100 (`FETCH_USER_METADATA_FAILED`). `fetchUserMetadata()` resolves `null` when nothing has been saved.
 
 ### `Asleep`
 
