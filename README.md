@@ -29,6 +29,7 @@ Bundled native SDK versions. The React Native package follows its own semver; it
 
 | react-native-asleep | iOS SDK | Android SDK |
 |---|---|---|
+| 2.1.0 | 3.3.3 | 3.3.1 |
 | 2.0.0 | 3.3.2 | 3.3.1 |
 | 1.0.17 – 1.2.0 | 3.2.0 | 3.2.1 |
 | 1.0.15 | 3.2.0 | 3.2.0 |
