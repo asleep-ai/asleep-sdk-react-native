@@ -678,7 +678,10 @@ describe("stopTracking analysis range", () => {
     await asleepActions.stopTracking();
     await asleepActions.stopTracking({});
     expect(mockModule.stopTracking).toHaveBeenCalledTimes(2);
-    expect(mockModule.stopTracking.mock.calls).toEqual([[], []]);
+    expect(mockModule.stopTracking.mock.calls).toEqual([
+      [null, null],
+      [null, null],
+    ]);
   });
 
   it("forwards the range as epoch milliseconds and closes like a plain stop", async () => {

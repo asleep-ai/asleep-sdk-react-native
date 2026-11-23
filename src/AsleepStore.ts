@@ -634,7 +634,9 @@ export const asleepActions: AsleepActions = {
     const range = resolveAnalysisRange(options?.analysisRange);
     const errorBefore = useAsleepStore.getState().error;
     try {
-      const result = await (range ? AsleepModule.stopTracking(range[0], range[1]) : AsleepModule.stopTracking());
+      // Always pass both arguments: older expo-modules-core versions do not let
+      // trailing nullable arguments be omitted.
+      const result = await AsleepModule.stopTracking(range ? range[0] : null, range ? range[1] : null);
       useAsleepStore.setState({
         didClose: true,
         ...(typeof result === "string" && result ? { sessionId: result } : {}),
