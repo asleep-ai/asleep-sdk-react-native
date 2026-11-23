@@ -448,7 +448,9 @@ export const asleepActions: AsleepActions = {
 
     const errorBefore = state.error;
     addLog("[setup] Start");
-    useAsleepStore.setState({ setupStatus: "inProgress" });
+    // setup() reconfigures the SDK (possibly with other credentials), so the
+    // previous user config is no longer valid until initAsleepConfig() resolves.
+    useAsleepStore.setState({ setupStatus: "inProgress", isUserConfigReady: false });
     try {
       // Credentials travel as one record: Expo's Kotlin AsyncFunction accepts at
       // most eight parameters including the promise.

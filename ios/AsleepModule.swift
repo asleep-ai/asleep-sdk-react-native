@@ -48,6 +48,10 @@ public class AsleepModule: Module {
         // JS validates that exactly one credential form is present: apiKey, or appId + appSecret,
         // and validates productInfo. A nil productInfo skips product registration.
         Function("setup") { (credentials: SetupCredentialsRecord, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?, productInfo: ProductInfoRecord?) in
+            // setup() may switch credentials; drop the previous user config until the
+            // next userDidJoin so per-user calls never run as the previous user.
+            self.config = nil
+            self.reportManager = nil
             var product: Asleep.ProductInfo?
             if let productInfo = productInfo {
                 guard let identifierType = Asleep.ProductIdentifierType(rawValue: productInfo.identifierType) else {

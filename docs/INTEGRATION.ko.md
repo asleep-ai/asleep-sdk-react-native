@@ -338,7 +338,7 @@ Android에서 Promise 결과를 별도로 store에 다시 쓰면 같은 분석�
 
 ### 사용자 메타데이터
 
-`saveUserMetadata(metadata)`와 `fetchUserMetadata()`는 설정된 사용자의 선택적 프로필 정보(생년월일, 성별, 키, 몸무게)를 저장하고 조회합니다. 가장 최근 `initAsleepConfig()`가 resolve된 뒤에만 호출하세요. 그 전, 재초기화 진행 중, 재초기화 실패 후에 호출하면 `MISSING_PREREQUISITE`로 reject되며 이전 사용자의 config는 재사용되지 않습니다.
+`saveUserMetadata(metadata)`와 `fetchUserMetadata()`는 설정된 사용자의 선택적 프로필 정보(생년월일, 성별, 키, 몸무게)를 저장하고 조회합니다. 가장 최근 `initAsleepConfig()`가 resolve된 뒤에만 호출하세요. 그 전, 재초기화 진행 중, 재초기화 실패 후에 호출하면 `MISSING_PREREQUISITE`로 reject되며 이전 사용자의 config는 재사용되지 않습니다. `setup()`도 사용자 설정을 무효화하므로 `setup()` 뒤에는 `initAsleepConfig()`를 다시 호출하세요.
 
 ```ts
 await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });

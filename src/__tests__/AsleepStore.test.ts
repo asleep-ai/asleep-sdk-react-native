@@ -817,6 +817,17 @@ describe("reanalyze", () => {
 });
 
 describe("user config readiness", () => {
+  it("setup() clears readiness so per-user actions reject before native", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true, userId: "A" });
+    const pending = asleepActions.setup({ apiKey: "other-key" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(false);
+    await pending.catch(() => undefined);
+    await expect(asleepActions.saveUserMetadata({ birthYear: 1990 })).rejects.toMatchObject({
+      code: "MISSING_PREREQUISITE",
+    });
+    expect(mockModule.saveUserMetadata).not.toHaveBeenCalled();
+  });
+
   it("onUserDeleted clears readiness so per-user actions reject before native", async () => {
     resetState({ setupStatus: "complete", isUserConfigReady: true, userId: "A" });
     mockEmitter.__emit("onUserDeleted", { userId: "A" });

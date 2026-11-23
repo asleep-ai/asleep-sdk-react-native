@@ -350,7 +350,7 @@ await asleep.saveUserMetadata(metadata);
 const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
 ```
 
-모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 resolve된 뒤에 호출하세요. 그 전이나, 재초기화가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject되므로, 재초기화가 실패해도 이전 사용자의 프로필을 읽거나 덮어쓰지 않습니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
+모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 resolve된 뒤에 호출하세요. 그 전이나, 재초기화가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject되므로, 재초기화가 실패해도 이전 사용자의 프로필을 읽거나 덮어쓰지 않습니다. `setup()`도 사용자 설정을 무효화하므로 `setup()` 뒤에는 `initAsleepConfig()`를 다시 호출하세요. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
 
 ### `Asleep`
 

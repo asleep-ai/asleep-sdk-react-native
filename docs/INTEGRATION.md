@@ -145,7 +145,7 @@ Do not reconfigure a live session with a different product identity. Define any 
 
 ### User metadata
 
-`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after the most recent `initAsleepConfig()` has resolved. Earlier calls, calls while a re-init is in progress, and calls after a failed re-init reject with `MISSING_PREREQUISITE`; the previous user's config is never reused.
+`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after the most recent `initAsleepConfig()` has resolved. Earlier calls, calls while a re-init is in progress, and calls after a failed re-init reject with `MISSING_PREREQUISITE`; the previous user's config is never reused. `setup()` also invalidates it, so call `initAsleepConfig()` again after `setup()`.
 
 ```ts
 await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });

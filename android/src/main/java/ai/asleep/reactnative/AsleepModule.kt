@@ -159,6 +159,10 @@ class AsleepModule : Module() {
         // because AsyncFunction accepts at most eight parameters including the promise.
         // A null productInfo skips product registration.
         AsyncFunction("setup") { credentials: SetupCredentialsRecord, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, productInfo: ProductInfoRecord?, promise: Promise ->
+            // setup() may switch credentials; drop the previous user config until the
+            // next initAsleepConfig() succeeds so per-user calls never run as the previous user.
+            _asleepConfig = null
+            _reportManager = null
             val apiKey = credentials.apiKey
             val appId = credentials.appId
             val appSecret = credentials.appSecret
