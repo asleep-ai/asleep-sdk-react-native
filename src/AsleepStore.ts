@@ -898,7 +898,7 @@ const transitionForEvent = (
         log: `[onUserJoinFailed] error: ${payload?.message ?? payload?.detail ?? payload?.error ?? "Unknown error"}`,
       };
     case "onUserDeleted":
-      return { partial: { userId: null }, log: `[onUserDeleted] userId: ${payload.userId}` };
+      return { partial: { userId: null, isUserConfigReady: false }, log: `[onUserDeleted] userId: ${payload.userId}` };
     case "onTrackingCreated":
       return {
         partial: { trackingStatus: "tracking", ...(payload?.sessionId ? { sessionId: payload.sessionId } : {}) },

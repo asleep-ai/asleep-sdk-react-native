@@ -817,6 +817,14 @@ describe("reanalyze", () => {
 });
 
 describe("user config readiness", () => {
+  it("onUserDeleted clears readiness so per-user actions reject before native", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true, userId: "A" });
+    mockEmitter.__emit("onUserDeleted", { userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(false);
+    await expect(asleepActions.fetchUserMetadata()).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+    expect(mockModule.fetchUserMetadata).not.toHaveBeenCalled();
+  });
+
   const userConfigCalls: Array<[string, () => Promise<unknown>]> = [
     ["saveUserMetadata", () => asleepActions.saveUserMetadata({ birthYear: 1990 })],
     ["fetchUserMetadata", () => asleepActions.fetchUserMetadata()],
