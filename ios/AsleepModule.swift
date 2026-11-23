@@ -7,12 +7,13 @@ public class AsleepModule: Module {
     private(set) var config: Asleep.Config?
     private var isLogEnabled = false
     // Each initAsleepConfig call gets its own SDK delegate, so a callback can only
-    // settle the promise of the call that caused it (a late answer to a timed-out
-    // call can never resolve a newer call with another user's result). The SDK
-    // may hold delegates weakly, so they are retained here until they answer.
+    // settle the promise of the call that caused it. Only the most recent call's
+    // delegate may change the module's user config: an answer that arrives after a
+    // newer call started is ignored (per-user calls stay blocked until the app
+    // initializes again), so it can never re-activate a previous user. Only the
+    // current delegate is retained; replacing it releases the older one.
     private let initLock = NSLock()
     private var currentInit: InitCallDelegate?
-    private var liveInitDelegates: [ObjectIdentifier: InitCallDelegate] = [:]
     // The SDK ignores initAsleepConfig without any callback while tracking is
     // starting or stopping, or while a previous init is still waiting for its
     // response (Asleep.swift isInitIgnoredWhileTrackingTransition, 3.3.3). Such a
@@ -88,7 +89,6 @@ public class AsleepModule: Module {
                 return
             }
             self.currentInit = callDelegate
-            self.liveInitDelegates[ObjectIdentifier(callDelegate)] = callDelegate
             self.initLock.unlock()
             callDelegate.startTimeout()
             // Drop the previous user's config until a join delivers the new one, so
@@ -490,10 +490,10 @@ extension AsleepModule: AsleepConfigDelegate {
         ])
     }
 
-    fileprivate func releaseInitDelegate(_ callDelegate: InitCallDelegate) {
+    fileprivate func isCurrentInit(_ callDelegate: InitCallDelegate) -> Bool {
         initLock.lock()
-        liveInitDelegates[ObjectIdentifier(callDelegate)] = nil
-        initLock.unlock()
+        defer { initLock.unlock() }
+        return currentInit === callDelegate
     }
 }
 
@@ -518,8 +518,8 @@ final class InitCallDelegate: AsleepConfigDelegate {
     func startTimeout() {
         DispatchQueue.global().asyncAfter(deadline: .now() + AsleepModule.initResponseTimeout) { [weak self] in
             guard let self = self else { return }
-            // Keep the delegate retained: the SDK may still answer this call later,
-            // and that answer must reach applyUserJoin rather than another promise.
+            // The module keeps this delegate while it is the current call, so a late
+            // answer can still configure the module if no newer call has started.
             self.settle { promise in
                 promise.reject("INITIALIZATION_FAILED", "initAsleepConfig got no response from the SDK within \(Int(AsleepModule.initResponseTimeout)) s (it ignores init while tracking is starting or stopping, or while a previous init is pending)")
             }
@@ -527,15 +527,21 @@ final class InitCallDelegate: AsleepConfigDelegate {
     }
 
     func userDidJoin(userId: String, config: Asleep.Config) {
-        module?.applyUserJoin(userId: userId, config: config)
+        guard let module = module, module.isCurrentInit(self) else {
+            module?.sendEvent("onDebugLog", ["message": "Ignored a user join for a superseded initAsleepConfig call"])
+            return
+        }
+        module.applyUserJoin(userId: userId, config: config)
         settle { $0.resolve(["userId": userId]) }
-        module?.releaseInitDelegate(self)
     }
 
     func didFailUserJoin(error: Asleep.AsleepError) {
-        module?.applyUserJoinFailure(error: error)
+        guard let module = module, module.isCurrentInit(self) else {
+            module?.sendEvent("onDebugLog", ["message": "Ignored a user join failure for a superseded initAsleepConfig call"])
+            return
+        }
+        module.applyUserJoinFailure(error: error)
         settle { $0.reject(sdkRejection("INITIALIZATION_FAILED", sdkCode: error.errorCode.code, message: sdkMessage(error))) }
-        module?.releaseInitDelegate(self)
     }
 
     func userDidDelete(userId: String) {
