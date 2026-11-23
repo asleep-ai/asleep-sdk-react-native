@@ -15,8 +15,15 @@ public class AsleepModule: Module {
     // The SDK ignores initAsleepConfig without any callback while tracking is
     // starting or stopping, or while a previous init is still waiting for its
     // response (Asleep.swift isInitIgnoredWhileTrackingTransition, 3.3.3), so a
-    // pending call must not be able to block every later init forever.
+    // pending call must not be able to block every later init forever: it is
+    // rejected after initResponseTimeout. The SDK may still answer that call
+    // later, and would ignore any init made meanwhile, so new calls are refused
+    // until a callback arrives (then it only emits events) or until
+    // staleInitWindow passes for a call the SDK really ignored. This keeps a late
+    // callback from settling a newer call with another user's result.
     private static let initResponseTimeout: TimeInterval = 60
+    private static let staleInitWindow: TimeInterval = 300
+    private var staleInitUntil: Date?
 
     public func definition() -> ModuleDefinition {
         Name("Asleep")
@@ -80,12 +87,18 @@ public class AsleepModule: Module {
                 promise.reject("OPERATION_IN_PROGRESS", "initAsleepConfig is already in progress")
                 return
             }
+            if let staleUntil = self.staleInitUntil, Date() < staleUntil {
+                self.pendingInitLock.unlock()
+                promise.reject("OPERATION_IN_PROGRESS", "A previous initAsleepConfig timed out and the SDK has not answered it yet")
+                return
+            }
+            self.staleInitUntil = nil
             self.pendingInitPromise = promise
             self.pendingInitGeneration += 1
             let generation = self.pendingInitGeneration
             self.pendingInitLock.unlock()
             DispatchQueue.global().asyncAfter(deadline: .now() + AsleepModule.initResponseTimeout) { [weak self] in
-                guard let self = self, let stale = self.takePendingInitPromise(ifGeneration: generation) else { return }
+                guard let self = self, let stale = self.takePendingInitPromise(ifGeneration: generation, markStale: true) else { return }
                 stale.reject("INITIALIZATION_FAILED", "initAsleepConfig got no response from the SDK within \(Int(AsleepModule.initResponseTimeout)) s (it ignores init while tracking is starting or stopping, or while a previous init is pending)")
             }
             // Drop the previous user's config until userDidJoin delivers the new one,
@@ -479,17 +492,19 @@ extension AsleepModule: AsleepConfigDelegate {
     private func takePendingInitPromise() -> Promise? {
         pendingInitLock.lock()
         defer { pendingInitLock.unlock() }
+        // Any SDK answer means it is no longer working on a timed-out call.
+        staleInitUntil = nil
         let promise = pendingInitPromise
         pendingInitPromise = nil
         return promise
     }
 
-    private func takePendingInitPromise(ifGeneration generation: Int) -> Promise? {
+    private func takePendingInitPromise(ifGeneration generation: Int, markStale: Bool) -> Promise? {
         pendingInitLock.lock()
         defer { pendingInitLock.unlock() }
-        guard pendingInitGeneration == generation else { return nil }
-        let promise = pendingInitPromise
+        guard pendingInitGeneration == generation, let promise = pendingInitPromise else { return nil }
         pendingInitPromise = nil
+        if markStale { staleInitUntil = Date().addingTimeInterval(AsleepModule.staleInitWindow) }
         return promise
     }
 
