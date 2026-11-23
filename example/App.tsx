@@ -55,6 +55,7 @@ const App = () => {
     fetchUserMetadata,
     reanalyze,
     setup,
+    initAsleepConfig,
     addEventListener,
   } = useAsleep();
   const [lastClosedSessionId, setLastClosedSessionId] = useState<string | null>(null);
@@ -203,8 +204,13 @@ const App = () => {
 
   // Exercises setup() without productInfo (no device registration).
   const _setupWithoutProduct = async () => {
+    // setup() invalidates the user config, so initialize the same user again once
+    // setup completes before using per-user actions such as metadata.
     const removeComplete = addEventListener("onSetupDidComplete", () => {
       addLog("[example] setup complete event");
+      initAsleepConfig({ apiKey: process.env.EXPO_PUBLIC_API_KEY || "", userId: userId ?? undefined })
+        .then(() => addLog("[example] re-init after setup ok"))
+        .catch((error: any) => addLog(`[example] re-init after setup failed ${error?.code} ${error?.sdkCode} ${error?.message}`));
     });
     const removeFail = addEventListener("onSetupDidFail", (event) => {
       addLog(`[example] setup failed event ${JSON.stringify(event)}`);
