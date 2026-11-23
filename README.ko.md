@@ -234,7 +234,7 @@ export function SleepTracker() {
 }
 ```
 
-두 플랫폼 모두 `await initAsleepConfig()`는 native user join이 끝난 뒤 resolve되고, 실패하면 reject됩니다. Android의 복원된 service 빠른 경로는 `onUserJoined` 없이 resolve되므로 event가 아니라 Promise를 기다리세요. 진행 중인 호출이 있을 때 다시 호출하면 `OPERATION_IN_PROGRESS`로 reject되므로, 사용자를 전환할 때처럼 연속으로 초기화하려면 앞선 호출이 끝난 뒤에 다음 호출을 시작하세요.
+두 플랫폼 모두 `await initAsleepConfig()`는 native user join이 끝난 뒤 resolve되고, 실패하면 reject됩니다. Android의 복원된 service 빠른 경로는 `onUserJoined` 없이 resolve되므로 event가 아니라 Promise를 기다리세요. 진행 중인 호출이 있을 때 다시 호출하면 `OPERATION_IN_PROGRESS`로 reject되므로, 사용자를 전환할 때처럼 연속으로 초기화하려면 앞선 호출이 끝난 뒤에 다음 호출을 시작하세요. native SDK는 트래킹이 시작·종료 중이거나 앞선 init이 응답을 기다리는 중이면 init을 콜백 없이 무시합니다. 이때 iOS는 60초 뒤 `INITIALIZATION_FAILED`로 reject되고 Android는 대기 상태로 남으므로, 시작·종료 중에는 `initAsleepConfig()`를 호출하지 마세요.
 
 `recordingDead`도 예외입니다. `isTracking`은 `false`지만 native session은 열려 있으므로 새 측정을 시작하기 전에 `stopTracking()`을 호출해야 합니다.
 

@@ -10,6 +10,13 @@ public class AsleepModule: Module {
     // delegate may call back off the JS queue, so every access holds the lock.
     private let pendingInitLock = NSLock()
     private var pendingInitPromise: Promise?
+    // Identifies the pending call so a timeout never settles a newer one.
+    private var pendingInitGeneration = 0
+    // The SDK ignores initAsleepConfig without any callback while tracking is
+    // starting or stopping, or while a previous init is still waiting for its
+    // response (Asleep.swift isInitIgnoredWhileTrackingTransition, 3.3.3), so a
+    // pending call must not be able to block every later init forever.
+    private static let initResponseTimeout: TimeInterval = 60
 
     public func definition() -> ModuleDefinition {
         Name("Asleep")
@@ -74,7 +81,13 @@ public class AsleepModule: Module {
                 return
             }
             self.pendingInitPromise = promise
+            self.pendingInitGeneration += 1
+            let generation = self.pendingInitGeneration
             self.pendingInitLock.unlock()
+            DispatchQueue.global().asyncAfter(deadline: .now() + AsleepModule.initResponseTimeout) { [weak self] in
+                guard let self = self, let stale = self.takePendingInitPromise(ifGeneration: generation) else { return }
+                stale.reject("INITIALIZATION_FAILED", "initAsleepConfig got no response from the SDK within \(Int(AsleepModule.initResponseTimeout)) s (it ignores init while tracking is starting or stopping, or while a previous init is pending)")
+            }
             // Drop the previous user's config until userDidJoin delivers the new one,
             // so metadata and report calls never run as the previous user. The
             // tracking manager is left alone so a running session is not disturbed.
@@ -466,6 +479,15 @@ extension AsleepModule: AsleepConfigDelegate {
     private func takePendingInitPromise() -> Promise? {
         pendingInitLock.lock()
         defer { pendingInitLock.unlock() }
+        let promise = pendingInitPromise
+        pendingInitPromise = nil
+        return promise
+    }
+
+    private func takePendingInitPromise(ifGeneration generation: Int) -> Promise? {
+        pendingInitLock.lock()
+        defer { pendingInitLock.unlock() }
+        guard pendingInitGeneration == generation else { return nil }
         let promise = pendingInitPromise
         pendingInitPromise = nil
         return promise
