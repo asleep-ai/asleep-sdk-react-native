@@ -6,6 +6,19 @@ public class AsleepModule: Module {
     private var reportManager: Asleep.Reports?
     private(set) var config: Asleep.Config?
     private var isLogEnabled = false
+    // Each initAsleepConfig call gets its own SDK delegate, so a callback can only
+    // settle the promise of the call that caused it. Only the most recent call's
+    // delegate may change the module's user config: an answer that arrives after a
+    // newer call started is ignored (per-user calls stay blocked until the app
+    // initializes again), so it can never re-activate a previous user. Only the
+    // current delegate is retained; replacing it releases the older one.
+    private let initLock = NSLock()
+    private var currentInit: InitCallDelegate?
+    // The SDK ignores initAsleepConfig without any callback while tracking is
+    // starting or stopping, or while a previous init is still waiting for its
+    // response (Asleep.swift isInitIgnoredWhileTrackingTransition, 3.3.3). Such a
+    // call is rejected after this timeout so it cannot block every later init.
+    fileprivate static let initResponseTimeout: TimeInterval = 60
 
     public func definition() -> ModuleDefinition {
         Name("Asleep")
@@ -27,28 +40,62 @@ public class AsleepModule: Module {
         Events("onSetupInProgress")
         Events("onAnalysisResult")
 
-        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret.
-        Function("setup") { (apiKey: String?, appId: String?, appSecret: String?, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?) in
+        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret,
+        // and validates productInfo. A nil productInfo skips product registration.
+        Function("setup") { (credentials: SetupCredentialsRecord, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Bool?, productInfo: ProductInfoRecord?) in
+            // setup() may switch credentials; drop the previous user config until the
+            // next userDidJoin so per-user calls never run as the previous user.
+            self.config = nil
+            self.reportManager = nil
+            var product: Asleep.ProductInfo?
+            if let productInfo = productInfo {
+                guard let identifierType = Asleep.ProductIdentifierType(rawValue: productInfo.identifierType) else {
+                    throw Exception(name: "INVALID_ARGUMENT", description: "Unknown productInfo.identifierType: \(productInfo.identifierType)", code: "INVALID_ARGUMENT")
+                }
+                product = Asleep.ProductInfo(model: productInfo.model,
+                                             identifierType: identifierType,
+                                             identifierValue: productInfo.identifierValue)
+            }
             Asleep.setLogger(self)
-            if let appId = appId, let appSecret = appSecret {
+            if let appId = credentials.appId, let appSecret = credentials.appSecret {
                 Asleep.setup(appId: appId,
                             appSecret: appSecret,
                             baseUrl: URL(string: baseUrl ?? ""),
                             callbackUrl: URL(string: callbackUrl ?? ""),
                             service: service,
                             enableODA: enableODA ?? false,
+                            productInfo: product,
                             delegate: self)
             } else {
-                Asleep.setup(apiKey: apiKey ?? "",
+                Asleep.setup(apiKey: credentials.apiKey ?? "",
                             baseUrl: URL(string: baseUrl ?? ""),
                             callbackUrl: URL(string: callbackUrl ?? ""),
                             service: service,
                             enableODA: enableODA ?? false,
+                            productInfo: product,
                             delegate: self)
             }
         }
 
-        Function("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?) in
+        // Resolves with { userId } when this call's user join completes and rejects
+        // when it fails or the SDK never answers, matching Android. A call while
+        // another is still unsettled rejects without touching it.
+        AsyncFunction("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise) in
+            let callDelegate = InitCallDelegate(module: self, promise: promise)
+            self.initLock.lock()
+            if let current = self.currentInit, !current.isSettled {
+                self.initLock.unlock()
+                promise.reject("OPERATION_IN_PROGRESS", "initAsleepConfig is already in progress")
+                return
+            }
+            self.currentInit = callDelegate
+            self.initLock.unlock()
+            callDelegate.startTimeout()
+            // Drop the previous user's config until a join delivers the new one, so
+            // metadata and report calls never run as the previous user. The tracking
+            // manager is left alone so a running session is not disturbed.
+            self.config = nil
+            self.reportManager = nil
             Asleep.setLogger(self)
             if let appId = appId, let appSecret = appSecret {
                 Asleep.initAsleepConfig(appId: appId,
@@ -56,13 +103,13 @@ public class AsleepModule: Module {
                                         userId: userId,
                                         baseUrl: URL(string: baseUrl ?? ""),
                                         callbackUrl: URL(string: callbackUrl ?? ""),
-                                        delegate: self)
+                                        delegate: callDelegate)
             } else {
                 Asleep.initAsleepConfig(apiKey: apiKey,
                                         userId: userId,
                                         baseUrl: URL(string: baseUrl ?? ""),
                                         callbackUrl: URL(string: callbackUrl ?? ""),
-                                        delegate: self)
+                                        delegate: callDelegate)
             }
         }
 
@@ -114,11 +161,17 @@ public class AsleepModule: Module {
             trackingManager.startTracking(additionalAudioSessionOptions: additionalOptions)
         }
 
-        AsyncFunction("stopTracking") { () -> Void in
+        // Range bounds are epoch milliseconds; JS validates start < end before calling.
+        AsyncFunction("stopTracking") { (analysisStartMs: Double?, analysisEndMs: Double?) -> Void in
             guard let trackingManager = self.trackingManager else {
                 throw NSError(domain: "AsleepModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tracking manager not initialized"])
             }
-            trackingManager.stopTracking()
+            if let analysisStartMs = analysisStartMs, let analysisEndMs = analysisEndMs {
+                trackingManager.stopTracking(analysisStartTime: Date(timeIntervalSince1970: analysisStartMs / 1000),
+                                             analysisEndTime: Date(timeIntervalSince1970: analysisEndMs / 1000))
+            } else {
+                trackingManager.stopTracking()
+            }
         }
 
         AsyncFunction("resumeTracking") { () -> Void in
@@ -180,6 +233,62 @@ public class AsleepModule: Module {
             } catch {
                 sendEvent("onDebugLog", ["message": "Error getting average report: \(error)"])
                 throw error
+            }
+        }
+
+        // Resolves when the server accepts the request; the completion block is
+        // not called on the main queue (Reports.Interface.swift). Range bounds are
+        // epoch milliseconds and are always passed explicitly (null when absent).
+        AsyncFunction("reanalyze") { (sessionId: String, analysisStartMs: Double?, analysisEndMs: Double?, promise: Promise) in
+            guard let reportManager = self.reportManager else {
+                promise.reject("MISSING_PREREQUISITE", "Reports not initialized")
+                return
+            }
+            let completion: (String?, Asleep.AsleepError?) -> Void = { _, error in
+                if let error = error {
+                    let sdkCode = error.errorCode.code
+                    // 11009 invalidParameter: start >= end (JS validates this first).
+                    let code = sdkCode == 11009 ? "INVALID_ARGUMENT" : "REANALYZE_FAILED"
+                    promise.reject(sdkRejection(code, sdkCode: sdkCode, message: sdkMessage(error)))
+                } else {
+                    promise.resolve(nil)
+                }
+            }
+            if let analysisStartMs = analysisStartMs, let analysisEndMs = analysisEndMs {
+                reportManager.reanalyze(sessionId: sessionId,
+                                        analysisStartTime: Date(timeIntervalSince1970: analysisStartMs / 1000),
+                                        analysisEndTime: Date(timeIntervalSince1970: analysisEndMs / 1000),
+                                        completionBlock: completion)
+            } else {
+                reportManager.reanalyze(sessionId: sessionId, completionBlock: completion)
+            }
+        }
+
+        // Promise style (not a throwing AsyncFunction) so rejections carry the SDK message
+        // as-is instead of Expo's "Calling the '...' function has failed" wrapper,
+        // matching reanalyze and Android.
+        AsyncFunction("saveUserMetadata") { (metadata: UserMetadataRecord, promise: Promise) in
+            Task {
+                do {
+                    try await self.saveUserMetadata(metadata)
+                    promise.resolve(nil)
+                } catch let exception as Exception {
+                    promise.reject(exception)
+                } catch {
+                    promise.reject(sdkRejection("SAVE_USER_METADATA_FAILED", sdkCode: 27000, message: error.localizedDescription))
+                }
+            }
+        }
+
+        AsyncFunction("fetchUserMetadata") { (promise: Promise) in
+            Task {
+                do {
+                    promise.resolve(try await self.fetchUserMetadata())
+                } catch let exception as Exception {
+                    promise.reject(exception)
+                } catch {
+                    promise.reject(sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: 27100, message: error.localizedDescription))
+                }
             }
         }
 
@@ -249,6 +358,41 @@ public class AsleepModule: Module {
     }
 }
 
+// Expo rejections carry only a code string and a message. JS normalizeError
+// splits "<CODE>:<sdkCode>" back into AsleepError.code and AsleepError.sdkCode.
+// AsleepError is not a LocalizedError, so localizedDescription is only the generic
+// "The operation couldn't be completed" text. Prefer the SDK/server message.
+private func sdkMessage(_ error: Asleep.AsleepError) -> String {
+    if let message = error.errorCode.message, !message.isEmpty { return message }
+    return String(describing: error)
+}
+
+private func sdkRejection(_ code: String, sdkCode: Int, message: String) -> Exception {
+    let encoded = "\(code):\(sdkCode)"
+    return Exception(name: encoded, description: message, code: encoded)
+}
+
+struct SetupCredentialsRecord: Record {
+    @Field var apiKey: String?
+    @Field var appId: String?
+    @Field var appSecret: String?
+}
+
+struct ProductInfoRecord: Record {
+    @Field var model: String = ""
+    @Field var identifierType: String = ""
+    @Field var identifierValue: String = ""
+}
+
+struct UserMetadataRecord: Record {
+    @Field var birthYear: Int?
+    @Field var birthMonth: Int?
+    @Field var birthDay: Int?
+    @Field var gender: String?
+    @Field var height: Double?
+    @Field var weight: Double?
+}
+
 extension AsleepModule: AsleepSetupDelegate {
     public func setupDidComplete() {
         sendEvent("onSetupDidComplete", [:])
@@ -266,17 +410,78 @@ extension AsleepModule: AsleepSetupDelegate {
     public func setupInProgress(progress: Int) {
         sendEvent("onSetupInProgress", ["progress": progress])
     }
+    private func saveUserMetadata(_ metadata: UserMetadataRecord) async throws {
+        guard let config = self.config else {
+            throw Exception(name: "MISSING_PREREQUISITE", description: "AsleepConfig is not initialized", code: "MISSING_PREREQUISITE")
+        }
+        var gender: Asleep.Model.Gender?
+        if let rawGender = metadata.gender {
+            guard let parsed = Asleep.Model.Gender(rawValue: rawGender) else {
+                throw sdkRejection("INVALID_ARGUMENT", sdkCode: 27400, message: "Unknown gender: \(rawGender)")
+            }
+            gender = parsed
+        }
+        let model = Asleep.Model.UserMetadata(birthYear: metadata.birthYear,
+                                              birthMonth: metadata.birthMonth,
+                                              birthDay: metadata.birthDay,
+                                              gender: gender,
+                                              height: metadata.height,
+                                              weight: metadata.weight)
+        do {
+            try await Asleep.saveUserMetadata(model, config: config)
+        } catch let error as Asleep.AsleepError {
+            let sdkCode = error.errorCode.code
+            throw sdkRejection(sdkCode == 27400 ? "INVALID_ARGUMENT" : "SAVE_USER_METADATA_FAILED", sdkCode: sdkCode, message: sdkMessage(error))
+        } catch {
+            // Non-SDK failures (e.g. URLError) map to ERR_SAVE_METADATA_FAILED.
+            throw sdkRejection("SAVE_USER_METADATA_FAILED", sdkCode: 27000, message: error.localizedDescription)
+        }
+    }
+
+    private func fetchUserMetadata() async throws -> [String: Any]? {
+        guard let config = self.config else {
+            throw Exception(name: "MISSING_PREREQUISITE", description: "AsleepConfig is not initialized", code: "MISSING_PREREQUISITE")
+        }
+        let metadata: Asleep.Model.UserMetadata?
+        do {
+            metadata = try await Asleep.fetchUserMetadata(config: config)
+        } catch let error as Asleep.AsleepError {
+            throw sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: error.errorCode.code, message: sdkMessage(error))
+        } catch {
+            // Non-SDK failures (e.g. URLError) map to ERR_FETCH_METADATA_FAILED.
+            throw sdkRejection("FETCH_USER_METADATA_FAILED", sdkCode: 27100, message: error.localizedDescription)
+        }
+        return try metadata?.asDictionary()
+    }
+
 }
 
 extension AsleepModule: AsleepConfigDelegate {
     public func userDidJoin(userId: String, config: Asleep.Config) {
+        applyUserJoin(userId: userId, config: config)
+    }
+
+    public func didFailUserJoin(error: Asleep.AsleepError) {
+        applyUserJoinFailure(error: error)
+    }
+
+    public func userDidDelete(userId: String) {
+        sendEvent("onUserDeleted", ["userId": userId])
+    }
+
+    // The SDK is now configured for this user, whichever call it answers, so the
+    // module state follows it and the event is always emitted. Only the calling
+    // InitCallDelegate settles a promise.
+    fileprivate func applyUserJoin(userId: String, config: Asleep.Config) {
         self.config = config
         self.trackingManager = Asleep.createSleepTrackingManager(config: config, delegate: self)
         self.reportManager = Asleep.createReports(config: config)
         sendEvent("onUserJoined", ["userId": userId])
     }
 
-    public func didFailUserJoin(error: Asleep.AsleepError) {
+    fileprivate func applyUserJoinFailure(error: Asleep.AsleepError) {
+        self.config = nil
+        self.reportManager = nil
         sendEvent("onUserJoinFailed", [
             "error": error.localizedDescription,
             "caseName": String(describing: error),
@@ -285,8 +490,73 @@ extension AsleepModule: AsleepConfigDelegate {
         ])
     }
 
-    public func userDidDelete(userId: String) {
-        sendEvent("onUserDeleted", ["userId": userId])
+    fileprivate func isCurrentInit(_ callDelegate: InitCallDelegate) -> Bool {
+        initLock.lock()
+        defer { initLock.unlock() }
+        return currentInit === callDelegate
+    }
+}
+
+/// The SDK delegate for one initAsleepConfig call. Settles its promise at most once.
+final class InitCallDelegate: AsleepConfigDelegate {
+    private weak var module: AsleepModule?
+    private let promise: Promise
+    private let lock = NSLock()
+    private var settled = false
+
+    init(module: AsleepModule, promise: Promise) {
+        self.module = module
+        self.promise = promise
+    }
+
+    var isSettled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return settled
+    }
+
+    func startTimeout() {
+        DispatchQueue.global().asyncAfter(deadline: .now() + AsleepModule.initResponseTimeout) { [weak self] in
+            guard let self = self else { return }
+            // The module keeps this delegate while it is the current call, so a late
+            // answer can still configure the module if no newer call has started.
+            self.settle { promise in
+                promise.reject("INITIALIZATION_FAILED", "initAsleepConfig got no response from the SDK within \(Int(AsleepModule.initResponseTimeout)) s (it ignores init while tracking is starting or stopping, or while a previous init is pending)")
+            }
+        }
+    }
+
+    func userDidJoin(userId: String, config: Asleep.Config) {
+        guard let module = module, module.isCurrentInit(self) else {
+            module?.sendEvent("onDebugLog", ["message": "Ignored a user join for a superseded initAsleepConfig call"])
+            return
+        }
+        module.applyUserJoin(userId: userId, config: config)
+        settle { $0.resolve(["userId": userId]) }
+    }
+
+    func didFailUserJoin(error: Asleep.AsleepError) {
+        guard let module = module, module.isCurrentInit(self) else {
+            module?.sendEvent("onDebugLog", ["message": "Ignored a user join failure for a superseded initAsleepConfig call"])
+            return
+        }
+        module.applyUserJoinFailure(error: error)
+        settle { $0.reject(sdkRejection("INITIALIZATION_FAILED", sdkCode: error.errorCode.code, message: sdkMessage(error))) }
+    }
+
+    func userDidDelete(userId: String) {
+        module?.userDidDelete(userId: userId)
+    }
+
+    private func settle(_ action: (Promise) -> Void) {
+        lock.lock()
+        if settled {
+            lock.unlock()
+            return
+        }
+        settled = true
+        lock.unlock()
+        action(promise)
     }
 }
 

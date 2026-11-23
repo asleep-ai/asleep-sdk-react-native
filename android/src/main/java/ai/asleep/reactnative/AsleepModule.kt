@@ -2,6 +2,10 @@ package ai.asleep.reactnative
 
 import ai.asleep.asleepsdk.Asleep
 import ai.asleep.asleepsdk.data.AsleepConfig
+import ai.asleep.asleepsdk.data.Gender
+import ai.asleep.asleepsdk.data.ProductInfo
+import ai.asleep.asleepsdk.data.UserInfo
+import ai.asleep.asleepsdk.data.UserMetadata
 import ai.asleep.asleepsdk.data.Report
 import ai.asleep.asleepsdk.data.SleepSession
 import ai.asleep.asleepsdk.tracking.Reports
@@ -11,6 +15,8 @@ import com.google.gson.reflect.TypeToken
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 import expo.modules.kotlin.Promise
 import android.Manifest
 import android.app.Activity
@@ -42,6 +48,7 @@ import android.util.Log
 import android.os.PowerManager
 import android.provider.Settings
 import android.net.Uri
+import java.util.Date
 
 class AsleepModule : Module() {
     private val gson = Gson()
@@ -148,8 +155,28 @@ class AsleepModule : Module() {
                "onUserJoined", "onUserJoinFailed", "onUserDeleted", "onDebugLog",
                "onSetupDidComplete", "onSetupDidFail", "onSetupInProgress", "onAnalysisResult")
 
-        // JS validates that exactly one credential form is present: apiKey, or appId + appSecret.
-        AsyncFunction("setup") { apiKey: String?, appId: String?, appSecret: String?, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, promise: Promise ->
+        // JS validates the credential form and productInfo. Credentials travel as one record
+        // because AsyncFunction accepts at most eight parameters including the promise.
+        // A null productInfo skips product registration.
+        AsyncFunction("setup") { credentials: SetupCredentialsRecord, baseUrl: String?, callbackUrl: String?, service: String?, enableODA: Boolean?, productInfo: ProductInfoRecord?, promise: Promise ->
+            // setup() may switch credentials; drop the previous user config until the
+            // next initAsleepConfig() succeeds so per-user calls never run as the previous user.
+            _asleepConfig = null
+            _reportManager = null
+            val apiKey = credentials.apiKey
+            val appId = credentials.appId
+            val appSecret = credentials.appSecret
+            val product = productInfo?.let { record ->
+                val identifierType = when (record.identifierType) {
+                    "serial" -> Asleep.ProductIdentifierType.SERIAL
+                    "mac_address" -> Asleep.ProductIdentifierType.MAC_ADDRESS
+                    else -> {
+                        promise.reject("INVALID_ARGUMENT", "Unknown productInfo.identifierType: ${record.identifierType}", null)
+                        return@AsyncFunction
+                    }
+                }
+                ProductInfo(record.model, identifierType, record.identifierValue)
+            }
             try {
                 val context = appContext.reactContext!!.applicationContext as Application
                 val setupListener = object : Asleep.AsleepSetupListener {
@@ -166,7 +193,7 @@ class AsleepModule : Module() {
                     override fun onFail(errorCode: Int, detail: String) {
                         sendEvent("onSetupDidFail", mapOf("error" to detail, "sdkCode" to errorCode))
                         sendEvent("onDebugLog", mapOf("message" to "Setup failed: $errorCode - $detail"))
-                        promise.reject("SETUP_FAILED", "Setup failed: $errorCode - $detail", null)
+                        rejectWithSdkCode(promise, "SETUP_FAILED", errorCode, "Setup failed: $errorCode - $detail")
                     }
                 }
 
@@ -179,7 +206,8 @@ class AsleepModule : Module() {
                         callbackUrl = callbackUrl,
                         service = service ?: "SleepTracking",
                         enableODA = enableODA,
-                        asleepSetupListener = setupListener
+                        asleepSetupListener = setupListener,
+                        productInfo = product
                     )
                 } else {
                     Asleep.setup(
@@ -189,7 +217,8 @@ class AsleepModule : Module() {
                         callbackUrl = callbackUrl,
                         service = service ?: "SleepTracking",
                         enableODA = enableODA,
-                        asleepSetupListener = setupListener
+                        asleepSetupListener = setupListener,
+                        productInfo = product
                     )
                 }
             } catch (e: Exception) {
@@ -204,17 +233,24 @@ class AsleepModule : Module() {
                 val useToken = appId != null && appSecret != null
                 val credentialId = if (useToken) "appId:$appId" else "apiKey:$apiKey"
 
-                if (isTracking && savedCredentialId == credentialId && savedUserId == userId) {
+                // Only a live config from a previous successful init may take the shortcut;
+                // after a failed re-init the config is null and init must run again.
+                if (isTracking && _asleepConfig != null && savedCredentialId == credentialId && savedUserId == userId) {
                     promise.resolve(mapOf("userId" to (savedUserId ?: "")))
                     sendEvent("onDebugLog", mapOf("message" to "Service reconnected"))
                     return@AsyncFunction
                 }
 
-                // Store the credential identity in memory instead of preferences
-                savedCredentialId = credentialId
+                // Drop the previous user's config until onSuccess delivers the new one,
+                // so metadata and report calls never run as the previous user. On
+                // onFail both stay null.
+                _asleepConfig = null
+                _reportManager = null
 
                 val configListener = object : Asleep.AsleepConfigListener {
                     override fun onSuccess(userId: String?, asleepConfig: AsleepConfig?) {
+                        // Record the credential identity only once this init succeeded.
+                        savedCredentialId = credentialId
                         if (userId != null) {
                             sendEvent("onDebugLog", mapOf("message" to "UserId is not null"))
                             // Store userId in memory instead of preferences
@@ -375,8 +411,13 @@ class AsleepModule : Module() {
             return@Function isTracking
         }
 
-        AsyncFunction("stopTracking") { promise: Promise ->
-            Asleep.endSleepTracking()
+        // Range bounds are epoch milliseconds; JS validates start < end before calling.
+        AsyncFunction("stopTracking") { analysisStartMs: Double?, analysisEndMs: Double?, promise: Promise ->
+            if (analysisStartMs != null && analysisEndMs != null) {
+                Asleep.endSleepTracking(Date(analysisStartMs.toLong()), Date(analysisEndMs.toLong()))
+            } else {
+                Asleep.endSleepTracking()
+            }
             isTracking = false
             promise.resolve(null)
         }
@@ -487,6 +528,102 @@ class AsleepModule : Module() {
                 val errorMessage = "Average report retrieval failed: ${e.message}"
                 sendEvent("onDebugLog", mapOf("message" to errorMessage))
                 promise.reject("UNEXPECTED_ERROR", errorMessage, e)
+            }
+        }
+
+        // Resolves when the server accepts the request. Range bounds are epoch
+        // milliseconds and are always passed explicitly (null when absent).
+        AsyncFunction("reanalyze") { sessionId: String, analysisStartMs: Double?, analysisEndMs: Double?, promise: Promise ->
+            val reportManager = _reportManager
+            if (reportManager == null) {
+                promise.reject("MISSING_PREREQUISITE", "Report manager is not initialized", null)
+                return@AsyncFunction
+            }
+            val listener = object : Reports.ReanalyzeListener {
+                override fun onSuccess(sessionId: String) {
+                    sendEvent("onDebugLog", mapOf("message" to "reanalyze accepted: $sessionId"))
+                    promise.resolve(null)
+                }
+
+                override fun onFail(errorCode: Int, detail: String) {
+                    sendEvent("onDebugLog", mapOf("message" to "reanalyze failed: $errorCode - $detail"))
+                    // 11009 ERR_INVALID_PARAMETER: start >= end (JS validates this first).
+                    val code = if (errorCode == 11009) "INVALID_ARGUMENT" else "REANALYZE_FAILED"
+                    rejectWithSdkCode(promise, code, errorCode, detail)
+                }
+            }
+            try {
+                if (analysisStartMs != null && analysisEndMs != null) {
+                    reportManager.reanalyze(sessionId, Date(analysisStartMs.toLong()), Date(analysisEndMs.toLong()), listener)
+                } else {
+                    reportManager.reanalyze(sessionId, listener)
+                }
+            } catch (e: Exception) {
+                rejectWithSdkCode(promise, "REANALYZE_FAILED", 30000, e.message ?: "Failed to request reanalysis")
+            }
+        }
+
+        AsyncFunction("saveUserMetadata") { metadata: UserMetadataRecord, promise: Promise ->
+            val config = _asleepConfig
+            if (config == null) {
+                promise.reject("MISSING_PREREQUISITE", "AsleepConfig is not initialized", null)
+                return@AsyncFunction
+            }
+            val model = try {
+                val gender = metadata.gender?.let { raw ->
+                    Gender.values().firstOrNull { it.value == raw }
+                        ?: throw IllegalArgumentException("Unknown gender: $raw")
+                }
+                // The UserMetadata constructor throws IllegalArgumentException for out-of-range values.
+                UserMetadata(
+                    birthYear = metadata.birthYear,
+                    birthMonth = metadata.birthMonth,
+                    birthDay = metadata.birthDay,
+                    gender = gender,
+                    height = metadata.height?.toFloat(),
+                    weight = metadata.weight?.toFloat()
+                )
+            } catch (e: IllegalArgumentException) {
+                rejectWithSdkCode(promise, "INVALID_ARGUMENT", 27400, e.message ?: "Invalid user metadata")
+                return@AsyncFunction
+            }
+            try {
+                config.saveUserMetadata(model, object : Asleep.SaveUserMetadataListener {
+                    override fun onSuccess(userInfo: UserInfo) {
+                        sendEvent("onDebugLog", mapOf("message" to "saveUserMetadata completed"))
+                        promise.resolve(null)
+                    }
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        sendEvent("onDebugLog", mapOf("message" to "saveUserMetadata failed: $errorCode - $detail"))
+                        val code = if (errorCode == 27400) "INVALID_ARGUMENT" else "SAVE_USER_METADATA_FAILED"
+                        rejectWithSdkCode(promise, code, errorCode, detail)
+                    }
+                })
+            } catch (e: Exception) {
+                rejectWithSdkCode(promise, "SAVE_USER_METADATA_FAILED", 27000, e.message ?: "Failed to save user metadata")
+            }
+        }
+
+        AsyncFunction("fetchUserMetadata") { promise: Promise ->
+            val config = _asleepConfig
+            if (config == null) {
+                promise.reject("MISSING_PREREQUISITE", "AsleepConfig is not initialized", null)
+                return@AsyncFunction
+            }
+            try {
+                config.fetchUserMetadata(object : Asleep.FetchUserMetadataListener {
+                    override fun onSuccess(metadata: UserMetadata?) {
+                        promise.resolve(metadata?.serializeToMap())
+                    }
+
+                    override fun onFail(errorCode: Int, detail: String) {
+                        sendEvent("onDebugLog", mapOf("message" to "fetchUserMetadata failed: $errorCode - $detail"))
+                        rejectWithSdkCode(promise, "FETCH_USER_METADATA_FAILED", errorCode, detail)
+                    }
+                })
+            } catch (e: Exception) {
+                rejectWithSdkCode(promise, "FETCH_USER_METADATA_FAILED", 27100, e.message ?: "Failed to fetch user metadata")
             }
         }
 
@@ -674,6 +811,12 @@ class AsleepModule : Module() {
         }
     }
 
+    // Expo rejections carry only a code string and a message. JS normalizeError
+    // splits "<CODE>:<sdkCode>" back into AsleepError.code and AsleepError.sdkCode.
+    private fun rejectWithSdkCode(promise: Promise, code: String, sdkCode: Int, message: String) {
+        promise.reject("$code:$sdkCode", message, null)
+    }
+
     private fun <T> T.serializeToMap(): Map<String, Any> {
         return convert()
     }
@@ -716,4 +859,25 @@ class AsleepModule : Module() {
             cont.resumeWithException(Exception("Activity is null, cannot request microphone permission"))
         }
     }
+}
+
+class SetupCredentialsRecord : Record {
+    @Field val apiKey: String? = null
+    @Field val appId: String? = null
+    @Field val appSecret: String? = null
+}
+
+class ProductInfoRecord : Record {
+    @Field val model: String = ""
+    @Field val identifierType: String = ""
+    @Field val identifierValue: String = ""
+}
+
+class UserMetadataRecord : Record {
+    @Field val birthYear: Int? = null
+    @Field val birthMonth: Int? = null
+    @Field val birthDay: Int? = null
+    @Field val gender: String? = null
+    @Field val height: Double? = null
+    @Field val weight: Double? = null
 }

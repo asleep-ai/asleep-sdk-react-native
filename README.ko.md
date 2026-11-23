@@ -30,6 +30,7 @@ Asleep의 AI 기술로 기기 마이크의 오디오를 분석하는 React Nativ
 
 | react-native-asleep | iOS SDK | Android SDK |
 |---|---|---|
+| 2.1.0 | 3.3.3 | 3.3.1 |
 | 2.0.0 | 3.3.2 | 3.3.1 |
 | 1.0.17 – 1.2.0 | 3.2.0 | 3.2.1 |
 | 1.0.15 | 3.2.0 | 3.2.0 |
@@ -149,7 +150,6 @@ export function SleepTracker() {
     error,
     checkAndRestoreTracking,
     initAsleepConfig,
-    addEventListener,
     checkBatteryOptimization,
     requestBatteryOptimizationExemption,
     hasRequiredPermissions,
@@ -168,43 +168,7 @@ export function SleepTracker() {
         await checkAndRestoreTracking();
 
         const config = { apiKey: "YOUR_API_KEY" };
-        if (Platform.OS === "ios") {
-          let removeJoined = () => {};
-          let removeFailed = () => {};
-          const configurationFinished = new Promise<void>(
-            (resolve, reject) => {
-              removeJoined = addEventListener("onUserJoined", () => resolve());
-              removeFailed = addEventListener(
-                "onUserJoinFailed",
-                (failure) => {
-                  reject(
-                    new AsleepError(
-                      "USER_JOIN_FAILED",
-                      failure.detail ?? failure.error ?? "사용자 설정 실패",
-                      {
-                        sdkCode: failure.sdkCode,
-                        caseName: failure.caseName,
-                        cause: failure,
-                      },
-                    ),
-                  );
-                },
-              );
-            },
-          );
-
-          try {
-            await Promise.all([
-              initAsleepConfig(config),
-              configurationFinished,
-            ]);
-          } finally {
-            removeJoined();
-            removeFailed();
-          }
-        } else {
-          await initAsleepConfig(config);
-        }
+        await initAsleepConfig(config);
 
         await checkBatteryOptimization();
         setIsReady(true);
@@ -215,7 +179,6 @@ export function SleepTracker() {
   }, [
     checkAndRestoreTracking,
     initAsleepConfig,
-    addEventListener,
     checkBatteryOptimization,
   ]);
 
@@ -271,7 +234,7 @@ export function SleepTracker() {
 }
 ```
 
-iOS의 `initAsleepConfig()`는 native user 설정을 비동기로 시작하지만 bridge 호출은 manager 준비 전에 반환될 수 있습니다. 위 예제처럼 호출 전에 user event를 등록하고 `onUserJoined` 또는 `onUserJoinFailed`까지 기다리세요. Android는 설정 완료 뒤 Promise가 끝나며, 복원된 service의 빠른 경로에서는 `onUserJoined`가 발생하지 않으므로 event를 추가로 기다리면 안 됩니다.
+두 플랫폼 모두 `await initAsleepConfig()`는 native user join이 끝난 뒤 resolve되고, 실패하면 reject됩니다. Android의 복원된 service 빠른 경로는 `onUserJoined` 없이 resolve되므로 event가 아니라 Promise를 기다리세요. 진행 중인 호출이 있을 때 다시 호출하면 `OPERATION_IN_PROGRESS`로 reject되므로, 사용자를 전환할 때처럼 연속으로 초기화하려면 앞선 호출이 끝난 뒤에 다음 호출을 시작하세요. native SDK는 트래킹이 시작·종료 중이거나 앞선 init이 응답을 기다리는 중이면 init을 콜백 없이 무시합니다. 이때 iOS는 60초 뒤 `INITIALIZATION_FAILED`로 reject됩니다. SDK가 그 호출에 늦게 응답하면, 그 뒤에 새 `initAsleepConfig()`가 시작되지 않았을 때만 반영되고 `onUserJoined`/`onUserJoinFailed`가 전달됩니다. 새 호출이 시작된 뒤라면 무시되며 다음 init이 성공할 때까지 사용자별 기능은 막힌 상태로 남습니다. SDK가 앞선 호출을 처리하는 동안 새로 한 호출도 같은 방식으로 timeout될 수 있습니다. Android는 대기 상태로 남습니다. 시작·종료 중에는 `initAsleepConfig()`를 호출하지 마세요.
 
 `recordingDead`도 예외입니다. `isTracking`은 `false`지만 native session은 열려 있으므로 새 측정을 시작하기 전에 `stopTracking()`을 호출해야 합니다.
 
@@ -304,6 +267,31 @@ await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRE
 
 `apiKey`와 `appId`/`appSecret`을 함께 넣으면 타입 오류입니다. 런타임에서 둘 다 없거나, 둘 다 있거나, 한쪽만 있는 쌍이거나, 빈 문자열이면 native 호출 전에 `INVALID_ARGUMENT` 코드의 `AsleepError`로 reject합니다. secret도 API key처럼 소스에 커밋하지 마세요.
 
+### 기기 등록
+
+`setup()`은 앱이 실행되는 하드웨어 제품을 Asleep에 등록할 수 있습니다(`POST customer/v1/products`). 두 인증 방식 모두에서 `productInfo`를 전달합니다.
+
+```ts
+import type { AsleepProductInfo } from "react-native-asleep";
+
+const productInfo: AsleepProductInfo = {
+  model: "YOUR_PRODUCT_MODEL",
+  identifierType: "serial", // 또는 "mac_address"
+  identifierValue: deviceSerialNumber,
+};
+await asleep.setup({ apiKey: "YOUR_API_KEY", productInfo });
+```
+
+iOS SDK 3.3.3, Android SDK 3.3.1 기준 동작입니다.
+
+- `productInfo`는 `setup()`만 받으며 `initAsleepConfig()`는 받지 않습니다. 등록이 성공한 뒤 생성된 session이 제품에 연결되므로 `startTracking()` 전에 등록하세요. `productInfo`를 생략하면 등록을 건너뛰고 기존 `setup()` 동작을 유지합니다.
+- `model`은 1-100자, `identifierValue`는 1-255자이며 둘 다 공백만으로 이루어질 수 없습니다. 값은 trim하지 않고 그대로 전송됩니다. `identifierType`은 `"serial"` 또는 `"mac_address"`입니다. 잘못된 값이나 알 수 없는 필드는 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다.
+- 등록은 식별자 단위로 멱등입니다. 같은 `identifierType`과 `identifierValue`는 기존 제품 credential을 돌려주며, 같은 인증 주체와 같은 `productInfo`로 이미 credential을 가진 기기는 네트워크 호출을 하지 않습니다. 서버는 식별자에 처음 등록된 `model`을 유지하며, SDK로는 변경할 수 없습니다.
+- 다른 식별자는 서버에 새 제품을 만들고, 이는 과금 대상이 될 수 있습니다. 기기의 실제 시리얼 번호나 MAC 주소를 사용하고, 운영 credential로 placeholder나 테스트 값을 보내지 마세요.
+- `apiKey`나 `appId`를 바꾸면 저장된 credential이 삭제되고, 다음 `productInfo` 포함 `setup()`에서 다시 등록합니다.
+- 등록은 `setup()`을 막는 단계입니다. 실패하면 setup 전체가 `SETUP_FAILED` 코드로 실패하며 `error.sdkCode`는 13400(거부: 429를 제외한 4xx 또는 입력 사전 검사 실패. 입력이나 계약을 수정하세요) 또는 13000(네트워크, 5xx, 429, 응답 해석 실패. 나중에 다시 시도하세요)입니다. SDK는 네트워크 실패, 5xx, 429를 2, 4, 8초 뒤에 재시도한 다음 13000을 보고합니다. 오프라인에서는 실패가 도착하기까지 약 1.5-3분이 걸릴 수 있습니다. 실패 후 native SDK는 설정되지 않은 상태로 돌아가며 `setup()`을 다시 호출할 수 있습니다.
+- Android에서 `setup()`은 등록과 setup이 끝난 뒤 resolve됩니다. iOS에서 `setup()`은 native 호출이 시작되면 반환되고, 등록이 끝나기 전에 `isSetupComplete`가 `true`일 수 있습니다. tracking을 시작하기 전에 `addEventListener()`로 `onSetupDidComplete` 또는 `onSetupDidFail`을 기다리고, 둘 중 하나가 도착하기 전에는 `setup()`을 다시 호출하지 마세요. native SDK는 실행 중인 setup이 있으면 두 번째 `setup()`을 callback 없이 무시합니다.
+
 ### `useAsleep()`
 
 React 컴포넌트에서 상태와 action을 사용하고 네이티브 listener 수명 주기를 관리하는 기본 API입니다.
@@ -320,7 +308,49 @@ React 컴포넌트에서 상태와 action을 사용하고 네이티브 listener 
 - 초기화: `checkAndRestoreTracking`, `initAsleepConfig`, `setup`
 - 측정: `startTracking`, `stopTracking`, `resumeTracking`
 - 권한과 배터리: `hasRequiredPermissions`, `requestRequiredPermissions`, `checkBatteryOptimization`, `requestBatteryOptimizationExemption`
-- 데이터: `requestAnalysis`, `getReport`, `getReportList`, `getAverageReport`, `deleteSession`
+- 데이터: `requestAnalysis`, `getReport`, `getReportList`, `getAverageReport`, `deleteSession`, `reanalyze`
+- 사용자 메타데이터: `saveUserMetadata`, `fetchUserMetadata`
+
+### 종료 시 분석 구간
+
+`stopTracking()`에 녹음 전체 대신 서버가 분석할 구간을 선택적으로 전달할 수 있습니다.
+
+```ts
+await asleep.stopTracking({
+  analysisRange: { start: bedtime, end: new Date() },
+});
+```
+
+`start`는 `end`보다 최소 1초(초 단위 기준) 앞서야 하고 둘 다 유효한 `Date`여야 합니다. 그렇지 않으면 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다. 옵션 없이 호출한 `stopTracking()`의 동작은 기존과 같습니다. 서버가 받아들이지 않는 구간은 별도 통지 없이 무시되고 session 전체가 분석될 수 있습니다. session은 정상 종료되며 앱은 구간이 버려졌다는 신호를 받지 못하므로, 구간이 중요하다면 `getReport()`로 결과를 확인하세요. 구간은 측정된 session 안에 있어야 합니다. native session 시작보다 앞선 `start`는 분석된 데이터가 없는 session(`missing_data_ratio` 1.0, `TOO_MANY_DEFECTS_IN_SLEEP_STAGES`)을 만든다는 것을 실기기에서 확인했으므로, 추적 시작 이후임이 확실한 시각을 `start`로 쓰세요.
+
+### 재분석
+
+`reanalyze(sessionId, options?)`는 종료된 session을 서버가 다시 분석하도록 요청하며, `options.analysisRange`로 구간을 제한할 수 있습니다.
+
+```ts
+await asleep.reanalyze(sessionId, { analysisRange: { start, end } });
+// 분석 완료가 아니라 서버가 요청을 수락했을 때 resolve됩니다.
+// report.session.state가 "COMPLETE"가 될 때까지 getReport(sessionId)를 polling하세요.
+```
+
+> **구간 없이 재분석하면 서버에 저장된 이전 구간이 대체됩니다.** `stopTracking({ analysisRange })`로 지정한 구간도 마찬가지입니다. 구간을 유지하려면 다시 전달하세요.
+
+빈 `sessionId`나 잘못된 구간은 native 호출 전에 `INVALID_ARGUMENT`로, 가장 최근 `initAsleepConfig()`가 resolve되기 전, 재초기화 진행 중, 재초기화 실패 후의 호출은 `MISSING_PREREQUISITE`로 reject됩니다. 서버 실패는 code `REANALYZE_FAILED`로 reject되며 `error.sdkCode`에 SDK 코드를 유지합니다: 30000(일반/네트워크), 30400, 30401, 30403, 30404, 30409(재분석이 이미 진행 중: 간격을 두고, 무한 재시도하지 마세요), 30410(데이터 보존 기간 만료), 30422(session이 아직 측정 중), 30500.
+
+### 사용자 메타데이터
+
+`initAsleepConfig()`가 완료된 뒤 서버 분석에 사용되는 선택적 프로필 정보를 저장할 수 있습니다.
+
+```ts
+import type { AsleepUserMetadata } from "react-native-asleep";
+
+const metadata: AsleepUserMetadata = { birthYear: 1990, gender: "female", height: 165.5 };
+await asleep.saveUserMetadata(metadata);
+
+const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
+```
+
+모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 resolve된 뒤에 호출하세요. 그 전이나, 재초기화가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject되므로, 재초기화가 실패해도 이전 사용자의 프로필을 읽거나 덮어쓰지 않습니다. `setup()`도 사용자 설정을 무효화하므로 `setup()` 뒤에는 `initAsleepConfig()`를 다시 호출하세요. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
 
 ### `Asleep`
 

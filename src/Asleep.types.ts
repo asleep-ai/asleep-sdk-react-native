@@ -13,11 +13,31 @@ export type AsleepConfig = AsleepCredentials & {
   callbackUrl?: string;
 };
 
+export type AsleepProductIdentifierType = "serial" | "mac_address";
+
+/**
+ * The hardware product this app runs on, registered with Asleep during
+ * `setup()`. `setup()` rejects invalid input with `INVALID_ARGUMENT` before any
+ * native call. Values are sent as given; they are not trimmed.
+ */
+export type AsleepProductInfo = {
+  /** Product model name, 1-100 characters, not blank. */
+  model: string;
+  identifierType: AsleepProductIdentifierType;
+  /** The device's serial number or MAC address, 1-255 characters, not blank. */
+  identifierValue: string;
+};
+
 export type AsleepSetupConfig = AsleepCredentials & {
   baseUrl?: string;
   callbackUrl?: string;
   service?: string;
   enableODA?: boolean;
+  /**
+   * Registers this device as a product before setup completes. Omit it to skip
+   * registration. See "Device registration" in the README.
+   */
+  productInfo?: AsleepProductInfo;
 };
 
 export type AsleepReport = {
@@ -154,6 +174,53 @@ export type AsleepAverageReport = {
   averageStats?: AsleepStat;
   neverSleptSessions?: AsleepNeverSleptSession[];
   sleptSessions?: AsleepSleptSession[];
+};
+
+/**
+ * Wall-clock window the server analyzes instead of the whole recording.
+ * `start` must be at least one second before `end` (whole-second precision);
+ * otherwise the action rejects with `INVALID_ARGUMENT` before any native call.
+ */
+export type AsleepAnalysisRange = {
+  start: Date;
+  end: Date;
+};
+
+export type StopTrackingOptions = {
+  /**
+   * Analyze only this window of the session. The server may silently ignore
+   * an invalid range and analyze the full session; no event reports that.
+   */
+  analysisRange?: AsleepAnalysisRange;
+};
+
+export type ReanalyzeOptions = {
+  /**
+   * Re-run analysis only for this window. Omitting it re-analyzes the full
+   * session and replaces any range set earlier, including one set at stop.
+   */
+  analysisRange?: AsleepAnalysisRange;
+};
+
+export type AsleepGender = "male" | "female" | "non_binary" | "other" | "prefer_not_to_say";
+
+/**
+ * Optional user profile used by the server to personalize analysis. Every
+ * field is optional; omitted fields are not sent. `saveUserMetadata()` rejects
+ * out-of-range values with `INVALID_ARGUMENT` before any native call.
+ */
+export type AsleepUserMetadata = {
+  /** Integer, 1900-2100. */
+  birthYear?: number;
+  /** Integer, 1-12. */
+  birthMonth?: number;
+  /** Integer, 1-31. */
+  birthDay?: number;
+  gender?: AsleepGender;
+  /** Centimeters, 1-500. The native SDKs truncate to one decimal place. */
+  height?: number;
+  /** Kilograms, 1-1000. The native SDKs truncate to one decimal place. */
+  weight?: number;
 };
 
 export type AsleepAnalysisResult = {

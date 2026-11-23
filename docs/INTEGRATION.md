@@ -12,7 +12,7 @@ The examples use service-based sleep tracking through `initAsleepConfig()`. ODA 
 flowchart LR
     A["App starts"] --> B["Mount useAsleep or initialize listeners"]
     B --> C["checkAndRestoreTracking()"]
-    C --> D["initAsleepConfig() and wait for iOS user event"]
+    C --> D["await initAsleepConfig()"]
     D --> E["checkBatteryOptimization()"]
     E --> F{"Android service restored?"}
     F -- "Yes" --> G["Render restored SDK state"]
@@ -87,9 +87,8 @@ releaseListeners();
 Run this sequence once from the app-level integration owner:
 
 ```tsx
-import { Platform } from "react-native";
 import { useCallback } from "react";
-import { AsleepError, useAsleep } from "react-native-asleep";
+import { useAsleep } from "react-native-asleep";
 
 export function useSleepTrackingBootstrap(stableUserId?: string) {
   const asleep = useAsleep();
@@ -102,41 +101,7 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
       userId: stableUserId,
     };
 
-    if (Platform.OS === "ios") {
-      let removeJoined = () => {};
-      let removeFailed = () => {};
-      const configurationFinished = new Promise<void>((resolve, reject) => {
-        removeJoined = asleep.addEventListener("onUserJoined", () => resolve());
-        removeFailed = asleep.addEventListener(
-          "onUserJoinFailed",
-          (failure) => {
-            reject(
-              new AsleepError(
-                "USER_JOIN_FAILED",
-                failure.detail ?? failure.error ?? "User join failed.",
-                {
-                  sdkCode: failure.sdkCode,
-                  caseName: failure.caseName,
-                  cause: failure,
-                },
-              ),
-            );
-          },
-        );
-      });
-
-      try {
-        await Promise.all([
-          asleep.initAsleepConfig(config),
-          configurationFinished,
-        ]);
-      } finally {
-        removeJoined();
-        removeFailed();
-      }
-    } else {
-      await asleep.initAsleepConfig(config);
-    }
+    await asleep.initAsleepConfig(config);
 
     const battery = await asleep.checkBatteryOptimization();
 
@@ -147,7 +112,6 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
   }, [
     asleep.checkAndRestoreTracking,
     asleep.initAsleepConfig,
-    asleep.addEventListener,
     asleep.checkBatteryOptimization,
     stableUserId,
   ]);
@@ -160,8 +124,8 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
 
 - `checkAndRestoreTracking()` asks Android native code whether tracking survived the JavaScript process and reconnects the service when needed. On iOS, the method is a required cross-platform prerequisite but returns `{ hasActiveSession: false }`; iOS has no persistent service to reconnect.
 - `initAsleepConfig()` remains required after that check. A restored session does not mean the current JavaScript process has configured the SDK and report APIs.
-- On iOS, the bridge call starts asynchronous user configuration and can return before the native tracking and report managers exist. Register `onUserJoined` and `onUserJoinFailed` before calling it, then wait for one of those events. On Android, await the action itself; the restored-service fast path resolves without emitting `onUserJoined`.
-- Do not use `isSetupComplete` alone as the iOS readiness signal. The current bridge action can update it before the user-join delegate creates the native managers.
+- `await initAsleepConfig()` resolves after the native user join has created the tracking and report managers, and rejects when the join fails, on both platforms. Await the action itself rather than `onUserJoined`: the Android restored-service fast path resolves without emitting that event.
+- A second `initAsleepConfig()` while one is in progress rejects with `OPERATION_IN_PROGRESS`. When switching users, let the previous call settle before starting the next. The native SDKs ignore an init, with no callback, while tracking is starting or stopping or while a previous init is still waiting for its response; on iOS the call then rejects with `INITIALIZATION_FAILED` after 60 seconds (a late SDK answer to it is applied and emits `onUserJoined`/`onUserJoinFailed` only if no newer `initAsleepConfig()` has started; otherwise it is ignored and per-user calls stay blocked until the next successful init), and a new call made while the SDK is still busy with the previous one can time out the same way; on Android it stays pending. Avoid calling `initAsleepConfig()` during a start or stop.
 - `checkBatteryOptimization()` marks the required prerequisite as checked. On iOS it resolves with `{ exempted: true, platform: "ios" }`.
 - `startTracking()` rejects with `MISSING_PREREQUISITE` if restoration or the battery check has not run.
 
@@ -178,6 +142,52 @@ Token authentication uses the same actions: pass `{ appId, appSecret }` instead 
 If the app supplies `userId`, persist the stable identifier in app storage and reuse it on later initialization. The SDK exposes the current native `userId`, but account mapping and guest-to-member policy belong to the app.
 
 Do not reconfigure a live session with a different product identity. Define any identity migration policy outside the SDK.
+
+### User metadata
+
+`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after the most recent `initAsleepConfig()` has resolved. Earlier calls, calls while a re-init is in progress, and calls after a failed re-init reject with `MISSING_PREREQUISITE`; the previous user's config is never reused. `setup()` also invalidates it, so call `initAsleepConfig()` again after `setup()`.
+
+```ts
+await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });
+const metadata = await asleep.fetchUserMetadata(); // null when nothing was saved
+```
+
+The wrapper validates the native ranges before any bridge call and rejects with `INVALID_ARGUMENT`; see the README for the ranges. The server can still reject a value (for example a future `birthYear`) with `INVALID_ARGUMENT` and `sdkCode` 27400. Other failures arrive as `SAVE_USER_METADATA_FAILED` (`sdkCode` 27000) or `FETCH_USER_METADATA_FAILED` (`sdkCode` 27100). Both native SDKs truncate `height` and `weight` to one decimal place, so a fetched value can differ from the saved input. Whether and when to collect this data, consent, and editing UI are app-owned.
+
+### Device registration
+
+Hardware products register the device with Asleep by passing `productInfo` to `setup()` (`POST customer/v1/products`); `initAsleepConfig()` does not accept it. Register before `startTracking()`: only sessions created after a successful registration are bound to the product. Behavior below is as of iOS SDK 3.3.3 and Android SDK 3.3.1.
+
+```ts
+await asleep.setup({
+  appId: "YOUR_APP_ID",
+  appSecret: "YOUR_APP_SECRET",
+  productInfo: { model: "YOUR_PRODUCT_MODEL", identifierType: "mac_address", identifierValue: deviceMacAddress },
+});
+```
+
+| Field | Rule |
+|---|---|
+| `model` | 1-100 characters, not blank |
+| `identifierType` | `"serial"` or `"mac_address"` |
+| `identifierValue` | 1-255 characters, not blank |
+
+Values are sent untrimmed. Invalid values and unknown fields reject with `INVALID_ARGUMENT` before any native call; without `productInfo`, `setup()` behaves as before and nothing is registered.
+
+- **Idempotent per identifier.** The same `identifierType` and `identifierValue` return the existing product credential. A device that already holds a credential for the same credentials owner and the same `productInfo` makes no network call, so passing the same value on every launch is safe.
+- **The first `model` wins.** The server keeps the model of the first registration for an identifier; the SDK cannot change it.
+- **A new identifier is a new product.** It may be billable. Use real device identifiers and never send placeholder or test values with production credentials.
+- **Changing credentials re-registers.** A different `apiKey` or `appId` drops the stored credential, and the next `setup()` with `productInfo` registers again.
+- **Registration blocks setup.** On failure the whole `setup()` fails with code `SETUP_FAILED` and no `onSetupDidComplete`, and the native SDK is reset so `setup()` can be called again:
+
+| `error.sdkCode` | Meaning | Suggested handling |
+|---|---|---|
+| 13400 | Rejected: a 4xx other than 429, or failed input checks | Do not retry unchanged; fix the input or the contract |
+| 13000 | Network failure, 5xx, 429, or an unreadable response. The SDK already retried network failures, 5xx and 429 after 2, 4 and 8 seconds | Retry later with a bounded policy |
+
+Offline, a 13000 failure can take about 1.5-3 minutes to arrive; keep tracking controls disabled until setup finishes.
+
+On Android, `setup()` resolves after registration and setup complete, and rejects with the failure. On iOS, `setup()` returns once the native call starts and `isSetupComplete` can turn `true` before registration finishes. Register `onSetupDidComplete` and `onSetupDidFail` before calling `setup()` and wait for one of them. Do not call `setup()` again before it arrives: the native SDK ignores a second `setup()` while one is running and sends no callback.
 
 ## 4. Check prerequisites and start
 
@@ -360,6 +370,8 @@ Forward the `AsleepError` itself to observability so `cause`, `sdkCode`, and `ca
 
 `stopTracking()` closes the active session and marks the public state closed. The final `sessionId` may also arrive through the native close event. Product cleanup—alarms, app timers, cloud state, and navigation—belongs to the app and should occur only after the SDK stop succeeds or a terminal event proves the session is gone.
 
+To analyze only part of the recording, pass `stopTracking({ analysisRange: { start, end } })`. The wrapper rejects `INVALID_ARGUMENT` before any native call unless both bounds are valid `Date` objects and `start` is at least one whole second before `end`; the native SDKs would otherwise drop the range and report the failure only after the stop promise resolved. The rest of the stop flow and state handling are identical to a plain stop. A range that passes this check can still be ignored by the server, which then analyzes the full session without notifying the app. Keep the range inside the measured session: a range that starts before the native session start was verified on devices to produce no analyzed data (`missing_data_ratio` 1.0) and later `reanalyze()` then fails with 30410, so do not use an app-side timestamp taken before `startTracking()` resolved. Which window to send (for example, from an in-bed time the user confirmed) is app policy.
+
 Report generation may lag behind session close. The wrapper produces `REPORT_NOT_FOUND` when native code resolves without a report payload, but platform SDK failures can arrive under another `AsleepError.code` such as Android `REPORT_ERROR`. Do not blanket-retry every report failure. Until all native not-found codes are normalized by the wrapper, choose retry behavior only for error cases the app has explicitly verified; keep network, authentication, and other failures visible.
 
 Report APIs:
@@ -370,8 +382,28 @@ Report APIs:
 | `getReportList(fromDate, toDate)` | `AsleepSession[]`; an empty array is a valid result |
 | `getAverageReport(fromDate, toDate)` | `AsleepAverageReport`; may throw `REPORT_NOT_FOUND` when native resolves no payload |
 | `deleteSession(sessionId)` | Deletes a session or throws |
+| `reanalyze(sessionId, options?)` | Resolves when the server accepted a reanalysis request; poll `getReport()` for the result |
 
 `getReportList()` currently returns at most 100 sessions and has no public pagination API. Pass dates as `YYYY-MM-DD`.
+
+### Reanalysis
+
+`reanalyze(sessionId)` re-runs server analysis for a closed session; `reanalyze(sessionId, { analysisRange: { start, end } })` restricts it to a window. The promise resolves when the server accepts the request, not when analysis is done. Poll `getReport(sessionId)` until `report.session.state` is `"COMPLETE"`; interval, timeout, and user messaging are app policy.
+
+**Reanalyzing without a range replaces any earlier range on the server**, including one set through `stopTracking({ analysisRange })`: the whole session is analyzed and that result overwrites the trimmed one. To keep a window, pass it again.
+
+Branch on `error.sdkCode` (code `REANALYZE_FAILED`):
+
+| `sdkCode` | Meaning | Suggested handling |
+|---|---|---|
+| 30409 | A reanalysis is already in progress | Poll `getReport()` instead; if retrying, cap attempts with backoff, never loop unboundedly |
+| 30422 | The session is still being tracked | Stop tracking first |
+| 30404 / 30410 | Session not found / data retention expired | Do not retry |
+| 30400 | Server rejected the range | Fix the input |
+| 30401 / 30403 | Unauthorized / not allowed for this customer | Do not retry; check credentials and contract |
+| 30000 / 30500 | Network or server failure | Retry with a bounded policy |
+
+Input checks (empty `sessionId`, invalid range) reject with `INVALID_ARGUMENT` before any native call, and calls before the most recent `initAsleepConfig()` has resolved, while a re-init is in progress, or after it failed reject with `MISSING_PREREQUISITE`.
 
 ## 9. Consume analysis consistently
 

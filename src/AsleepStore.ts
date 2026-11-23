@@ -2,16 +2,21 @@ import { EventEmitter } from "expo-modules-core";
 import { PermissionsAndroid, Platform } from "react-native";
 import type {
   AsleepAnalysisAck,
+  AsleepAnalysisRange,
   AsleepAnalysisResult,
   AsleepAverageReport,
   AsleepConfig,
   AsleepCredentials,
   AsleepErrorCategory,
   AsleepEventType,
+  AsleepProductInfo,
   AsleepReport,
   AsleepSession,
   AsleepSetupConfig,
+  AsleepUserMetadata,
+  ReanalyzeOptions,
   SetupStatus,
+  StopTrackingOptions,
   TrackingConfig,
   TrackingStatus,
 } from "./Asleep.types";
@@ -48,6 +53,12 @@ export interface InternalAsleepState {
   trackingStatus: TrackingStatus;
   sessionId: string | null;
   userId: string | null;
+  // The native user config for the most recent initAsleepConfig() exists.
+  // While an init is in progress its action is the only writer that may enable
+  // it (on resolution with a userId; both platforms resolve after the join).
+  // onUserJoined enables it only outside an init (SDK-initiated joins), and
+  // onUserJoinFailed/onUserDeleted may always disable it.
+  isUserConfigReady: boolean;
   error: AsleepError | null;
   analysisResult: AsleepAnalysisResult | null;
   isAnalyzing: boolean;
@@ -68,12 +79,15 @@ export interface AsleepActions {
   checkBatteryOptimization: () => Promise<{ exempted: boolean; platform: string; message?: string }>;
   requestBatteryOptimizationExemption: () => Promise<boolean>;
   startTracking: (config?: TrackingConfig) => Promise<void>;
-  stopTracking: () => Promise<void>;
+  stopTracking: (options?: StopTrackingOptions) => Promise<void>;
   resumeTracking: () => Promise<void>;
   getReport: (sessionId: string) => Promise<AsleepReport>;
   getReportList: (fromDate: string, toDate: string) => Promise<AsleepSession[]>;
   getAverageReport: (fromDate: string, toDate: string) => Promise<AsleepAverageReport>;
   deleteSession: (sessionId: string) => Promise<void>;
+  reanalyze: (sessionId: string, options?: ReanalyzeOptions) => Promise<void>;
+  saveUserMetadata: (metadata: AsleepUserMetadata) => Promise<void>;
+  fetchUserMetadata: () => Promise<AsleepUserMetadata | null>;
   requestAnalysis: () => Promise<AsleepAnalysisResult | AsleepAnalysisAck>;
   hasRequiredPermissions: () => Promise<boolean>;
   requestRequiredPermissions: () => Promise<boolean>;
@@ -113,6 +127,7 @@ export const useAsleepStore = createStore<InternalAsleepState>(() => ({
   trackingStatus: initialTrackingStatus,
   sessionId: null,
   userId: null,
+  isUserConfigReady: false,
   error: null,
   analysisResult: null,
   isAnalyzing: false,
@@ -138,6 +153,10 @@ const convertKeysToCamelCase = (value: any): any => {
   return value;
 };
 
+// Expo promise rejections carry only a code string and a message, so native
+// rejections that know the documented SDK code encode it as "<CODE>:<sdkCode>".
+const NATIVE_REJECTION_CODE = /^([A-Z][A-Z0-9_]*):(\d+)$/;
+
 type ErrorOptions = {
   category?: AsleepErrorCategory;
   sdkCode?: number;
@@ -158,7 +177,8 @@ export const normalizeError = (source: unknown, fallbackCode: string, options: E
           caseName?: unknown;
         })
       : undefined;
-  const code = typeof payload?.code === "string" ? payload.code : fallbackCode;
+  const encoded = typeof payload?.code === "string" ? NATIVE_REJECTION_CODE.exec(payload.code) : null;
+  const code = encoded ? encoded[1] : typeof payload?.code === "string" ? payload.code : fallbackCode;
   const message =
     typeof payload?.message === "string"
       ? payload.message
@@ -177,9 +197,11 @@ export const normalizeError = (source: unknown, fallbackCode: string, options: E
       options.sdkCode ??
       (typeof payload?.sdkCode === "number"
         ? payload.sdkCode
-        : source instanceof AsleepError
-          ? source.sdkCode
-          : undefined),
+        : encoded
+          ? Number(encoded[2])
+          : source instanceof AsleepError
+            ? source.sdkCode
+            : undefined),
     caseName:
       options.caseName ??
       (typeof payload?.caseName === "string"
@@ -259,6 +281,135 @@ const resolveCredentials = (config: AsleepCredentials): NativeCredentials => {
   return { appId, appSecret };
 };
 
+const PRODUCT_INFO_FIELDS = new Set<string>(["model", "identifierType", "identifierValue"]);
+const PRODUCT_INFO_LENGTH_LIMITS = { model: 100, identifierValue: 255 } as const;
+
+// Mirrors the native pre-checks (iOS ProductManager.validate, Android
+// ProductRegistrar.validate), which otherwise fail the whole setup with 13400:
+// not blank after trimming, and the untrimmed value within the length limit.
+// Returns null when no productInfo was supplied.
+const resolveProductInfo = (productInfo: unknown): AsleepProductInfo | null => {
+  if (productInfo == null) return null;
+  if (typeof productInfo !== "object" || Array.isArray(productInfo)) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "productInfo must be an object."));
+  }
+  const source = productInfo as Record<string, unknown>;
+  const unknownField = Object.keys(source).find((field) => !PRODUCT_INFO_FIELDS.has(field));
+  if (unknownField !== undefined) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", `productInfo.${unknownField} is not a known field.`));
+  }
+  for (const [field, max] of Object.entries(PRODUCT_INFO_LENGTH_LIMITS)) {
+    const value = source[field];
+    if (typeof value !== "string" || value.trim().length === 0 || value.length > max) {
+      return storeAndThrow(
+        new AsleepError(
+          "INVALID_ARGUMENT",
+          `productInfo.${field} must be a non-blank string of at most ${max} characters.`,
+        ),
+      );
+    }
+  }
+  if (source.identifierType !== "serial" && source.identifierType !== "mac_address") {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", 'productInfo.identifierType must be "serial" or "mac_address".'),
+    );
+  }
+  return {
+    model: source.model as string,
+    identifierType: source.identifierType,
+    identifierValue: source.identifierValue as string,
+  };
+};
+
+const isValidDate = (value: unknown): value is Date => value instanceof Date && Number.isFinite(value.getTime());
+
+// Both native SDKs reject start >= end (iOS 11009 via didFail after stop has
+// already resolved), and they compare at whole-second precision. Returns epoch
+// milliseconds for the bridge, or null when no range was supplied.
+const resolveAnalysisRange = (range: AsleepAnalysisRange | undefined): [number, number] | null => {
+  if (range == null) return null;
+  const { start, end } = range as { start?: unknown; end?: unknown };
+  if (!isValidDate(start) || !isValidDate(end)) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "analysisRange.start and analysisRange.end must be valid Date objects."),
+    );
+  }
+  if (Math.floor(start.getTime() / 1000) >= Math.floor(end.getTime() / 1000)) {
+    return storeAndThrow(
+      new AsleepError("INVALID_ARGUMENT", "analysisRange.start must be at least one second before analysisRange.end."),
+    );
+  }
+  return [start.getTime(), end.getTime()];
+};
+
+const USER_METADATA_INTEGER_RANGES = {
+  birthYear: [1900, 2100],
+  birthMonth: [1, 12],
+  birthDay: [1, 31],
+} as const;
+
+const USER_METADATA_NUMBER_RANGES = {
+  height: [1, 500],
+  weight: [1, 1000],
+} as const;
+
+const USER_METADATA_GENDERS = new Set<string>(["male", "female", "non_binary", "other", "prefer_not_to_say"]);
+
+// Mirrors the native range checks (iOS UserMetadata.validate(), Android
+// UserMetadata init) so invalid input never reaches the bridge. Only known
+// fields are forwarded; undefined and null mean "not provided".
+const resolveUserMetadata = (metadata: AsleepUserMetadata): AsleepUserMetadata => {
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return storeAndThrow(new AsleepError("INVALID_ARGUMENT", "metadata must be an object."));
+  }
+  const source = metadata as Record<string, unknown>;
+  const resolved: Record<string, number | string> = {};
+  for (const [field, [min, max]] of Object.entries(USER_METADATA_INTEGER_RANGES)) {
+    const value = source[field];
+    if (value == null) continue;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+      return storeAndThrow(
+        new AsleepError("INVALID_ARGUMENT", `${field} must be an integer between ${min} and ${max}.`),
+      );
+    }
+    resolved[field] = value;
+  }
+  for (const [field, [min, max]] of Object.entries(USER_METADATA_NUMBER_RANGES)) {
+    const value = source[field];
+    if (value == null) continue;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+      return storeAndThrow(new AsleepError("INVALID_ARGUMENT", `${field} must be a number between ${min} and ${max}.`));
+    }
+    resolved[field] = value;
+  }
+  if (source.gender != null) {
+    if (typeof source.gender !== "string" || !USER_METADATA_GENDERS.has(source.gender)) {
+      return storeAndThrow(
+        new AsleepError(
+          "INVALID_ARGUMENT",
+          'gender must be one of "male", "female", "non_binary", "other", or "prefer_not_to_say".',
+        ),
+      );
+    }
+    resolved.gender = source.gender;
+  }
+  return resolved as AsleepUserMetadata;
+};
+
+// The native user config exists only after the most recent initAsleepConfig()
+// joined its user. A re-init in progress or a failed re-init invalidates it, so
+// these calls never run against a previous user's config.
+const requireUserConfig = (action: string) => {
+  if (!useAsleepStore.getState().isUserConfigReady) {
+    storeAndThrow(
+      new AsleepError(
+        "MISSING_PREREQUISITE",
+        `initAsleepConfig() must resolve (complete its user join) before ${action}().`,
+      ),
+    );
+  }
+};
+
 const normalizeReport = (report: any, sessionId: string): AsleepReport => {
   const converted = convertKeysToCamelCase(report);
   if (converted && !converted.session && converted.sessionId) {
@@ -286,6 +437,7 @@ const normalizeReport = (report: any, sessionId: string): AsleepReport => {
 export const asleepActions: AsleepActions = {
   setup: async (config) => {
     const credentials = resolveCredentials(config);
+    const productInfo = resolveProductInfo(config.productInfo);
     const state = useAsleepStore.getState();
     if (state.setupStatus === "inProgress") {
       storeAndThrow(new AsleepError("OPERATION_IN_PROGRESS", "Setup is already in progress."));
@@ -296,16 +448,19 @@ export const asleepActions: AsleepActions = {
 
     const errorBefore = state.error;
     addLog("[setup] Start");
-    useAsleepStore.setState({ setupStatus: "inProgress" });
+    // setup() reconfigures the SDK (possibly with other credentials), so the
+    // previous user config is no longer valid until initAsleepConfig() resolves.
+    useAsleepStore.setState({ setupStatus: "inProgress", isUserConfigReady: false });
     try {
+      // Credentials travel as one record: Expo's Kotlin AsyncFunction accepts at
+      // most eight parameters including the promise.
       await AsleepModule.setup(
-        credentials.apiKey,
-        credentials.appId,
-        credentials.appSecret,
+        credentials,
         config.baseUrl,
         config.callbackUrl,
         config.service,
         config.enableODA,
+        productInfo,
       );
       useAsleepStore.setState({
         setupStatus: "complete",
@@ -330,9 +485,9 @@ export const asleepActions: AsleepActions = {
     // while trackingStatus is "tracking" (v1 behavior the restore flow relies on).
     const errorBefore = state.error;
     addLog("[initAsleepConfig] Start");
-    useAsleepStore.setState({ setupStatus: "inProgress" });
+    useAsleepStore.setState({ setupStatus: "inProgress", isUserConfigReady: false });
     try {
-      await AsleepModule.initAsleepConfig(
+      const result = await AsleepModule.initAsleepConfig(
         credentials.apiKey,
         credentials.appId,
         credentials.appSecret,
@@ -340,11 +495,21 @@ export const asleepActions: AsleepActions = {
         config.baseUrl,
         config.callbackUrl,
       );
-      useAsleepStore.setState({ setupStatus: "complete", isInitialized: true });
+      // Both platforms resolve after the user join with { userId }. This
+      // resolution, not onUserJoined, enables readiness for this init.
+      const joined = typeof result?.userId === "string" && result.userId.length > 0;
+      useAsleepStore.setState({
+        setupStatus: "complete",
+        isInitialized: true,
+        ...(joined ? { isUserConfigReady: true } : {}),
+      });
       clearErrorIfUnchanged(errorBefore);
       addLog("[initAsleepConfig] Success");
     } catch (error) {
-      return guardedFailure(error, "INIT_CONFIG_FAILED", errorBefore, { setupStatus: "idle" });
+      return guardedFailure(error, "INIT_CONFIG_FAILED", errorBefore, {
+        setupStatus: "idle",
+        isUserConfigReady: false,
+      });
     }
   },
 
@@ -465,10 +630,13 @@ export const asleepActions: AsleepActions = {
     }
   },
 
-  stopTracking: async () => {
+  stopTracking: async (options) => {
+    const range = resolveAnalysisRange(options?.analysisRange);
     const errorBefore = useAsleepStore.getState().error;
     try {
-      const result = await AsleepModule.stopTracking();
+      // Always pass both arguments: older expo-modules-core versions do not let
+      // trailing nullable arguments be omitted.
+      const result = await AsleepModule.stopTracking(range ? range[0] : null, range ? range[1] : null);
       useAsleepStore.setState({
         didClose: true,
         ...(typeof result === "string" && result ? { sessionId: result } : {}),
@@ -557,6 +725,49 @@ export const asleepActions: AsleepActions = {
       clearErrorIfUnchanged(errorBefore);
     } catch (error) {
       return guardedFailure(error, "DELETE_SESSION_FAILED", errorBefore);
+    }
+  },
+
+  reanalyze: async (sessionId, options) => {
+    if (typeof sessionId !== "string" || sessionId.trim().length === 0) {
+      storeAndThrow(new AsleepError("INVALID_ARGUMENT", "sessionId must be a non-empty string."));
+    }
+    const range = resolveAnalysisRange(options?.analysisRange);
+    requireUserConfig("reanalyze");
+    const errorBefore = useAsleepStore.getState().error;
+    try {
+      // Resolves once the server accepts the request, not when analysis finishes.
+      // Nulls are explicit: iOS treats arguments before a Promise as required.
+      await AsleepModule.reanalyze(sessionId, range?.[0] ?? null, range?.[1] ?? null);
+      clearErrorIfUnchanged(errorBefore);
+    } catch (error) {
+      return guardedFailure(error, "REANALYZE_FAILED", errorBefore);
+    }
+  },
+
+  saveUserMetadata: async (metadata) => {
+    const resolved = resolveUserMetadata(metadata);
+    requireUserConfig("saveUserMetadata");
+    const errorBefore = useAsleepStore.getState().error;
+    try {
+      await AsleepModule.saveUserMetadata(resolved);
+      clearErrorIfUnchanged(errorBefore);
+    } catch (error) {
+      return guardedFailure(error, "SAVE_USER_METADATA_FAILED", errorBefore);
+    }
+  },
+
+  fetchUserMetadata: async () => {
+    requireUserConfig("fetchUserMetadata");
+    const errorBefore = useAsleepStore.getState().error;
+    try {
+      const payload = await AsleepModule.fetchUserMetadata();
+      // Android serializes the native model with snake_case keys.
+      const result: AsleepUserMetadata | null = payload == null ? null : convertKeysToCamelCase(payload);
+      clearErrorIfUnchanged(errorBefore);
+      return result;
+    } catch (error) {
+      return guardedFailure(error, "FETCH_USER_METADATA_FAILED", errorBefore);
     }
   },
 
@@ -682,14 +893,22 @@ const transitionForEvent = (
 ): { partial: Partial<InternalAsleepState>; log: string; requestAnalysis?: boolean } => {
   switch (eventType) {
     case "onUserJoined":
-      return { partial: { userId: payload.userId }, log: `[onUserJoined] userId: ${payload.userId}` };
+      // During initAsleepConfig() the action's resolution owns readiness, so a
+      // stale join from an earlier init cannot enable the config for this one.
+      return {
+        partial: {
+          userId: payload.userId,
+          ...(state.setupStatus === "inProgress" ? {} : { isUserConfigReady: true }),
+        },
+        log: `[onUserJoined] userId: ${payload.userId}`,
+      };
     case "onUserJoinFailed":
       return {
-        partial: { error: normalizeError(payload, "USER_JOIN_FAILED") },
+        partial: { error: normalizeError(payload, "USER_JOIN_FAILED"), isUserConfigReady: false },
         log: `[onUserJoinFailed] error: ${payload?.message ?? payload?.detail ?? payload?.error ?? "Unknown error"}`,
       };
     case "onUserDeleted":
-      return { partial: { userId: null }, log: `[onUserDeleted] userId: ${payload.userId}` };
+      return { partial: { userId: null, isUserConfigReady: false }, log: `[onUserDeleted] userId: ${payload.userId}` };
     case "onTrackingCreated":
       return {
         partial: { trackingStatus: "tracking", ...(payload?.sessionId ? { sessionId: payload.sessionId } : {}) },

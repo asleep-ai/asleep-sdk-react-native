@@ -29,6 +29,7 @@ Bundled native SDK versions. The React Native package follows its own semver; it
 
 | react-native-asleep | iOS SDK | Android SDK |
 |---|---|---|
+| 2.1.0 | 3.3.3 | 3.3.1 |
 | 2.0.0 | 3.3.2 | 3.3.1 |
 | 1.0.17 – 1.2.0 | 3.2.0 | 3.2.1 |
 | 1.0.15 | 3.2.0 | 3.2.0 |
@@ -146,7 +147,7 @@ Always call `initAsleepConfig()` after `checkAndRestoreTracking()`, including wh
 
 ```tsx
 import { useEffect, useRef, useState } from "react";
-import { Button, Platform, Text, View } from "react-native";
+import { Button, Text, View } from "react-native";
 import { AsleepError, useAsleep } from "react-native-asleep";
 
 export function SleepTracker() {
@@ -163,38 +164,7 @@ export function SleepTracker() {
       await asleep.checkAndRestoreTracking();
 
       const config = { apiKey: "YOUR_API_KEY" };
-      if (Platform.OS === "ios") {
-        let removeJoined = () => {};
-        let removeFailed = () => {};
-        const configurationFinished = new Promise<void>((resolve, reject) => {
-          removeJoined = asleep.addEventListener("onUserJoined", () => resolve());
-          removeFailed = asleep.addEventListener("onUserJoinFailed", (failure) => {
-            reject(
-              new AsleepError(
-                "USER_JOIN_FAILED",
-                failure.detail ?? failure.error ?? "User join failed.",
-                {
-                  sdkCode: failure.sdkCode,
-                  caseName: failure.caseName,
-                  cause: failure,
-                },
-              ),
-            );
-          });
-        });
-
-        try {
-          await Promise.all([
-            asleep.initAsleepConfig(config),
-            configurationFinished,
-          ]);
-        } finally {
-          removeJoined();
-          removeFailed();
-        }
-      } else {
-        await asleep.initAsleepConfig(config);
-      }
+      await asleep.initAsleepConfig(config);
 
       await asleep.checkBatteryOptimization();
       setIsReady(true);
@@ -206,7 +176,6 @@ export function SleepTracker() {
   }, [
     asleep.checkAndRestoreTracking,
     asleep.initAsleepConfig,
-    asleep.addEventListener,
     asleep.checkBatteryOptimization,
   ]);
 
@@ -265,7 +234,7 @@ export function SleepTracker() {
 
 Call `requestRequiredPermissions()` from a user-driven interaction. `startTracking()` checks permission but never opens a permission dialog. On Android, return from the battery settings screen and call `checkBatteryOptimization()` again before retrying.
 
-On iOS, `initAsleepConfig()` starts asynchronous user configuration but its bridge call can return before the native managers are ready. Register the user events before calling it and wait for `onUserJoined` or `onUserJoinFailed`, as shown above. Android resolves `initAsleepConfig()` after configuration; do not wait for `onUserJoined` there because a restored-service fast path does not emit it.
+`await initAsleepConfig()` resolves after the native user join completes and rejects when it fails, on both platforms. Await the action rather than `onUserJoined`: the Android restored-service fast path resolves without emitting that event. A second call while one is still in progress rejects with `OPERATION_IN_PROGRESS`, so finish (or fail) one init before starting another, for example when switching users. The native SDKs ignore an init, with no callback, while tracking is starting or stopping or while a previous init is still waiting for its response; on iOS the call then rejects with `INITIALIZATION_FAILED` after 60 seconds (a late SDK answer to it is applied and emits `onUserJoined`/`onUserJoinFailed` only if no newer `initAsleepConfig()` has started; otherwise it is ignored and per-user calls stay blocked until the next successful init), and a new call made while the SDK is still busy with the previous one can time out the same way; on Android it stays pending. Avoid calling `initAsleepConfig()` during a start or stop.
 
 The `recordingDead` category is another deliberate exception: `isTracking` is `false`, but the native session remains open, so the action must still call `stopTracking()` before starting a new session.
 
@@ -298,6 +267,31 @@ await asleep.initAsleepConfig({ appId: "YOUR_APP_ID", appSecret: "YOUR_APP_SECRE
 
 Mixing `apiKey` with `appId`/`appSecret` is a type error. At runtime, passing neither form, both forms, an incomplete pair, or an empty string rejects with `AsleepError` code `INVALID_ARGUMENT` before any native call. Keep the secret out of source control like the API key.
 
+### Device registration
+
+`setup()` can register the hardware product the app runs on with Asleep (`POST customer/v1/products`). Pass `productInfo` with either credential form:
+
+```ts
+import type { AsleepProductInfo } from "react-native-asleep";
+
+const productInfo: AsleepProductInfo = {
+  model: "YOUR_PRODUCT_MODEL",
+  identifierType: "serial", // or "mac_address"
+  identifierValue: deviceSerialNumber,
+};
+await asleep.setup({ apiKey: "YOUR_API_KEY", productInfo });
+```
+
+Behavior as of iOS SDK 3.3.3 and Android SDK 3.3.1:
+
+- Only `setup()` accepts `productInfo`; `initAsleepConfig()` does not. Sessions created after a successful registration are bound to the product, so register before `startTracking()`. Omitting `productInfo` skips registration and keeps the previous `setup()` behavior.
+- `model` is 1-100 characters and `identifierValue` 1-255 characters; neither may be blank, and values are sent untrimmed. `identifierType` is `"serial"` or `"mac_address"`. Invalid or unknown fields reject with `INVALID_ARGUMENT` before any native call.
+- Registration is idempotent per identifier: the same `identifierType` and `identifierValue` return the existing product credential, and a device that already holds a credential for the same credentials owner and the same `productInfo` makes no network call. The server keeps the first `model` registered for an identifier; it cannot be changed through the SDK.
+- A different identifier creates a new product on the server, which may be billable. Use the device's real serial number or MAC address, and never send placeholder or test values with production credentials.
+- Changing the `apiKey` or `appId` drops the stored credential, and the next `setup()` with `productInfo` registers again.
+- Registration blocks `setup()`. A failure fails the whole setup with code `SETUP_FAILED` and `error.sdkCode` 13400 (rejected: a 4xx other than 429, or failed input checks; fix the input or the contract) or 13000 (network, 5xx, 429, or an unreadable response; retry later). The SDK retries network failures, 5xx and 429 after 2, 4 and 8 seconds before reporting 13000. Offline, the failure can take about 1.5-3 minutes to arrive. After a failure the native SDK is left unconfigured and `setup()` can be called again.
+- On Android, `setup()` resolves after registration and setup complete. On iOS, `setup()` returns once the native call starts, and `isSetupComplete` can be `true` before registration finishes. Wait for `onSetupDidComplete` or `onSetupDidFail` through `addEventListener()` before starting tracking, and do not call `setup()` again until one arrives: the native SDK ignores a second `setup()` while one is running, without a callback.
+
 ### `useAsleep()`
 
 The primary React API. It attaches the ref-counted native listeners while mounted and returns state plus actions from the shared SDK store.
@@ -322,9 +316,51 @@ Important actions:
 | Configuration and restore | `setup`, `initAsleepConfig`, `checkAndRestoreTracking` |
 | Prerequisites | `checkBatteryOptimization`, `requestBatteryOptimizationExemption`, `hasRequiredPermissions`, `requestRequiredPermissions` |
 | Tracking | `startTracking`, `stopTracking`, `resumeTracking` |
-| Reports | `getReport`, `getReportList`, `getAverageReport`, `deleteSession` |
+| Reports | `getReport`, `getReportList`, `getAverageReport`, `deleteSession`, `reanalyze` |
 | Analysis | `requestAnalysis` |
+| User metadata | `saveUserMetadata`, `fetchUserMetadata` |
 | Utilities | `addEventListener`, `enableLog`, `clearError` |
+
+### Analysis range at stop
+
+`stopTracking()` accepts an optional window that the server analyzes instead of the whole recording:
+
+```ts
+await asleep.stopTracking({
+  analysisRange: { start: bedtime, end: new Date() },
+});
+```
+
+`start` must be at least one whole second before `end`, and both must be valid `Date` objects; otherwise the call rejects with `INVALID_ARGUMENT` before any native call. Without options, `stopTracking()` behaves exactly as before. The server may silently ignore a range it does not accept and analyze the full session; the session still closes normally and the app receives no signal that the range was dropped, so verify the result with `getReport()` when the window matters. Keep the range inside the measured session: a range that starts before the native session start was verified on devices to produce a session with no analyzed data (`missing_data_ratio` 1.0, `TOO_MANY_DEFECTS_IN_SLEEP_STAGES`), so derive `start` from a time you know is after tracking began rather than from an earlier app-side timestamp.
+
+### Reanalysis
+
+`reanalyze(sessionId, options?)` asks the server to analyze a closed session again, optionally restricted to `options.analysisRange`:
+
+```ts
+await asleep.reanalyze(sessionId, { analysisRange: { start, end } });
+// Resolves when the server accepted the request, not when analysis finished.
+// Poll getReport(sessionId) until report.session.state is "COMPLETE".
+```
+
+> **Reanalyzing without a range replaces any earlier range on the server**, including one passed to `stopTracking({ analysisRange })`. Pass the range again to keep it.
+
+An empty `sessionId` or an invalid range rejects with `INVALID_ARGUMENT` before any native call, and calling before the most recent `initAsleepConfig()` has resolved, while a re-init is in progress, or after it failed rejects with `MISSING_PREREQUISITE`. Server failures reject with code `REANALYZE_FAILED` and keep the SDK code in `error.sdkCode`: 30000 (generic/network), 30400, 30401, 30403, 30404, 30409 (reanalysis already in progress: back off, do not retry unboundedly), 30410 (data retention expired), 30422 (the session is still tracking), 30500.
+
+### User metadata
+
+After `initAsleepConfig()` completes, the app can save optional profile data that the server uses for analysis:
+
+```ts
+import type { AsleepUserMetadata } from "react-native-asleep";
+
+const metadata: AsleepUserMetadata = { birthYear: 1990, gender: "female", height: 165.5 };
+await asleep.saveUserMetadata(metadata);
+
+const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
+```
+
+Every field is optional and omitted fields are not sent. Out-of-range values reject with `INVALID_ARGUMENT` before any native call: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31 (integers), `height` 1-500 cm, `weight` 1-1000 kg, and `gender` one of `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"`. Call them after the most recent `initAsleepConfig()` has resolved. Calling them before that, while a re-init is in progress, or after it failed rejects with `MISSING_PREREQUISITE`, so a failed re-init never reads or writes the previous user's profile. `setup()` also invalidates the user config: call `initAsleepConfig()` again after it. Native failures keep the SDK code in `error.sdkCode`: 27400 (server validation, code `INVALID_ARGUMENT`), 27000 (`SAVE_USER_METADATA_FAILED`), 27100 (`FETCH_USER_METADATA_FAILED`). `fetchUserMetadata()` resolves `null` when nothing has been saved.
 
 ### `Asleep`
 

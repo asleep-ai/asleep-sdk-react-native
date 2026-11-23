@@ -13,7 +13,7 @@ import {
   Platform,
 } from "react-native";
 import { useTracking } from "./useTracking";
-import { useAsleep, type AsleepSleptSession, type AsleepNeverSleptSession } from "react-native-asleep";
+import { useAsleep, type AsleepSleptSession, type AsleepNeverSleptSession } from "../src";
 
 const SHOW_DEBUG_LOG = true;
 
@@ -47,7 +47,24 @@ const App = () => {
     isSetupComplete,
   } = useTracking();
 
-  const { didClose, deleteSession } = useAsleep();
+  const {
+    didClose,
+    deleteSession,
+    stopTracking: stopTrackingWithOptions,
+    saveUserMetadata,
+    fetchUserMetadata,
+    reanalyze,
+    setup,
+    initAsleepConfig,
+    addEventListener,
+  } = useAsleep();
+  const [lastClosedSessionId, setLastClosedSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (didClose && sessionId) {
+      setLastClosedSessionId(sessionId);
+    }
+  }, [didClose, sessionId]);
 
   // recordingDead leaves the native session open while isTracking is false, so
   // the session must still be stopped before a new one can start.
@@ -143,6 +160,83 @@ const App = () => {
       addLog("Tracking stopped");
     } catch (error: any) {
       addLog(`Stop error: ${error.message}`);
+    }
+  };
+
+  const _stopTrackingWithRange = async () => {
+    // Keep the range inside the measured window: the app's own start time can be a
+    // few seconds earlier than the native session start.
+    const end = new Date(Date.now() - 5 * 1000);
+    const start = new Date((trackingStartTime ? new Date(trackingStartTime).getTime() : Date.now() - 90 * 1000) + 30 * 1000);
+    addLog(`[example] stop range ${start.toISOString()}..${end.toISOString()}`);
+    try {
+      await stopTrackingWithOptions({ analysisRange: { start, end } });
+      addLog("[example] stop range accepted");
+    } catch (error: any) {
+      addLog(`[example] stop range failed ${error?.code} ${error?.sdkCode}`);
+    }
+  };
+
+  const _saveMetadata = async () => {
+    try {
+      await saveUserMetadata({
+        birthYear: 1990,
+        birthMonth: 5,
+        birthDay: 17,
+        gender: "female",
+        height: 165.5,
+        weight: 55.2,
+      });
+      addLog("[example] metadata saved");
+    } catch (error: any) {
+      addLog(`[example] metadata save failed ${error?.code} ${error?.sdkCode} ${error?.message}`);
+    }
+  };
+
+  const _fetchMetadata = async () => {
+    try {
+      const metadata = await fetchUserMetadata();
+      addLog(`[example] metadata fetched: ${JSON.stringify(metadata)}`);
+    } catch (error: any) {
+      addLog(`[example] metadata fetch failed ${error?.code} ${error?.sdkCode} ${error?.message}`);
+    }
+  };
+
+  // Exercises setup() without productInfo (no device registration).
+  const _setupWithoutProduct = async () => {
+    // setup() invalidates the user config, so initialize the same user again once
+    // setup completes before using per-user actions such as metadata.
+    const removeComplete = addEventListener("onSetupDidComplete", () => {
+      addLog("[example] setup complete event");
+      initAsleepConfig({ apiKey: process.env.EXPO_PUBLIC_API_KEY || "", userId: userId ?? undefined })
+        .then(() => addLog("[example] re-init after setup ok"))
+        .catch((error: any) => addLog(`[example] re-init after setup failed ${error?.code} ${error?.sdkCode} ${error?.message}`));
+    });
+    const removeFail = addEventListener("onSetupDidFail", (event) => {
+      addLog(`[example] setup failed event ${JSON.stringify(event)}`);
+    });
+    setTimeout(() => {
+      removeComplete();
+      removeFail();
+    }, 60 * 1000);
+    try {
+      await setup({ apiKey: process.env.EXPO_PUBLIC_API_KEY || "" });
+      addLog("[example] setup resolved");
+    } catch (error: any) {
+      addLog(`[example] setup rejected ${error?.code} ${error?.sdkCode} ${error?.message}`);
+    }
+  };
+
+  const _reanalyzeLast = async () => {
+    if (!lastClosedSessionId) {
+      addLog("[example] reanalyze skipped: no closed session");
+      return;
+    }
+    try {
+      await reanalyze(lastClosedSessionId);
+      addLog(`[example] reanalyze accepted ${lastClosedSessionId}`);
+    } catch (error: any) {
+      addLog(`[example] reanalyze failed ${error?.code} ${error?.sdkCode} ${error?.message}`);
     }
   };
 
@@ -608,6 +702,21 @@ const App = () => {
             disabled={!shouldStop}
             onPress={_stopTracking}
           />
+          <Button
+            title="Stop (Range)"
+            disabled={!shouldStop}
+            onPress={_stopTrackingWithRange}
+          />
+        </View>
+
+        <View style={styles.buttonContainer}>
+          <Button title="Save Metadata" onPress={_saveMetadata} />
+          <Button title="Fetch Metadata" onPress={_fetchMetadata} />
+          <Button title="Reanalyze Last" onPress={_reanalyzeLast} />
+        </View>
+
+        <View style={styles.buttonContainer}>
+          <Button title="Setup (no product)" onPress={_setupWithoutProduct} />
         </View>
 
         <View style={styles.buttonContainer}>

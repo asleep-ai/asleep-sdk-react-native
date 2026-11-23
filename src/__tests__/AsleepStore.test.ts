@@ -48,6 +48,7 @@ const resetState = (partial: Partial<InternalAsleepState> = {}) => {
     trackingStatus: "idle",
     sessionId: null,
     userId: null,
+    isUserConfigReady: false,
     error: null,
     analysisResult: null,
     isAnalyzing: false,
@@ -87,6 +88,21 @@ describe("error normalization", () => {
       caseName: "create",
       cause: payload,
     });
+  });
+
+  it("splits an encoded native rejection code into code and sdkCode", () => {
+    const rejection = Object.assign(new Error("server said no"), { code: "REANALYZE_FAILED:30409" });
+    expect(normalizeError(rejection, "FALLBACK")).toMatchObject({
+      code: "REANALYZE_FAILED",
+      sdkCode: 30409,
+      message: "server said no",
+      cause: rejection,
+    });
+  });
+
+  it("leaves unencoded native rejection codes unchanged", () => {
+    const rejection = Object.assign(new Error("x"), { code: "ERR_UNEXPECTED" });
+    expect(normalizeError(rejection, "FALLBACK")).toMatchObject({ code: "ERR_UNEXPECTED", sdkCode: undefined });
   });
 
   it("returns an existing AsleepError unchanged when no overrides are supplied", () => {
@@ -291,19 +307,18 @@ describe("tracking failure classification", () => {
 describe("credentials", () => {
   it("setup forwards an API key without token fields", async () => {
     await asleepActions.setup({ apiKey: "key", baseUrl: "https://api", service: "svc", enableODA: true });
-    expect(mockModule.setup).toHaveBeenCalledWith("key", undefined, undefined, "https://api", undefined, "svc", true);
+    expect(mockModule.setup).toHaveBeenCalledWith({ apiKey: "key" }, "https://api", undefined, "svc", true, null);
   });
 
   it("setup forwards appId/appSecret token credentials", async () => {
     await asleepActions.setup({ appId: "app", appSecret: "secret" });
     expect(mockModule.setup).toHaveBeenCalledWith(
-      undefined,
-      "app",
-      "secret",
+      { appId: "app", appSecret: "secret" },
       undefined,
       undefined,
       undefined,
       undefined,
+      null,
     );
     expect(useAsleepStore.getState().setupStatus).toBe("complete");
   });
@@ -503,5 +518,607 @@ describe("action contracts", () => {
     await expect(asleepActions.getReport("session")).rejects.toBeInstanceOf(AsleepError);
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+describe("user metadata", () => {
+  const metadata = {
+    birthYear: 1990,
+    birthMonth: 5,
+    birthDay: 17,
+    gender: "female",
+    height: 165.5,
+    weight: 55.2,
+  } as const;
+
+  const countNotifications = async (call: () => Promise<unknown>) => {
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await call().catch(() => undefined);
+    unsubscribe();
+    return listener.mock.calls.length;
+  };
+
+  it("saveUserMetadata forwards only provided fields and resolves void", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    await expect(asleepActions.saveUserMetadata({ ...metadata, weight: undefined })).resolves.toBeUndefined();
+    expect(mockModule.saveUserMetadata).toHaveBeenCalledWith({
+      birthYear: 1990,
+      birthMonth: 5,
+      birthDay: 17,
+      gender: "female",
+      height: 165.5,
+    });
+  });
+
+  it("saveUserMetadata success does not notify subscribers", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    expect(await countNotifications(() => asleepActions.saveUserMetadata(metadata))).toBe(0);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["birthYear below range", { birthYear: 1899 }],
+    ["birthYear above range", { birthYear: 2101 }],
+    ["non-integer birthYear", { birthYear: 1990.5 }],
+    ["birthMonth 0", { birthMonth: 0 }],
+    ["birthMonth 13", { birthMonth: 13 }],
+    ["birthDay 32", { birthDay: 32 }],
+    ["string birthDay", { birthDay: "17" }],
+    ["unknown gender", { gender: "unknown" }],
+    ["height below range", { height: 0.5 }],
+    ["height above range", { height: 500.1 }],
+    ["NaN height", { height: Number.NaN }],
+    ["weight above range", { weight: 1000.1 }],
+    ["weight below range", { weight: 0 }],
+  ])("saveUserMetadata rejects %s with INVALID_ARGUMENT before native", async (_name, invalid) => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    await expect(asleepActions.saveUserMetadata(invalid as any)).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    expect(mockModule.saveUserMetadata).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState().error).toMatchObject({ code: "INVALID_ARGUMENT" });
+  });
+
+  it("saveUserMetadata rejects a non-object argument before native", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    await expect(asleepActions.saveUserMetadata(null as any)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(mockModule.saveUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("accepts range boundaries", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    await asleepActions.saveUserMetadata({ birthYear: 1900, birthMonth: 12, birthDay: 31, height: 1, weight: 1000 });
+    await asleepActions.saveUserMetadata({ birthYear: 2100, birthMonth: 1, birthDay: 1, height: 500, weight: 1 });
+    expect(mockModule.saveUserMetadata).toHaveBeenCalledTimes(2);
+  });
+
+  it("an invalid-metadata rejection notifies subscribers exactly once", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    expect(await countNotifications(() => asleepActions.saveUserMetadata({ birthMonth: 13 }))).toBe(1);
+  });
+
+  it.each([
+    ["saveUserMetadata", () => asleepActions.saveUserMetadata(metadata)],
+    ["fetchUserMetadata", () => asleepActions.fetchUserMetadata()],
+  ])("%s rejects MISSING_PREREQUISITE before initAsleepConfig", async (nativeName, call) => {
+    await expect(call()).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+    expect((mockModule as any)[nativeName]).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["INVALID_ARGUMENT:27400", "INVALID_ARGUMENT", 27400],
+    ["SAVE_USER_METADATA_FAILED:27000", "SAVE_USER_METADATA_FAILED", 27000],
+  ])("saveUserMetadata preserves the native SDK code from %s", async (nativeCode, code, sdkCode) => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    const rejection = Object.assign(new Error("native"), { code: nativeCode });
+    mockModule.saveUserMetadata.mockRejectedValueOnce(rejection);
+    await expect(asleepActions.saveUserMetadata(metadata)).rejects.toMatchObject({
+      code,
+      sdkCode,
+      message: "native",
+      cause: rejection,
+    });
+    expect(useAsleepStore.getState().error).toMatchObject({ code, sdkCode });
+  });
+
+  it("a native save failure notifies subscribers exactly once", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    mockModule.saveUserMetadata.mockRejectedValueOnce(
+      Object.assign(new Error("x"), { code: "SAVE_USER_METADATA_FAILED:27000" }),
+    );
+    expect(await countNotifications(() => asleepActions.saveUserMetadata(metadata))).toBe(1);
+  });
+
+  it("fetchUserMetadata normalizes Android snake_case keys", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    mockModule.fetchUserMetadata.mockResolvedValueOnce({ birth_year: 1990, birth_month: 5, gender: "non_binary" });
+    await expect(asleepActions.fetchUserMetadata()).resolves.toEqual({
+      birthYear: 1990,
+      birthMonth: 5,
+      gender: "non_binary",
+    });
+  });
+
+  it("fetchUserMetadata resolves null when nothing was saved", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    await expect(asleepActions.fetchUserMetadata()).resolves.toBeNull();
+  });
+
+  it("fetchUserMetadata success does not notify subscribers", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    expect(await countNotifications(() => asleepActions.fetchUserMetadata())).toBe(0);
+  });
+
+  it("fetchUserMetadata preserves the native SDK code", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    mockModule.fetchUserMetadata.mockRejectedValueOnce(
+      Object.assign(new Error("fetch failed"), { code: "FETCH_USER_METADATA_FAILED:27100" }),
+    );
+    await expect(asleepActions.fetchUserMetadata()).rejects.toMatchObject({
+      code: "FETCH_USER_METADATA_FAILED",
+      sdkCode: 27100,
+    });
+  });
+
+  it("fetchUserMetadata falls back to its own code for an unencoded rejection", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    mockModule.fetchUserMetadata.mockRejectedValueOnce(new Error("bridge"));
+    const error = await asleepActions.fetchUserMetadata().catch((e) => e);
+    expect(error).toMatchObject({ code: "FETCH_USER_METADATA_FAILED", sdkCode: undefined });
+  });
+});
+
+describe("stopTracking analysis range", () => {
+  const start = new Date("2026-11-18T00:00:00.000Z");
+  const end = new Date("2026-11-18T06:30:00.000Z");
+
+  it("keeps the zero-argument native call when no range is supplied", async () => {
+    resetState({ trackingStatus: "tracking" });
+    await asleepActions.stopTracking();
+    await asleepActions.stopTracking({});
+    expect(mockModule.stopTracking).toHaveBeenCalledTimes(2);
+    expect(mockModule.stopTracking.mock.calls).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+  });
+
+  it("forwards the range as epoch milliseconds and closes like a plain stop", async () => {
+    resetState({ trackingStatus: "tracking", sessionId: "session-1" });
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await asleepActions.stopTracking({ analysisRange: { start, end } });
+    unsubscribe();
+    expect(mockModule.stopTracking).toHaveBeenCalledWith(start.getTime(), end.getTime());
+    expect(useAsleepStore.getState()).toMatchObject({ trackingStatus: "idle", didClose: true, isAnalyzing: false });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, unknown]>([
+    ["start equal to end", { start, end: new Date(start.getTime()) }],
+    ["start after end", { start: end, end: start }],
+    ["start and end within the same second", { start, end: new Date(start.getTime() + 999) }],
+    ["an invalid Date", { start: new Date(Number.NaN), end }],
+    ["a non-Date bound", { start: start.toISOString(), end }],
+    ["a missing end", { start }],
+  ])("rejects %s with INVALID_ARGUMENT before native", async (_name, analysisRange) => {
+    resetState({ trackingStatus: "tracking" });
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await expect(asleepActions.stopTracking({ analysisRange } as any)).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    unsubscribe();
+    expect(mockModule.stopTracking).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAsleepStore.getState()).toMatchObject({
+      trackingStatus: "tracking",
+      error: { code: "INVALID_ARGUMENT" },
+    });
+  });
+
+  it("accepts bounds exactly one whole second apart", async () => {
+    resetState({ trackingStatus: "tracking" });
+    await asleepActions.stopTracking({ analysisRange: { start: new Date(1999), end: new Date(2000) } });
+    expect(mockModule.stopTracking).toHaveBeenCalledWith(1999, 2000);
+  });
+});
+
+describe("reanalyze", () => {
+  const start = new Date("2026-11-18T00:00:00.000Z");
+  const end = new Date("2026-11-18T06:30:00.000Z");
+
+  it("passes explicit nulls when no range is supplied", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    await expect(asleepActions.reanalyze("session-1")).resolves.toBeUndefined();
+    expect(mockModule.reanalyze).toHaveBeenCalledWith("session-1", null, null);
+  });
+
+  it("forwards the range as epoch milliseconds", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    await asleepActions.reanalyze("session-1", { analysisRange: { start, end } });
+    expect(mockModule.reanalyze).toHaveBeenCalledWith("session-1", start.getTime(), end.getTime());
+  });
+
+  it("success does not notify subscribers or touch tracking state", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true, sessionId: "current", didClose: true });
+    const before = useAsleepStore.getState();
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await asleepActions.reanalyze("session-1");
+    unsubscribe();
+    expect(listener).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState()).toBe(before);
+  });
+
+  it.each<[string, unknown, unknown]>([
+    ["an empty sessionId", "", undefined],
+    ["a blank sessionId", "   ", undefined],
+    ["a non-string sessionId", 42, undefined],
+    ["start equal to end", "session-1", { analysisRange: { start, end: new Date(start.getTime()) } }],
+    ["start after end", "session-1", { analysisRange: { start: end, end: start } }],
+    ["bounds within one second", "session-1", { analysisRange: { start, end: new Date(start.getTime() + 500) } }],
+    ["an invalid Date", "session-1", { analysisRange: { start, end: new Date("nope") } }],
+  ])("rejects %s with INVALID_ARGUMENT before native", async (_name, sessionId, options) => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await expect(asleepActions.reanalyze(sessionId as any, options as any)).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    unsubscribe();
+    expect(mockModule.reanalyze).not.toHaveBeenCalled();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects MISSING_PREREQUISITE before initAsleepConfig", async () => {
+    await expect(asleepActions.reanalyze("session-1")).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+    expect(mockModule.reanalyze).not.toHaveBeenCalled();
+  });
+
+  it.each([30000, 30400, 30401, 30403, 30404, 30409, 30410, 30422, 30500])(
+    "preserves native sdkCode %i",
+    async (sdkCode) => {
+      resetState({ setupStatus: "complete", isUserConfigReady: true });
+      mockModule.reanalyze.mockRejectedValueOnce(
+        Object.assign(new Error("reanalyze failed"), { code: `REANALYZE_FAILED:${sdkCode}` }),
+      );
+      const listener = jest.fn();
+      const unsubscribe = useAsleepStore.subscribe(listener);
+      await expect(asleepActions.reanalyze("session-1")).rejects.toMatchObject({ code: "REANALYZE_FAILED", sdkCode });
+      unsubscribe();
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(useAsleepStore.getState().error).toMatchObject({ code: "REANALYZE_FAILED", sdkCode });
+    },
+  );
+
+  it("passes a native MISSING_PREREQUISITE rejection through", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    mockModule.reanalyze.mockRejectedValueOnce(
+      Object.assign(new Error("no reports"), { code: "MISSING_PREREQUISITE" }),
+    );
+    await expect(asleepActions.reanalyze("session-1")).rejects.toMatchObject({
+      code: "MISSING_PREREQUISITE",
+      sdkCode: undefined,
+    });
+  });
+
+  it("keeps a tracking failure emitted during the await", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true, trackingStatus: "tracking" });
+    let resolveNative!: () => void;
+    mockModule.reanalyze.mockReturnValueOnce(new Promise<void>((resolve) => (resolveNative = resolve)));
+    const promise = asleepActions.reanalyze("session-1");
+    mockEmitter.__emit("onTrackingFailed", { code: "TRACKING_FAILED", message: "concurrent", sdkCode: 23000 });
+    const concurrent = useAsleepStore.getState().error;
+    resolveNative();
+    await promise;
+    expect(useAsleepStore.getState().error).toBe(concurrent);
+  });
+});
+
+describe("user config readiness", () => {
+  it("setup() clears readiness so per-user actions reject before native", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true, userId: "A" });
+    const pending = asleepActions.setup({ apiKey: "other-key" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(false);
+    await pending.catch(() => undefined);
+    await expect(asleepActions.saveUserMetadata({ birthYear: 1990 })).rejects.toMatchObject({
+      code: "MISSING_PREREQUISITE",
+    });
+    expect(mockModule.saveUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("onUserDeleted clears readiness so per-user actions reject before native", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true, userId: "A" });
+    mockEmitter.__emit("onUserDeleted", { userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(false);
+    await expect(asleepActions.fetchUserMetadata()).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+    expect(mockModule.fetchUserMetadata).not.toHaveBeenCalled();
+  });
+
+  const userConfigCalls: Array<[string, () => Promise<unknown>]> = [
+    ["saveUserMetadata", () => asleepActions.saveUserMetadata({ birthYear: 1990 })],
+    ["fetchUserMetadata", () => asleepActions.fetchUserMetadata()],
+    ["reanalyze", () => asleepActions.reanalyze("session-1")],
+  ];
+
+  const expectAllRejectBeforeNative = async () => {
+    for (const [nativeName, call] of userConfigCalls) {
+      await expect(call()).rejects.toMatchObject({ code: "MISSING_PREREQUISITE" });
+      expect((mockModule as any)[nativeName]).not.toHaveBeenCalled();
+    }
+  };
+
+  const expectAllReachNative = async () => {
+    for (const [nativeName, call] of userConfigCalls) {
+      await call();
+      expect((mockModule as any)[nativeName]).toHaveBeenCalledTimes(1);
+    }
+  };
+
+  // Both platforms resolve initAsleepConfig() only after the native user join;
+  // iOS emits onUserJoined just before resolving with { userId }.
+  const deferNativeInit = () => {
+    let resolve!: (value: unknown) => void;
+    let reject!: (error: unknown) => void;
+    mockModule.initAsleepConfig.mockReturnValueOnce(
+      new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+      }),
+    );
+    return { resolve: (value: unknown) => resolve(value), reject: (error: unknown) => reject(error) };
+  };
+
+  it("iOS: enables user-config calls only when initAsleepConfig resolves after the join", async () => {
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    expect(useAsleepStore.getState().setupStatus).toBe("inProgress");
+    await expectAllRejectBeforeNative();
+    mockEmitter.__emit("onUserJoined", { userId: "A" });
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "inProgress", isUserConfigReady: false });
+    await expectAllRejectBeforeNative();
+    native.resolve({ userId: "A" });
+    await pending;
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "complete", isUserConfigReady: true, userId: "A" });
+    await expectAllReachNative();
+  });
+
+  it("Android: enables user-config calls when initAsleepConfig resolves with a userId", async () => {
+    setMockPlatform({ OS: "android", Version: 34 });
+    mockModule.initAsleepConfig.mockResolvedValueOnce({ userId: "A" });
+    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    await expectAllReachNative();
+  });
+
+  it("a second initAsleepConfig during the join rejects OPERATION_IN_PROGRESS before native", async () => {
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    await expect(asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" })).rejects.toMatchObject({
+      code: "OPERATION_IN_PROGRESS",
+    });
+    expect(mockModule.initAsleepConfig).toHaveBeenCalledTimes(1);
+    native.resolve({ userId: "A" });
+    await pending;
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "complete", isUserConfigReady: true });
+  });
+
+  it("a stale onUserJoined for A during B's init does not enable readiness", async () => {
+    mockModule.initAsleepConfig.mockResolvedValueOnce({ userId: "A" });
+    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(true);
+
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" });
+    mockEmitter.__emit("onUserJoined", { userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(false);
+    await expectAllRejectBeforeNative();
+
+    mockEmitter.__emit("onUserJoined", { userId: "B" });
+    native.resolve({ userId: "B" });
+    await pending;
+    expect(useAsleepStore.getState()).toMatchObject({ isUserConfigReady: true, userId: "B" });
+  });
+
+  it("onUserJoined outside an init (SDK-initiated join) enables readiness", () => {
+    resetState({ setupStatus: "complete" });
+    mockEmitter.__emit("onUserJoined", { userId: "A" });
+    expect(useAsleepStore.getState()).toMatchObject({ isUserConfigReady: true, userId: "A" });
+  });
+
+  it("iOS: a failed re-init for user B rejects and never runs user A's config", async () => {
+    mockModule.initAsleepConfig.mockResolvedValueOnce({ userId: "A" });
+    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(true);
+
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" });
+    await expectAllRejectBeforeNative();
+    mockEmitter.__emit("onUserJoinFailed", { error: "join failed", caseName: "httpStatus", sdkCode: 10000 });
+    const joinError = useAsleepStore.getState().error;
+    native.reject(Object.assign(new Error("join failed"), { code: "INITIALIZATION_FAILED:10000" }));
+    await expect(pending).rejects.toBe(joinError);
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", isUserConfigReady: false });
+    await expectAllRejectBeforeNative();
+  });
+
+  it("Android: a failed re-init for user B never runs user A's config", async () => {
+    setMockPlatform({ OS: "android", Version: 34 });
+    mockModule.initAsleepConfig.mockResolvedValueOnce({ userId: "A" });
+    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(true);
+
+    mockModule.initAsleepConfig.mockImplementationOnce(async () => {
+      mockEmitter.__emit("onUserJoinFailed", { errorCode: 10000, detail: "join failed", sdkCode: 10000 });
+      throw Object.assign(new Error("Initialization failed"), { code: "INITIALIZATION_FAILED" });
+    });
+    await expect(asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" })).rejects.toBeDefined();
+    await expectAllRejectBeforeNative();
+  });
+
+  it("invalidates the config while a re-init is in progress", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    let resolveNative!: (value: unknown) => void;
+    mockModule.initAsleepConfig.mockReturnValueOnce(new Promise((resolve) => (resolveNative = resolve)));
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" });
+    await expectAllRejectBeforeNative();
+    resolveNative(undefined);
+    await pending;
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(false);
+  });
+
+  it("a rejected initAsleepConfig clears readiness", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    mockModule.initAsleepConfig.mockRejectedValueOnce(new Error("bridge"));
+    await expect(asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" })).rejects.toBeDefined();
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", isUserConfigReady: false });
+  });
+
+  it("onUserJoinFailed disables user-config calls", async () => {
+    resetState({ setupStatus: "complete", isUserConfigReady: true });
+    mockEmitter.__emit("onUserJoinFailed", { error: "join failed", sdkCode: 10000 });
+    await expectAllRejectBeforeNative();
+  });
+
+  it.each([false, true])(
+    "onUserJoined and onUserJoinFailed notify exactly once each (debug logging %s)",
+    (showDebugLog) => {
+      resetState({ showDebugLog });
+      const listener = jest.fn();
+      const unsubscribe = useAsleepStore.subscribe(listener);
+      mockEmitter.__emit("onUserJoined", { userId: "A" });
+      expect(listener).toHaveBeenCalledTimes(1);
+      mockEmitter.__emit("onUserJoinFailed", { error: "join failed", sdkCode: 10000 });
+      expect(listener).toHaveBeenCalledTimes(2);
+      unsubscribe();
+    },
+  );
+
+  it.each([false, true])(
+    "onUserJoined and onUserJoinFailed notify exactly once each during an init (debug logging %s)",
+    (showDebugLog) => {
+      resetState({ showDebugLog, setupStatus: "inProgress" });
+      const listener = jest.fn();
+      const unsubscribe = useAsleepStore.subscribe(listener);
+      mockEmitter.__emit("onUserJoined", { userId: "A" });
+      expect(listener).toHaveBeenCalledTimes(1);
+      mockEmitter.__emit("onUserJoinFailed", { error: "join failed", sdkCode: 10000 });
+      expect(listener).toHaveBeenCalledTimes(2);
+      unsubscribe();
+    },
+  );
+});
+
+describe("setup productInfo", () => {
+  const productInfo = { model: "SleepHub-1", identifierType: "serial", identifierValue: "SN-0001" } as const;
+
+  it.each<[string, Record<string, string>]>([
+    ["apiKey", { apiKey: "key" }],
+    ["appId/appSecret", { appId: "app", appSecret: "secret" }],
+  ])("forwards productInfo with %s credentials", async (_name, credentials) => {
+    await asleepActions.setup({ ...credentials, productInfo } as any);
+    expect(mockModule.setup).toHaveBeenCalledWith(credentials, undefined, undefined, undefined, undefined, productInfo);
+    expect(useAsleepStore.getState().setupStatus).toBe("complete");
+  });
+
+  it("forwards a mac_address identifier unchanged", async () => {
+    const mac = { model: " M ", identifierType: "mac_address", identifierValue: "AA:BB:CC:DD:EE:FF" } as const;
+    await asleepActions.setup({ apiKey: "key", productInfo: mac });
+    expect(mockModule.setup.mock.calls[0][5]).toEqual(mac);
+  });
+
+  it.each([
+    ["omitted", undefined],
+    ["null", null],
+  ])("forwards null when productInfo is %s", async (_name, value) => {
+    await asleepActions.setup({ apiKey: "key", productInfo: value as any });
+    expect(mockModule.setup.mock.calls[0][5]).toBeNull();
+  });
+
+  it("accepts length boundaries", async () => {
+    await asleepActions.setup({
+      apiKey: "key",
+      productInfo: { model: "m".repeat(100), identifierType: "serial", identifierValue: "v".repeat(255) },
+    });
+    expect(mockModule.setup).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, unknown]>([
+    ["a non-object", "SN-0001"],
+    ["an array", []],
+    ["a missing model", { identifierType: "serial", identifierValue: "SN" }],
+    ["an empty model", { ...productInfo, model: "" }],
+    ["a blank model", { ...productInfo, model: " \t\n " }],
+    ["a 101-character model", { ...productInfo, model: "m".repeat(101) }],
+    ["a non-string model", { ...productInfo, model: 1 }],
+    ["a missing identifierValue", { model: "M", identifierType: "serial" }],
+    ["a blank identifierValue", { ...productInfo, identifierValue: "   " }],
+    ["a 256-character identifierValue", { ...productInfo, identifierValue: "v".repeat(256) }],
+    ["a missing identifierType", { model: "M", identifierValue: "SN" }],
+    ["an unknown identifierType", { ...productInfo, identifierType: "imei" }],
+    ["the native enum spelling", { ...productInfo, identifierType: "MAC_ADDRESS" }],
+    ["an unknown field", { ...productInfo, serial: "SN" }],
+  ])("rejects %s with INVALID_ARGUMENT before native", async (_name, invalid) => {
+    await expect(asleepActions.setup({ apiKey: "key", productInfo: invalid as any })).rejects.toMatchObject({
+      name: "AsleepError",
+      code: "INVALID_ARGUMENT",
+    });
+    expect(mockModule.setup).not.toHaveBeenCalled();
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", error: { code: "INVALID_ARGUMENT" } });
+  });
+
+  it("an invalid-productInfo rejection notifies subscribers exactly once", async () => {
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
+    await asleepActions.setup({ apiKey: "key", productInfo: { ...productInfo, model: "" } }).catch(() => undefined);
+    unsubscribe();
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  // iOS also sends `code`, the Swift enum ordinal; its value here is arbitrary.
+  it.each([
+    [
+      "iOS rejected (13400)",
+      { error: "Product registration rejected", caseName: "productRegisterRejected", code: 61, sdkCode: 13400 },
+    ],
+    [
+      "iOS transient (13000)",
+      { error: "Failed to register a product", caseName: "productRegisterFailed", code: 60, sdkCode: 13000 },
+    ],
+    ["Android rejected (13400)", { error: "Invalid model: must not be empty", sdkCode: 13400 }],
+    ["Android transient (13000)", { error: "network error", sdkCode: 13000 }],
+  ])("onSetupDidFail for %s keeps sdkCode and resets setup", (_name, payload) => {
+    resetState({ setupStatus: "complete", isInitialized: true });
+    mockEmitter.__emit("onSetupDidFail", payload);
+    expect(useAsleepStore.getState()).toMatchObject({
+      setupStatus: "idle",
+      error: { name: "AsleepError", code: "SETUP_FAILED", sdkCode: payload.sdkCode, message: payload.error },
+    });
+  });
+
+  it.each([13400, 13000])("an Android setup rejection carrying %i keeps sdkCode", async (sdkCode) => {
+    const rejection = Object.assign(new Error(`Setup failed: ${sdkCode} - detail`), {
+      code: `SETUP_FAILED:${sdkCode}`,
+    });
+    mockModule.setup.mockRejectedValueOnce(rejection);
+    await expect(asleepActions.setup({ apiKey: "key", productInfo })).rejects.toMatchObject({
+      code: "SETUP_FAILED",
+      sdkCode,
+      cause: rejection,
+    });
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", error: { code: "SETUP_FAILED", sdkCode } });
+  });
+
+  it("throws the event error published while the Android setup promise was pending", async () => {
+    mockModule.setup.mockImplementationOnce(async () => {
+      mockEmitter.__emit("onSetupDidFail", { error: "rejected", sdkCode: 13400 });
+      throw Object.assign(new Error("Setup failed: 13400 - rejected"), { code: "SETUP_FAILED:13400" });
+    });
+    const error = await asleepActions.setup({ apiKey: "key", productInfo }).catch((e) => e);
+    expect(error).toBe(useAsleepStore.getState().error);
+    expect(error).toMatchObject({ code: "SETUP_FAILED", sdkCode: 13400, message: "rejected" });
   });
 });
