@@ -150,7 +150,6 @@ export function SleepTracker() {
     error,
     checkAndRestoreTracking,
     initAsleepConfig,
-    addEventListener,
     checkBatteryOptimization,
     requestBatteryOptimizationExemption,
     hasRequiredPermissions,
@@ -169,43 +168,7 @@ export function SleepTracker() {
         await checkAndRestoreTracking();
 
         const config = { apiKey: "YOUR_API_KEY" };
-        if (Platform.OS === "ios") {
-          let removeJoined = () => {};
-          let removeFailed = () => {};
-          const configurationFinished = new Promise<void>(
-            (resolve, reject) => {
-              removeJoined = addEventListener("onUserJoined", () => resolve());
-              removeFailed = addEventListener(
-                "onUserJoinFailed",
-                (failure) => {
-                  reject(
-                    new AsleepError(
-                      "USER_JOIN_FAILED",
-                      failure.detail ?? failure.error ?? "사용자 설정 실패",
-                      {
-                        sdkCode: failure.sdkCode,
-                        caseName: failure.caseName,
-                        cause: failure,
-                      },
-                    ),
-                  );
-                },
-              );
-            },
-          );
-
-          try {
-            await Promise.all([
-              initAsleepConfig(config),
-              configurationFinished,
-            ]);
-          } finally {
-            removeJoined();
-            removeFailed();
-          }
-        } else {
-          await initAsleepConfig(config);
-        }
+        await initAsleepConfig(config);
 
         await checkBatteryOptimization();
         setIsReady(true);
@@ -216,7 +179,6 @@ export function SleepTracker() {
   }, [
     checkAndRestoreTracking,
     initAsleepConfig,
-    addEventListener,
     checkBatteryOptimization,
   ]);
 
@@ -272,7 +234,7 @@ export function SleepTracker() {
 }
 ```
 
-iOS의 `initAsleepConfig()`는 native user 설정을 비동기로 시작하지만 bridge 호출은 manager 준비 전에 반환될 수 있습니다. 위 예제처럼 호출 전에 user event를 등록하고 `onUserJoined` 또는 `onUserJoinFailed`까지 기다리세요. Android는 설정 완료 뒤 Promise가 끝나며, 복원된 service의 빠른 경로에서는 `onUserJoined`가 발생하지 않으므로 event를 추가로 기다리면 안 됩니다.
+두 플랫폼 모두 `await initAsleepConfig()`는 native user join이 끝난 뒤 resolve되고, 실패하면 reject됩니다. Android의 복원된 service 빠른 경로는 `onUserJoined` 없이 resolve되므로 event가 아니라 Promise를 기다리세요. 진행 중인 호출이 있을 때 다시 호출하면 `OPERATION_IN_PROGRESS`로 reject되므로, 사용자를 전환할 때처럼 연속으로 초기화하려면 앞선 호출이 끝난 뒤에 다음 호출을 시작하세요.
 
 `recordingDead`도 예외입니다. `isTracking`은 `false`지만 native session은 열려 있으므로 새 측정을 시작하기 전에 `stopTracking()`을 호출해야 합니다.
 
@@ -373,7 +335,7 @@ await asleep.reanalyze(sessionId, { analysisRange: { start, end } });
 
 > **구간 없이 재분석하면 서버에 저장된 이전 구간이 대체됩니다.** `stopTracking({ analysisRange })`로 지정한 구간도 마찬가지입니다. 구간을 유지하려면 다시 전달하세요.
 
-빈 `sessionId`나 잘못된 구간은 native 호출 전에 `INVALID_ARGUMENT`로, 가장 최근 `initAsleepConfig()`가 user join(`onUserJoined`, Android에서는 resolve된 Promise)을 마치기 전, 재초기화 진행 중, 재초기화 실패 후의 호출은 `MISSING_PREREQUISITE`로 reject됩니다. 서버 실패는 code `REANALYZE_FAILED`로 reject되며 `error.sdkCode`에 SDK 코드를 유지합니다: 30000(일반/네트워크), 30400, 30401, 30403, 30404, 30409(재분석이 이미 진행 중: 간격을 두고, 무한 재시도하지 마세요), 30410(데이터 보존 기간 만료), 30422(session이 아직 측정 중), 30500.
+빈 `sessionId`나 잘못된 구간은 native 호출 전에 `INVALID_ARGUMENT`로, 가장 최근 `initAsleepConfig()`가 resolve되기 전, 재초기화 진행 중, 재초기화 실패 후의 호출은 `MISSING_PREREQUISITE`로 reject됩니다. 서버 실패는 code `REANALYZE_FAILED`로 reject되며 `error.sdkCode`에 SDK 코드를 유지합니다: 30000(일반/네트워크), 30400, 30401, 30403, 30404, 30409(재분석이 이미 진행 중: 간격을 두고, 무한 재시도하지 마세요), 30410(데이터 보존 기간 만료), 30422(session이 아직 측정 중), 30500.
 
 ### 사용자 메타데이터
 
@@ -388,7 +350,7 @@ await asleep.saveUserMetadata(metadata);
 const saved = await asleep.fetchUserMetadata(); // AsleepUserMetadata | null
 ```
 
-모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 user join(`onUserJoined`, Android에서는 resolve된 Promise)을 마친 뒤에 호출하세요. 그 전이나, 재초기화가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject되므로, 재초기화가 실패해도 이전 사용자의 프로필을 읽거나 덮어쓰지 않습니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
+모든 필드는 선택 사항이며 생략한 필드는 전송되지 않습니다. 범위를 벗어난 값은 native 호출 전에 `INVALID_ARGUMENT`로 reject됩니다: `birthYear` 1900-2100, `birthMonth` 1-12, `birthDay` 1-31(정수), `height` 1-500 cm, `weight` 1-1000 kg, `gender`는 `"male"`, `"female"`, `"non_binary"`, `"other"`, `"prefer_not_to_say"` 중 하나. 가장 최근 `initAsleepConfig()`가 resolve된 뒤에 호출하세요. 그 전이나, 재초기화가 진행 중이거나 실패한 상태에서 호출하면 `MISSING_PREREQUISITE`로 reject되므로, 재초기화가 실패해도 이전 사용자의 프로필을 읽거나 덮어쓰지 않습니다. native 실패는 `error.sdkCode`에 SDK 코드를 유지합니다: 27400(서버 검증 실패, code `INVALID_ARGUMENT`), 27000(`SAVE_USER_METADATA_FAILED`), 27100(`FETCH_USER_METADATA_FAILED`). 저장된 값이 없으면 `fetchUserMetadata()`는 `null`로 resolve됩니다.
 
 ### `Asleep`
 

@@ -12,7 +12,7 @@ The examples use service-based sleep tracking through `initAsleepConfig()`. ODA 
 flowchart LR
     A["App starts"] --> B["Mount useAsleep or initialize listeners"]
     B --> C["checkAndRestoreTracking()"]
-    C --> D["initAsleepConfig() and wait for iOS user event"]
+    C --> D["await initAsleepConfig()"]
     D --> E["checkBatteryOptimization()"]
     E --> F{"Android service restored?"}
     F -- "Yes" --> G["Render restored SDK state"]
@@ -87,9 +87,8 @@ releaseListeners();
 Run this sequence once from the app-level integration owner:
 
 ```tsx
-import { Platform } from "react-native";
 import { useCallback } from "react";
-import { AsleepError, useAsleep } from "react-native-asleep";
+import { useAsleep } from "react-native-asleep";
 
 export function useSleepTrackingBootstrap(stableUserId?: string) {
   const asleep = useAsleep();
@@ -102,41 +101,7 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
       userId: stableUserId,
     };
 
-    if (Platform.OS === "ios") {
-      let removeJoined = () => {};
-      let removeFailed = () => {};
-      const configurationFinished = new Promise<void>((resolve, reject) => {
-        removeJoined = asleep.addEventListener("onUserJoined", () => resolve());
-        removeFailed = asleep.addEventListener(
-          "onUserJoinFailed",
-          (failure) => {
-            reject(
-              new AsleepError(
-                "USER_JOIN_FAILED",
-                failure.detail ?? failure.error ?? "User join failed.",
-                {
-                  sdkCode: failure.sdkCode,
-                  caseName: failure.caseName,
-                  cause: failure,
-                },
-              ),
-            );
-          },
-        );
-      });
-
-      try {
-        await Promise.all([
-          asleep.initAsleepConfig(config),
-          configurationFinished,
-        ]);
-      } finally {
-        removeJoined();
-        removeFailed();
-      }
-    } else {
-      await asleep.initAsleepConfig(config);
-    }
+    await asleep.initAsleepConfig(config);
 
     const battery = await asleep.checkBatteryOptimization();
 
@@ -147,7 +112,6 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
   }, [
     asleep.checkAndRestoreTracking,
     asleep.initAsleepConfig,
-    asleep.addEventListener,
     asleep.checkBatteryOptimization,
     stableUserId,
   ]);
@@ -160,8 +124,8 @@ export function useSleepTrackingBootstrap(stableUserId?: string) {
 
 - `checkAndRestoreTracking()` asks Android native code whether tracking survived the JavaScript process and reconnects the service when needed. On iOS, the method is a required cross-platform prerequisite but returns `{ hasActiveSession: false }`; iOS has no persistent service to reconnect.
 - `initAsleepConfig()` remains required after that check. A restored session does not mean the current JavaScript process has configured the SDK and report APIs.
-- On iOS, the bridge call starts asynchronous user configuration and can return before the native tracking and report managers exist. Register `onUserJoined` and `onUserJoinFailed` before calling it, then wait for one of those events. On Android, await the action itself; the restored-service fast path resolves without emitting `onUserJoined`.
-- Do not use `isSetupComplete` alone as the iOS readiness signal. The current bridge action can update it before the user-join delegate creates the native managers.
+- `await initAsleepConfig()` resolves after the native user join has created the tracking and report managers, and rejects when the join fails, on both platforms. Await the action itself rather than `onUserJoined`: the Android restored-service fast path resolves without emitting that event.
+- A second `initAsleepConfig()` while one is in progress rejects with `OPERATION_IN_PROGRESS`. When switching users, let the previous call settle before starting the next.
 - `checkBatteryOptimization()` marks the required prerequisite as checked. On iOS it resolves with `{ exempted: true, platform: "ios" }`.
 - `startTracking()` rejects with `MISSING_PREREQUISITE` if restoration or the battery check has not run.
 
@@ -181,7 +145,7 @@ Do not reconfigure a live session with a different product identity. Define any 
 
 ### User metadata
 
-`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after the most recent `initAsleepConfig()` has completed its user join (`onUserJoined`; on Android, its resolved promise). Earlier calls, calls while a re-init is in progress, and calls after a failed re-init reject with `MISSING_PREREQUISITE`; the previous user's config is never reused.
+`saveUserMetadata(metadata)` and `fetchUserMetadata()` read and write optional profile data (birth date, gender, height, weight) on the configured user. Call them only after the most recent `initAsleepConfig()` has resolved. Earlier calls, calls while a re-init is in progress, and calls after a failed re-init reject with `MISSING_PREREQUISITE`; the previous user's config is never reused.
 
 ```ts
 await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });
@@ -223,7 +187,7 @@ Values are sent untrimmed. Invalid values and unknown fields reject with `INVALI
 
 Offline, a 13000 failure can take about 1.5-3 minutes to arrive; keep tracking controls disabled until setup finishes.
 
-On Android, `setup()` resolves after registration and setup complete, and rejects with the failure. On iOS, `setup()` returns once the native call starts and `isSetupComplete` can turn `true` before registration finishes. Register `onSetupDidComplete` and `onSetupDidFail` before calling `setup()`, as with `onUserJoined` for `initAsleepConfig()`, and wait for one of them. Do not call `setup()` again before it arrives: the native SDK ignores a second `setup()` while one is running and sends no callback.
+On Android, `setup()` resolves after registration and setup complete, and rejects with the failure. On iOS, `setup()` returns once the native call starts and `isSetupComplete` can turn `true` before registration finishes. Register `onSetupDidComplete` and `onSetupDidFail` before calling `setup()` and wait for one of them. Do not call `setup()` again before it arrives: the native SDK ignores a second `setup()` while one is running and sends no callback.
 
 ## 4. Check prerequisites and start
 
@@ -439,7 +403,7 @@ Branch on `error.sdkCode` (code `REANALYZE_FAILED`):
 | 30401 / 30403 | Unauthorized / not allowed for this customer | Do not retry; check credentials and contract |
 | 30000 / 30500 | Network or server failure | Retry with a bounded policy |
 
-Input checks (empty `sessionId`, invalid range) reject with `INVALID_ARGUMENT` before any native call, and calls before the most recent `initAsleepConfig()` has completed its user join, while a re-init is in progress, or after it failed reject with `MISSING_PREREQUISITE`.
+Input checks (empty `sessionId`, invalid range) reject with `INVALID_ARGUMENT` before any native call, and calls before the most recent `initAsleepConfig()` has resolved, while a re-init is in progress, or after it failed reject with `MISSING_PREREQUISITE`.
 
 ## 9. Consume analysis consistently
 

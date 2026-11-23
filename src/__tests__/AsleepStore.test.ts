@@ -845,12 +845,31 @@ describe("user config readiness", () => {
     }
   };
 
-  it("iOS: enables user-config calls only after onUserJoined", async () => {
-    mockModule.initAsleepConfig.mockResolvedValueOnce(undefined);
-    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
-    expect(useAsleepStore.getState().setupStatus).toBe("complete");
+  // Both platforms resolve initAsleepConfig() only after the native user join;
+  // iOS emits onUserJoined just before resolving with { userId }.
+  const deferNativeInit = () => {
+    let resolve!: (value: unknown) => void;
+    let reject!: (error: unknown) => void;
+    mockModule.initAsleepConfig.mockReturnValueOnce(
+      new Promise((res, rej) => {
+        resolve = res;
+        reject = rej;
+      }),
+    );
+    return { resolve: (value: unknown) => resolve(value), reject: (error: unknown) => reject(error) };
+  };
+
+  it("iOS: enables user-config calls only when initAsleepConfig resolves after the join", async () => {
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    expect(useAsleepStore.getState().setupStatus).toBe("inProgress");
     await expectAllRejectBeforeNative();
     mockEmitter.__emit("onUserJoined", { userId: "A" });
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "inProgress", isUserConfigReady: false });
+    await expectAllRejectBeforeNative();
+    native.resolve({ userId: "A" });
+    await pending;
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "complete", isUserConfigReady: true, userId: "A" });
     await expectAllReachNative();
   });
 
@@ -861,15 +880,54 @@ describe("user config readiness", () => {
     await expectAllReachNative();
   });
 
-  it("iOS: a failed re-init for user B never runs user A's config", async () => {
+  it("a second initAsleepConfig during the join rejects OPERATION_IN_PROGRESS before native", async () => {
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    await expect(asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" })).rejects.toMatchObject({
+      code: "OPERATION_IN_PROGRESS",
+    });
+    expect(mockModule.initAsleepConfig).toHaveBeenCalledTimes(1);
+    native.resolve({ userId: "A" });
+    await pending;
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "complete", isUserConfigReady: true });
+  });
+
+  it("a stale onUserJoined for A during B's init does not enable readiness", async () => {
+    mockModule.initAsleepConfig.mockResolvedValueOnce({ userId: "A" });
     await asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
-    mockEmitter.__emit("onUserJoined", { userId: "A" });
     expect(useAsleepStore.getState().isUserConfigReady).toBe(true);
 
-    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" });
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" });
+    mockEmitter.__emit("onUserJoined", { userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(false);
     await expectAllRejectBeforeNative();
-    mockEmitter.__emit("onUserJoinFailed", { error: "join failed", sdkCode: 10000 });
-    expect(useAsleepStore.getState().setupStatus).toBe("complete");
+
+    mockEmitter.__emit("onUserJoined", { userId: "B" });
+    native.resolve({ userId: "B" });
+    await pending;
+    expect(useAsleepStore.getState()).toMatchObject({ isUserConfigReady: true, userId: "B" });
+  });
+
+  it("onUserJoined outside an init (SDK-initiated join) enables readiness", () => {
+    resetState({ setupStatus: "complete" });
+    mockEmitter.__emit("onUserJoined", { userId: "A" });
+    expect(useAsleepStore.getState()).toMatchObject({ isUserConfigReady: true, userId: "A" });
+  });
+
+  it("iOS: a failed re-init for user B rejects and never runs user A's config", async () => {
+    mockModule.initAsleepConfig.mockResolvedValueOnce({ userId: "A" });
+    await asleepActions.initAsleepConfig({ apiKey: "key", userId: "A" });
+    expect(useAsleepStore.getState().isUserConfigReady).toBe(true);
+
+    const native = deferNativeInit();
+    const pending = asleepActions.initAsleepConfig({ apiKey: "key", userId: "B" });
+    await expectAllRejectBeforeNative();
+    mockEmitter.__emit("onUserJoinFailed", { error: "join failed", caseName: "httpStatus", sdkCode: 10000 });
+    const joinError = useAsleepStore.getState().error;
+    native.reject(Object.assign(new Error("join failed"), { code: "INITIALIZATION_FAILED:10000" }));
+    await expect(pending).rejects.toBe(joinError);
+    expect(useAsleepStore.getState()).toMatchObject({ setupStatus: "idle", isUserConfigReady: false });
     await expectAllRejectBeforeNative();
   });
 
@@ -915,6 +973,20 @@ describe("user config readiness", () => {
     "onUserJoined and onUserJoinFailed notify exactly once each (debug logging %s)",
     (showDebugLog) => {
       resetState({ showDebugLog });
+      const listener = jest.fn();
+      const unsubscribe = useAsleepStore.subscribe(listener);
+      mockEmitter.__emit("onUserJoined", { userId: "A" });
+      expect(listener).toHaveBeenCalledTimes(1);
+      mockEmitter.__emit("onUserJoinFailed", { error: "join failed", sdkCode: 10000 });
+      expect(listener).toHaveBeenCalledTimes(2);
+      unsubscribe();
+    },
+  );
+
+  it.each([false, true])(
+    "onUserJoined and onUserJoinFailed notify exactly once each during an init (debug logging %s)",
+    (showDebugLog) => {
+      resetState({ showDebugLog, setupStatus: "inProgress" });
       const listener = jest.fn();
       const unsubscribe = useAsleepStore.subscribe(listener);
       mockEmitter.__emit("onUserJoined", { userId: "A" });

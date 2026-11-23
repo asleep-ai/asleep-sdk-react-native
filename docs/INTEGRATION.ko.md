@@ -16,7 +16,7 @@
 앱 시작
 → useAsleep() mount 또는 Asleep.initialize()
 → checkAndRestoreTracking()
-→ initAsleepConfig()                    // iOS는 user event까지 대기
+→ initAsleepConfig()                    // user join 완료까지 대기
 → checkBatteryOptimization()
 → 사용자 동작에서 권한 요청
 → startTracking()                       // 활성 세션이 없을 때만
@@ -42,8 +42,7 @@ iOS bridge는 복원 가능한 session을 보고하지 않지만 `startTracking(
 
 ```tsx
 import { useCallback, useState } from "react";
-import { Platform } from "react-native";
-import { AsleepError, useAsleep } from "react-native-asleep";
+import { useAsleep } from "react-native-asleep";
 
 export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
   const asleep = useAsleep();
@@ -58,41 +57,7 @@ export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
       userId: stableUserId,
     };
 
-    if (Platform.OS === "ios") {
-      let removeJoined = () => {};
-      let removeFailed = () => {};
-      const configurationFinished = new Promise<void>((resolve, reject) => {
-        removeJoined = asleep.addEventListener("onUserJoined", () => resolve());
-        removeFailed = asleep.addEventListener(
-          "onUserJoinFailed",
-          (failure) => {
-            reject(
-              new AsleepError(
-                "USER_JOIN_FAILED",
-                failure.detail ?? failure.error ?? "사용자 설정 실패",
-                {
-                  sdkCode: failure.sdkCode,
-                  caseName: failure.caseName,
-                  cause: failure,
-                },
-              ),
-            );
-          },
-        );
-      });
-
-      try {
-        await Promise.all([
-          asleep.initAsleepConfig(config),
-          configurationFinished,
-        ]);
-      } finally {
-        removeJoined();
-        removeFailed();
-      }
-    } else {
-      await asleep.initAsleepConfig(config);
-    }
+    await asleep.initAsleepConfig(config);
 
     const battery = await asleep.checkBatteryOptimization();
 
@@ -103,7 +68,6 @@ export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
     stableUserId,
     asleep.checkAndRestoreTracking,
     asleep.initAsleepConfig,
-    asleep.addEventListener,
     asleep.checkBatteryOptimization,
   ]);
 
@@ -111,7 +75,7 @@ export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
 }
 ```
 
-iOS의 bridge 호출은 native user 설정을 시작한 뒤 tracking/report manager가 준비되기 전에 반환될 수 있습니다. 따라서 호출 전에 `onUserJoined`와 `onUserJoinFailed`를 등록하고 둘 중 하나가 발생할 때까지 기다립니다. `isSetupComplete`만으로 iOS 준비 완료를 판단하면 안 됩니다. 현재 bridge action은 user-join delegate가 native manager를 만들기 전에 이 값을 갱신할 수 있습니다. Android에서는 `initAsleepConfig()` 자체의 Promise만 기다립니다. 복원된 service의 빠른 경로는 Promise를 resolve하지만 `onUserJoined`를 보내지 않기 때문입니다.
+두 플랫폼 모두 `await initAsleepConfig()`는 native user join이 tracking/report manager를 만든 뒤 resolve되고, join이 실패하면 reject됩니다. `onUserJoined`가 아니라 `initAsleepConfig()` 자체의 Promise를 기다리세요. Android의 복원된 service 빠른 경로는 Promise를 resolve하지만 `onUserJoined`를 보내지 않습니다. 진행 중인 호출이 있을 때 다시 호출하면 `OPERATION_IN_PROGRESS`로 reject되므로, 사용자를 전환할 때는 앞선 호출이 끝난 뒤 다음 호출을 시작하세요.
 
 앱의 integration owner에서 `initialize()`를 한 번 호출하고 실패하면 tracking UI를 비활성화한 채 앱이 소유한 재시도 동작을 제공하세요.
 
@@ -152,7 +116,7 @@ await asleep.setup({
 
 오프라인에서는 13000 실패가 도착하기까지 약 1.5-3분이 걸릴 수 있으므로, setup이 끝날 때까지 tracking 조작을 비활성화하세요.
 
-Android에서 `setup()`은 등록과 setup이 끝난 뒤 resolve되고, 실패하면 reject됩니다. iOS에서 `setup()`은 native 호출이 시작되면 반환되며 등록이 끝나기 전에 `isSetupComplete`가 `true`가 될 수 있습니다. `initAsleepConfig()`의 `onUserJoined`처럼 `setup()` 호출 전에 `onSetupDidComplete`와 `onSetupDidFail`을 등록하고 둘 중 하나를 기다리세요. 도착하기 전에 `setup()`을 다시 호출하지 마세요. native SDK는 실행 중인 setup이 있으면 두 번째 `setup()`을 무시하고 callback도 보내지 않습니다.
+Android에서 `setup()`은 등록과 setup이 끝난 뒤 resolve되고, 실패하면 reject됩니다. iOS에서 `setup()`은 native 호출이 시작되면 반환되며 등록이 끝나기 전에 `isSetupComplete`가 `true`가 될 수 있습니다. `setup()` 호출 전에 `onSetupDidComplete`와 `onSetupDidFail`을 등록하고 둘 중 하나를 기다리세요. 도착하기 전에 `setup()`을 다시 호출하지 마세요. native SDK는 실행 중인 setup이 있으면 두 번째 `setup()`을 무시하고 callback도 보내지 않습니다.
 
 ## 2. 권한과 Android 배터리 최적화
 
@@ -374,7 +338,7 @@ Android에서 Promise 결과를 별도로 store에 다시 쓰면 같은 분석�
 
 ### 사용자 메타데이터
 
-`saveUserMetadata(metadata)`와 `fetchUserMetadata()`는 설정된 사용자의 선택적 프로필 정보(생년월일, 성별, 키, 몸무게)를 저장하고 조회합니다. 가장 최근 `initAsleepConfig()`가 user join(`onUserJoined`, Android에서는 resolve된 Promise)을 마친 뒤에만 호출하세요. 그 전, 재초기화 진행 중, 재초기화 실패 후에 호출하면 `MISSING_PREREQUISITE`로 reject되며 이전 사용자의 config는 재사용되지 않습니다.
+`saveUserMetadata(metadata)`와 `fetchUserMetadata()`는 설정된 사용자의 선택적 프로필 정보(생년월일, 성별, 키, 몸무게)를 저장하고 조회합니다. 가장 최근 `initAsleepConfig()`가 resolve된 뒤에만 호출하세요. 그 전, 재초기화 진행 중, 재초기화 실패 후에 호출하면 `MISSING_PREREQUISITE`로 reject되며 이전 사용자의 config는 재사용되지 않습니다.
 
 ```ts
 await asleep.saveUserMetadata({ birthYear: 1990, birthMonth: 5, birthDay: 17, gender: "female" });
@@ -416,7 +380,7 @@ wrapper는 bridge 호출 전에 native와 같은 범위를 검증하고 `INVALID
 | 30401 / 30403 | 인증 실패 / 이 고객에게 허용되지 않음 | 재시도하지 않음. 인증 정보와 계약 확인 |
 | 30000 / 30500 | 네트워크 또는 서버 실패 | 상한이 있는 정책으로 재시도 |
 
-입력 검사(빈 `sessionId`, 잘못된 구간)는 native 호출 전에 `INVALID_ARGUMENT`로, 가장 최근 `initAsleepConfig()`의 user join 완료 전, 재초기화 진행 중, 재초기화 실패 후의 호출은 `MISSING_PREREQUISITE`로 reject됩니다.
+입력 검사(빈 `sessionId`, 잘못된 구간)는 native 호출 전에 `INVALID_ARGUMENT`로, 가장 최근 `initAsleepConfig()`가 resolve되기 전, 재초기화 진행 중, 재초기화 실패 후의 호출은 `MISSING_PREREQUISITE`로 reject됩니다.
 
 ## 8. 프로덕션 체크리스트
 

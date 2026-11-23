@@ -54,8 +54,10 @@ export interface InternalAsleepState {
   sessionId: string | null;
   userId: string | null;
   // The native user config for the most recent initAsleepConfig() exists.
-  // Written by initAsleepConfig() start/failure/Android resolution and by
-  // onUserJoined/onUserJoinFailed; iOS resolves before the join completes.
+  // While an init is in progress its action is the only writer that may enable
+  // it (on resolution with a userId; both platforms resolve after the join).
+  // onUserJoined enables it only outside an init (SDK-initiated joins), and
+  // onUserJoinFailed/onUserDeleted may always disable it.
   isUserConfigReady: boolean;
   error: AsleepError | null;
   analysisResult: AsleepAnalysisResult | null;
@@ -402,7 +404,7 @@ const requireUserConfig = (action: string) => {
     storeAndThrow(
       new AsleepError(
         "MISSING_PREREQUISITE",
-        `initAsleepConfig() must complete its user join (onUserJoined) before ${action}().`,
+        `initAsleepConfig() must resolve (complete its user join) before ${action}().`,
       ),
     );
   }
@@ -491,9 +493,8 @@ export const asleepActions: AsleepActions = {
         config.baseUrl,
         config.callbackUrl,
       );
-      // Android resolves after its join with { userId }. iOS resolves before the
-      // join, so readiness waits for onUserJoined; never reset it here because
-      // that event may already have arrived.
+      // Both platforms resolve after the user join with { userId }. This
+      // resolution, not onUserJoined, enables readiness for this init.
       const joined = typeof result?.userId === "string" && result.userId.length > 0;
       useAsleepStore.setState({
         setupStatus: "complete",
@@ -888,8 +889,13 @@ const transitionForEvent = (
 ): { partial: Partial<InternalAsleepState>; log: string; requestAnalysis?: boolean } => {
   switch (eventType) {
     case "onUserJoined":
+      // During initAsleepConfig() the action's resolution owns readiness, so a
+      // stale join from an earlier init cannot enable the config for this one.
       return {
-        partial: { userId: payload.userId, isUserConfigReady: true },
+        partial: {
+          userId: payload.userId,
+          ...(state.setupStatus === "inProgress" ? {} : { isUserConfigReady: true }),
+        },
         log: `[onUserJoined] userId: ${payload.userId}`,
       };
     case "onUserJoinFailed":

@@ -6,6 +6,10 @@ public class AsleepModule: Module {
     private var reportManager: Asleep.Reports?
     private(set) var config: Asleep.Config?
     private var isLogEnabled = false
+    // The initAsleepConfig promise awaiting userDidJoin/didFailUserJoin. The
+    // delegate may call back off the JS queue, so every access holds the lock.
+    private let pendingInitLock = NSLock()
+    private var pendingInitPromise: Promise?
 
     public func definition() -> ModuleDefinition {
         Name("Asleep")
@@ -60,7 +64,17 @@ public class AsleepModule: Module {
             }
         }
 
-        Function("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?) in
+        // Resolves with { userId } in userDidJoin and rejects in didFailUserJoin,
+        // matching Android. A call while one is pending rejects without touching it.
+        AsyncFunction("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise) in
+            self.pendingInitLock.lock()
+            if self.pendingInitPromise != nil {
+                self.pendingInitLock.unlock()
+                promise.reject("OPERATION_IN_PROGRESS", "initAsleepConfig is already in progress")
+                return
+            }
+            self.pendingInitPromise = promise
+            self.pendingInitLock.unlock()
             // Drop the previous user's config until userDidJoin delivers the new one,
             // so metadata and report calls never run as the previous user. The
             // tracking manager is left alone so a running session is not disturbed.
@@ -432,6 +446,7 @@ extension AsleepModule: AsleepConfigDelegate {
         self.trackingManager = Asleep.createSleepTrackingManager(config: config, delegate: self)
         self.reportManager = Asleep.createReports(config: config)
         sendEvent("onUserJoined", ["userId": userId])
+        takePendingInitPromise()?.resolve(["userId": userId])
     }
 
     public func didFailUserJoin(error: Asleep.AsleepError) {
@@ -443,6 +458,17 @@ extension AsleepModule: AsleepConfigDelegate {
             "code": (error as NSError).code,
             "sdkCode": error.errorCode.code
         ])
+        takePendingInitPromise()?.reject(sdkRejection("INITIALIZATION_FAILED", sdkCode: error.errorCode.code, message: sdkMessage(error)))
+    }
+
+    // Clears the pending promise before returning it so it settles at most once.
+    // nil for SDK-initiated callbacks, which only emit events.
+    private func takePendingInitPromise() -> Promise? {
+        pendingInitLock.lock()
+        defer { pendingInitLock.unlock() }
+        let promise = pendingInitPromise
+        pendingInitPromise = nil
+        return promise
     }
 
     public func userDidDelete(userId: String) {
