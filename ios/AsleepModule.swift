@@ -6,24 +6,18 @@ public class AsleepModule: Module {
     private var reportManager: Asleep.Reports?
     private(set) var config: Asleep.Config?
     private var isLogEnabled = false
-    // The initAsleepConfig promise awaiting userDidJoin/didFailUserJoin. The
-    // delegate may call back off the JS queue, so every access holds the lock.
-    private let pendingInitLock = NSLock()
-    private var pendingInitPromise: Promise?
-    // Identifies the pending call so a timeout never settles a newer one.
-    private var pendingInitGeneration = 0
+    // Each initAsleepConfig call gets its own SDK delegate, so a callback can only
+    // settle the promise of the call that caused it (a late answer to a timed-out
+    // call can never resolve a newer call with another user's result). The SDK
+    // may hold delegates weakly, so they are retained here until they answer.
+    private let initLock = NSLock()
+    private var currentInit: InitCallDelegate?
+    private var liveInitDelegates: [ObjectIdentifier: InitCallDelegate] = [:]
     // The SDK ignores initAsleepConfig without any callback while tracking is
     // starting or stopping, or while a previous init is still waiting for its
-    // response (Asleep.swift isInitIgnoredWhileTrackingTransition, 3.3.3), so a
-    // pending call must not be able to block every later init forever: it is
-    // rejected after initResponseTimeout. The SDK may still answer that call
-    // later, and would ignore any init made meanwhile, so new calls are refused
-    // until a callback arrives (then it only emits events) or until
-    // staleInitWindow passes for a call the SDK really ignored. This keeps a late
-    // callback from settling a newer call with another user's result.
-    private static let initResponseTimeout: TimeInterval = 60
-    private static let staleInitWindow: TimeInterval = 300
-    private var staleInitUntil: Date?
+    // response (Asleep.swift isInitIgnoredWhileTrackingTransition, 3.3.3). Such a
+    // call is rejected after this timeout so it cannot block every later init.
+    fileprivate static let initResponseTimeout: TimeInterval = 60
 
     public func definition() -> ModuleDefinition {
         Name("Asleep")
@@ -82,32 +76,24 @@ public class AsleepModule: Module {
             }
         }
 
-        // Resolves with { userId } in userDidJoin and rejects in didFailUserJoin,
-        // matching Android. A call while one is pending rejects without touching it.
+        // Resolves with { userId } when this call's user join completes and rejects
+        // when it fails or the SDK never answers, matching Android. A call while
+        // another is still unsettled rejects without touching it.
         AsyncFunction("initAsleepConfig") { (apiKey: String?, appId: String?, appSecret: String?, userId: String?, baseUrl: String?, callbackUrl: String?, promise: Promise) in
-            self.pendingInitLock.lock()
-            if self.pendingInitPromise != nil {
-                self.pendingInitLock.unlock()
+            let callDelegate = InitCallDelegate(module: self, promise: promise)
+            self.initLock.lock()
+            if let current = self.currentInit, !current.isSettled {
+                self.initLock.unlock()
                 promise.reject("OPERATION_IN_PROGRESS", "initAsleepConfig is already in progress")
                 return
             }
-            if let staleUntil = self.staleInitUntil, Date() < staleUntil {
-                self.pendingInitLock.unlock()
-                promise.reject("OPERATION_IN_PROGRESS", "A previous initAsleepConfig timed out and the SDK has not answered it yet")
-                return
-            }
-            self.staleInitUntil = nil
-            self.pendingInitPromise = promise
-            self.pendingInitGeneration += 1
-            let generation = self.pendingInitGeneration
-            self.pendingInitLock.unlock()
-            DispatchQueue.global().asyncAfter(deadline: .now() + AsleepModule.initResponseTimeout) { [weak self] in
-                guard let self = self, let stale = self.takePendingInitPromise(ifGeneration: generation, markStale: true) else { return }
-                stale.reject("INITIALIZATION_FAILED", "initAsleepConfig got no response from the SDK within \(Int(AsleepModule.initResponseTimeout)) s (it ignores init while tracking is starting or stopping, or while a previous init is pending)")
-            }
-            // Drop the previous user's config until userDidJoin delivers the new one,
-            // so metadata and report calls never run as the previous user. The
-            // tracking manager is left alone so a running session is not disturbed.
+            self.currentInit = callDelegate
+            self.liveInitDelegates[ObjectIdentifier(callDelegate)] = callDelegate
+            self.initLock.unlock()
+            callDelegate.startTimeout()
+            // Drop the previous user's config until a join delivers the new one, so
+            // metadata and report calls never run as the previous user. The tracking
+            // manager is left alone so a running session is not disturbed.
             self.config = nil
             self.reportManager = nil
             Asleep.setLogger(self)
@@ -117,13 +103,13 @@ public class AsleepModule: Module {
                                         userId: userId,
                                         baseUrl: URL(string: baseUrl ?? ""),
                                         callbackUrl: URL(string: callbackUrl ?? ""),
-                                        delegate: self)
+                                        delegate: callDelegate)
             } else {
                 Asleep.initAsleepConfig(apiKey: apiKey,
                                         userId: userId,
                                         baseUrl: URL(string: baseUrl ?? ""),
                                         callbackUrl: URL(string: callbackUrl ?? ""),
-                                        delegate: self)
+                                        delegate: callDelegate)
             }
         }
 
@@ -472,14 +458,28 @@ extension AsleepModule: AsleepSetupDelegate {
 
 extension AsleepModule: AsleepConfigDelegate {
     public func userDidJoin(userId: String, config: Asleep.Config) {
+        applyUserJoin(userId: userId, config: config)
+    }
+
+    public func didFailUserJoin(error: Asleep.AsleepError) {
+        applyUserJoinFailure(error: error)
+    }
+
+    public func userDidDelete(userId: String) {
+        sendEvent("onUserDeleted", ["userId": userId])
+    }
+
+    // The SDK is now configured for this user, whichever call it answers, so the
+    // module state follows it and the event is always emitted. Only the calling
+    // InitCallDelegate settles a promise.
+    fileprivate func applyUserJoin(userId: String, config: Asleep.Config) {
         self.config = config
         self.trackingManager = Asleep.createSleepTrackingManager(config: config, delegate: self)
         self.reportManager = Asleep.createReports(config: config)
         sendEvent("onUserJoined", ["userId": userId])
-        takePendingInitPromise()?.resolve(["userId": userId])
     }
 
-    public func didFailUserJoin(error: Asleep.AsleepError) {
+    fileprivate func applyUserJoinFailure(error: Asleep.AsleepError) {
         self.config = nil
         self.reportManager = nil
         sendEvent("onUserJoinFailed", [
@@ -488,32 +488,69 @@ extension AsleepModule: AsleepConfigDelegate {
             "code": (error as NSError).code,
             "sdkCode": error.errorCode.code
         ])
-        takePendingInitPromise()?.reject(sdkRejection("INITIALIZATION_FAILED", sdkCode: error.errorCode.code, message: sdkMessage(error)))
     }
 
-    // Clears the pending promise before returning it so it settles at most once.
-    // nil for SDK-initiated callbacks, which only emit events.
-    private func takePendingInitPromise() -> Promise? {
-        pendingInitLock.lock()
-        defer { pendingInitLock.unlock() }
-        // Any SDK answer means it is no longer working on a timed-out call.
-        staleInitUntil = nil
-        let promise = pendingInitPromise
-        pendingInitPromise = nil
-        return promise
+    fileprivate func releaseInitDelegate(_ callDelegate: InitCallDelegate) {
+        initLock.lock()
+        liveInitDelegates[ObjectIdentifier(callDelegate)] = nil
+        initLock.unlock()
+    }
+}
+
+/// The SDK delegate for one initAsleepConfig call. Settles its promise at most once.
+final class InitCallDelegate: AsleepConfigDelegate {
+    private weak var module: AsleepModule?
+    private let promise: Promise
+    private let lock = NSLock()
+    private var settled = false
+
+    init(module: AsleepModule, promise: Promise) {
+        self.module = module
+        self.promise = promise
     }
 
-    private func takePendingInitPromise(ifGeneration generation: Int, markStale: Bool) -> Promise? {
-        pendingInitLock.lock()
-        defer { pendingInitLock.unlock() }
-        guard pendingInitGeneration == generation, let promise = pendingInitPromise else { return nil }
-        pendingInitPromise = nil
-        if markStale { staleInitUntil = Date().addingTimeInterval(AsleepModule.staleInitWindow) }
-        return promise
+    var isSettled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return settled
     }
 
-    public func userDidDelete(userId: String) {
-        sendEvent("onUserDeleted", ["userId": userId])
+    func startTimeout() {
+        DispatchQueue.global().asyncAfter(deadline: .now() + AsleepModule.initResponseTimeout) { [weak self] in
+            guard let self = self else { return }
+            // Keep the delegate retained: the SDK may still answer this call later,
+            // and that answer must reach applyUserJoin rather than another promise.
+            self.settle { promise in
+                promise.reject("INITIALIZATION_FAILED", "initAsleepConfig got no response from the SDK within \(Int(AsleepModule.initResponseTimeout)) s (it ignores init while tracking is starting or stopping, or while a previous init is pending)")
+            }
+        }
+    }
+
+    func userDidJoin(userId: String, config: Asleep.Config) {
+        module?.applyUserJoin(userId: userId, config: config)
+        settle { $0.resolve(["userId": userId]) }
+        module?.releaseInitDelegate(self)
+    }
+
+    func didFailUserJoin(error: Asleep.AsleepError) {
+        module?.applyUserJoinFailure(error: error)
+        settle { $0.reject(sdkRejection("INITIALIZATION_FAILED", sdkCode: error.errorCode.code, message: sdkMessage(error))) }
+        module?.releaseInitDelegate(self)
+    }
+
+    func userDidDelete(userId: String) {
+        module?.userDidDelete(userId: userId)
+    }
+
+    private func settle(_ action: (Promise) -> Void) {
+        lock.lock()
+        if settled {
+            lock.unlock()
+            return
+        }
+        settled = true
+        lock.unlock()
+        action(promise)
     }
 }
 

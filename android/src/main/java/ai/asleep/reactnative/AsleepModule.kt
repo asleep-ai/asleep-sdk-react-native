@@ -233,7 +233,9 @@ class AsleepModule : Module() {
                 val useToken = appId != null && appSecret != null
                 val credentialId = if (useToken) "appId:$appId" else "apiKey:$apiKey"
 
-                if (isTracking && savedCredentialId == credentialId && savedUserId == userId) {
+                // Only a live config from a previous successful init may take the shortcut;
+                // after a failed re-init the config is null and init must run again.
+                if (isTracking && _asleepConfig != null && savedCredentialId == credentialId && savedUserId == userId) {
                     promise.resolve(mapOf("userId" to (savedUserId ?: "")))
                     sendEvent("onDebugLog", mapOf("message" to "Service reconnected"))
                     return@AsyncFunction
@@ -245,11 +247,10 @@ class AsleepModule : Module() {
                 _asleepConfig = null
                 _reportManager = null
 
-                // Store the credential identity in memory instead of preferences
-                savedCredentialId = credentialId
-
                 val configListener = object : Asleep.AsleepConfigListener {
                     override fun onSuccess(userId: String?, asleepConfig: AsleepConfig?) {
+                        // Record the credential identity only once this init succeeded.
+                        savedCredentialId = credentialId
                         if (userId != null) {
                             sendEvent("onDebugLog", mapOf("message" to "UserId is not null"))
                             // Store userId in memory instead of preferences

@@ -75,7 +75,7 @@ export function useAsleepBootstrap(apiKey: string, stableUserId?: string) {
 }
 ```
 
-두 플랫폼 모두 `await initAsleepConfig()`는 native user join이 tracking/report manager를 만든 뒤 resolve되고, join이 실패하면 reject됩니다. `onUserJoined`가 아니라 `initAsleepConfig()` 자체의 Promise를 기다리세요. Android의 복원된 service 빠른 경로는 Promise를 resolve하지만 `onUserJoined`를 보내지 않습니다. 진행 중인 호출이 있을 때 다시 호출하면 `OPERATION_IN_PROGRESS`로 reject되므로, 사용자를 전환할 때는 앞선 호출이 끝난 뒤 다음 호출을 시작하세요. native SDK는 트래킹이 시작·종료 중이거나 앞선 init이 응답을 기다리는 중이면 init을 콜백 없이 무시합니다. 이때 iOS는 60초 뒤 `INITIALIZATION_FAILED`로 reject되고, SDK가 그 호출에 늦게 응답하거나(`onUserJoined`/`onUserJoinFailed`는 그대로 전달) 5분이 지날 때까지 이후 호출은 `OPERATION_IN_PROGRESS`로 reject됩니다. Android는 대기 상태로 남습니다. 시작·종료 중에는 `initAsleepConfig()`를 호출하지 마세요.
+두 플랫폼 모두 `await initAsleepConfig()`는 native user join이 tracking/report manager를 만든 뒤 resolve되고, join이 실패하면 reject됩니다. `onUserJoined`가 아니라 `initAsleepConfig()` 자체의 Promise를 기다리세요. Android의 복원된 service 빠른 경로는 Promise를 resolve하지만 `onUserJoined`를 보내지 않습니다. 진행 중인 호출이 있을 때 다시 호출하면 `OPERATION_IN_PROGRESS`로 reject되므로, 사용자를 전환할 때는 앞선 호출이 끝난 뒤 다음 호출을 시작하세요. native SDK는 트래킹이 시작·종료 중이거나 앞선 init이 응답을 기다리는 중이면 init을 콜백 없이 무시합니다. 이때 iOS는 60초 뒤 `INITIALIZATION_FAILED`로 reject됩니다. SDK가 그 호출에 늦게 응답하면 `onUserJoined`/`onUserJoinFailed`는 전달되지만 다른 호출의 결과로 처리되지는 않으며, SDK가 앞선 호출을 처리하는 동안 새로 한 호출도 같은 방식으로 timeout될 수 있습니다. Android는 대기 상태로 남습니다. 시작·종료 중에는 `initAsleepConfig()`를 호출하지 마세요.
 
 앱의 integration owner에서 `initialize()`를 한 번 호출하고 실패하면 tracking UI를 비활성화한 채 앱이 소유한 재시도 동작을 제공하세요.
 
