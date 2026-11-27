@@ -1,0 +1,103 @@
+name: Android
+
+# Compiles the library's Kotlin, with the Android SDK version pinned in
+# android/build.gradle, by assembling the example app's debug APK. The main CI
+# job is JS-only, so a native regression (a renamed upstream symbol, a changed
+# listener signature, a manifest-merge or duplicate-class conflict from an SDK
+# bump) would otherwise reach main unbuilt. This is compilation and packaging
+# only: it installs nothing on a device and proves nothing about runtime
+# behaviour.
+#
+# The trigger covers everything that feeds the Gradle graph, not just Kotlin:
+# settings.gradle and build.gradle resolve react-native, expo and the Expo
+# autolinking plugin out of node_modules, so a lockfile or workspace override
+# change can break this build without touching a native file.
+# (GitHub Actions does not support YAML anchors, so the list is repeated.)
+on:
+  pull_request:
+    paths:
+      - "android/**"
+      - "expo-module.config.json"
+      - "example/android/**"
+      - "example/app.json"
+      - "example/package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/android.yml"
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "expo-module.config.json"
+      - "example/android/**"
+      - "example/app.json"
+      - "example/package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Kotlin compile (example app, New Architecture)
+    # Pinned rather than ubuntu-latest so the preinstalled SDK/NDK set cannot
+    # move under this job without a code change.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # React Native 0.79's gradle/libs.versions.toml pins NDK 27.1.12297006
+      # and Expo's root-project plugin passes it to the app; the runner image
+      # ships 27.3, so the exact version is installed below. Update this
+      # together with the example app's React Native version.
+      NDK_VERSION: "27.1.12297006"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # AGP 8.8 (React Native 0.79) requires JDK 17.
+      - name: Setup Java
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.18.0"
+          cache: "pnpm"
+
+      # The Gradle settings and app build scripts call `node --print
+      # require.resolve(...)`, so node_modules has to exist first.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION"'
+
+      # Validates the committed gradle-wrapper.jar checksum before it runs
+      # (validate-wrappers defaults to true) and caches Gradle User Home.
+      # cache-provider: basic is the MIT implementation over actions/cache;
+      # cache writes happen only on main, PR runs read the main cache.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
+
+      # gradle.properties enables the New Architecture, so the app's
+      # autolinking C++ is built with CMake as well. One ABI is enough to prove
+      # compilation; the debug variant skips JS bundling.
+      - name: Assemble example app
+        run: ./gradlew :app:assembleDebug -PreactNativeArchitectures=arm64-v8a
+        working-directory: example/android
