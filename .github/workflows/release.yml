@@ -44,6 +44,8 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          # git push of the release branch below
+          persist-credentials: true
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
@@ -100,6 +102,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.ref }}
+          persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
@@ -127,6 +130,8 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          # kept as before for the local git operations of gh pr merge --delete-branch below
+          persist-credentials: true
 
       - name: Open and merge release PR
         env:
@@ -171,6 +176,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          persist-credentials: false
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
@@ -215,6 +221,7 @@ jobs:
           # in a different job graph branch.
           ref: ${{ needs.prepare.outputs.branch }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Generate AI release notes
         id: ai_notes
@@ -280,6 +287,8 @@ jobs:
           ref: main
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          # git push of the release tag below
+          persist-credentials: true
 
       - name: Download notes artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -329,6 +338,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # git push --delete of the release branch below
+          persist-credentials: true
 
       - name: Delete release branch if it still exists
         run: |

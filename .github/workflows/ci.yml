@@ -100,14 +100,27 @@ jobs:
           mkdir -p "$consumer"
           cp scripts/package-smoke/consumer.tsx scripts/package-smoke/tsconfig.json "$consumer/"
           tarball="$RUNNER_TEMP/$(node -p "require(process.argv[1])[0].filename" "$RUNNER_TEMP/pack.json")"
-          read -r -a peers <<< "$(node -p "
+          # The consumer's package.json is generated, not captured into a shell
+          # list, so a Node or data error stops the step here instead of leaving
+          # npm to fill in whatever peer versions are newest.
+          node -e "
             const p = require('./example/package.json');
-            ['react', 'react-native', 'expo-modules-core'].map((n) => n + '@' + p.dependencies[n])
-              .concat(['@types/react', 'typescript'].map((n) => n + '@' + p.devDependencies[n])).join(' ')
-          ")"
+            const dependencies = { 'react-native-asleep': 'file:' + process.argv[1] };
+            for (const [name, deps] of [
+              ['react', p.dependencies],
+              ['react-native', p.dependencies],
+              ['expo-modules-core', p.dependencies],
+              ['@types/react', p.devDependencies],
+              ['typescript', p.devDependencies],
+            ]) {
+              const spec = deps && deps[name];
+              if (typeof spec !== 'string' || spec === '') throw new Error('example/package.json has no ' + name);
+              dependencies[name] = spec;
+            }
+            console.log(JSON.stringify({ name: 'consumer', private: true, dependencies }, null, 2));
+          " "$tarball" > "$consumer/package.json"
           cd "$consumer"
-          npm init -y > /dev/null
-          npm install --ignore-scripts --no-audit --no-fund "$tarball" "${peers[@]}"
+          npm install --ignore-scripts --no-audit --no-fund
           ./node_modules/.bin/tsc -p .
 
   workflows:

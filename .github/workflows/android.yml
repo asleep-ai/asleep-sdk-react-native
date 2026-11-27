@@ -12,12 +12,15 @@ name: Android
 # settings.gradle and build.gradle resolve react-native, expo and the Expo
 # autolinking plugin out of node_modules, so a lockfile or workspace override
 # change can break this build without touching a native file.
+# The root package.json is listed because the example autolinks this package
+# from it (expo.autolinking.nativeModulesDir "..").
 # (GitHub Actions does not support YAML anchors, so the list is repeated.)
 on:
   pull_request:
     paths:
       - "android/**"
       - "expo-module.config.json"
+      - "package.json"
       - "example/android/**"
       - "example/app.json"
       - "example/package.json"
@@ -29,6 +32,7 @@ on:
     paths:
       - "android/**"
       - "expo-module.config.json"
+      - "package.json"
       - "example/android/**"
       - "example/app.json"
       - "example/package.json"

@@ -9,12 +9,15 @@ name: iOS
 # Podfile resolves expo and react-native out of node_modules, so a dependency
 # bump can break this compile without touching a single native file — and the
 # lockfile and workspace overrides have done exactly that before.
+# The root package.json is listed because the example autolinks this package
+# from it (expo.autolinking.nativeModulesDir "..").
 # (GitHub Actions does not support YAML anchors, so the list is repeated.)
 on:
   pull_request:
     paths:
       - "ios/**"
       - "*.podspec"
+      - "package.json"
       - "example/ios/**"
       - "example/package.json"
       - "pnpm-workspace.yaml"
@@ -25,6 +28,7 @@ on:
     paths:
       - "ios/**"
       - "*.podspec"
+      - "package.json"
       - "example/ios/**"
       - "example/package.json"
       - "pnpm-workspace.yaml"
