@@ -29,12 +29,15 @@ Bundled native SDK versions. The React Native package follows its own semver; it
 
 | react-native-asleep | iOS SDK | Android SDK |
 |---|---|---|
+| Unreleased | 3.3.3 | 3.3.2 |
 | 2.1.0 | 3.3.3 | 3.3.1 |
 | 2.0.0 | 3.3.2 | 3.3.1 |
 | 1.0.17 – 1.2.0 | 3.2.0 | 3.2.1 |
 | 1.0.15 | 3.2.0 | 3.2.0 |
 | 1.0.14 | 3.1.8 | 3.1.5 |
 | 1.0.13 | 3.1.6 | 3.1.4 |
+
+The unreleased Android 3.3.2 update fixes stale-session handling when starting or restoring tracking and retries upload HTTP 408 responses instead of terminating tracking. Keep calling `checkAndRestoreTracking()` before initialization to reconnect to an existing session. iOS stays on the released 3.3.3 SDK.
 
 1.2.0 already contained the breaking v2 API; 2.0.0 is the semver-correct release of that API.
 
@@ -128,6 +131,8 @@ For bare React Native projects, add the equivalent entries to the app's `Info.pl
 ### Android
 
 The library declares its required permissions and foreground service in its manifest. The manifest merger adds them to the app, so do not duplicate them only for this SDK.
+
+Android SDK 3.3.2 also declares `ACCESS_NETWORK_STATE` for network-type logging. It is merged from the native SDK and granted at install time, with no runtime permission prompt.
 
 `RECORD_AUDIO` is required at runtime. On Android 13 and later, `requestRequiredPermissions()` also requests `POST_NOTIFICATIONS` so the foreground-service notification can remain visible, but notification denial does not make its return value `false`.
 
