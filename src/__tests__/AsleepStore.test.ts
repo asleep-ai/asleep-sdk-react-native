@@ -275,14 +275,26 @@ describe("tracking failure classification", () => {
     expect(useAsleepStore.getState().trackingStatus).toBe("tracking");
   });
 
-  it("classifies survivable upload failures as transient without changing liveness", () => {
+  // Android 3.3.2 retries HTTP 408 as 23500, preserving the live session.
+  it.each([
+    [23000, false],
+    [23000, true],
+    [23500, false],
+    [23500, true],
+  ] as const)("keeps upload failure %i transient with logging %s", (sdkCode, showDebugLog) => {
+    resetState({ trackingStatus: "tracking", isAnalyzing: true, trackingStartTime: new Date(), showDebugLog });
+    const listener = jest.fn();
+    const unsubscribe = useAsleepStore.subscribe(listener);
     mockEmitter.__emit("onTrackingFailed", {
       code: "TRACKING_FAILED",
       message: "retry exhausted",
-      sdkCode: 23000,
+      sdkCode,
     });
-    expect(useAsleepStore.getState().error?.category).toBe("transient");
+    unsubscribe();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(useAsleepStore.getState().error).toMatchObject({ category: "transient", sdkCode });
     expect(useAsleepStore.getState().trackingStatus).toBe("tracking");
+    expect(useAsleepStore.getState().didClose).toBe(false);
   });
 
   it("classifies unknown codes without changing liveness", () => {

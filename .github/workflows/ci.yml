@@ -1,5 +1,11 @@
 name: CI
 
+# Public repository: pull requests from forks run these jobs with a read-only
+# GITHUB_TOKEN and no secrets. Keep every job that way. Nothing here may need a
+# secret, write permission or pull_request_target.
+#
+# Third-party actions are pinned to full commit SHAs (tag in the trailing
+# comment); zizmor below enforces that for every workflow in the repo.
 on:
   pull_request:
   push:
@@ -16,15 +22,18 @@ jobs:
   validate:
     name: Lint / Format / Typecheck / Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.18.0"
           cache: "pnpm"
@@ -43,3 +52,121 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  package:
+    name: Package / Consumer smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.18.0"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Same build the release workflow runs before `npm publish`.
+      - name: Build
+        run: pnpm build
+
+      # npm, not pnpm, packs here because release.yml publishes with npm.
+      # --ignore-scripts keeps lifecycle output out of the --json report; the
+      # build already ran above, as it does in the release workflow.
+      - name: Pack
+        run: npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/pack.json"
+
+      - name: Check tarball contents
+        run: node scripts/package-smoke/check-tarball.mjs "$RUNNER_TEMP/pack.json"
+
+      # Installs the tarball into an empty app, outside the workspace so no
+      # hoisted dev dependency can leak in, and type-checks real consumer code
+      # (skipLibCheck off, so the shipped .d.ts files are checked too). Peer
+      # versions come from the example app, the combination this repo verifies
+      # natively. Install scripts stay disabled: nothing here needs them.
+      - name: Type-check a consumer of the tarball
+        run: |
+          set -euo pipefail
+          consumer="$RUNNER_TEMP/consumer"
+          mkdir -p "$consumer"
+          cp scripts/package-smoke/consumer.tsx scripts/package-smoke/tsconfig.json "$consumer/"
+          tarball="$RUNNER_TEMP/$(node -p "require(process.argv[1])[0].filename" "$RUNNER_TEMP/pack.json")"
+          # The consumer's package.json is generated, not captured into a shell
+          # list, so a Node or data error stops the step here instead of leaving
+          # npm to fill in whatever peer versions are newest.
+          node -e "
+            const p = require('./example/package.json');
+            const dependencies = { 'react-native-asleep': 'file:' + process.argv[1] };
+            for (const [name, deps] of [
+              ['react', p.dependencies],
+              ['react-native', p.dependencies],
+              ['expo-modules-core', p.dependencies],
+              ['@types/react', p.devDependencies],
+              ['typescript', p.devDependencies],
+            ]) {
+              const spec = deps && deps[name];
+              if (typeof spec !== 'string' || spec === '') throw new Error('example/package.json has no ' + name);
+              dependencies[name] = spec;
+            }
+            console.log(JSON.stringify({ name: 'consumer', private: true, dependencies }, null, 2));
+          " "$tarball" > "$consumer/package.json"
+          cd "$consumer"
+          npm install --ignore-scripts --no-audit --no-fund
+          ./node_modules/.bin/tsc -p .
+
+  workflows:
+    name: Workflow lint / security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Official image (bundles shellcheck for run: blocks), pinned by digest.
+      - name: actionlint
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+        with:
+          args: -color
+
+      # Audits every workflow for injection, unpinned actions, excessive
+      # permissions and dangerous triggers. advanced-security: false keeps the
+      # results in the log/annotations, so no security-events permission is
+      # needed and fork PRs get the same gate. Medium and above fail the job.
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@1b4550e929643b8b26a62303c6bd64814271a4f1 # v0.9.2
+        with:
+          version: "1.33.1"
+          advanced-security: false
+          annotations: true
+          min-severity: medium
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Diffs the dependency graph (pnpm-lock.yaml and package.json manifests)
+      # between base and head and fails on newly introduced known-vulnerable
+      # versions. All of this repo's npm dependencies are dev/example tooling,
+      # so every scope is enforced, not just runtime.
+      - name: Dependency review
+        uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-scopes: runtime, development, unknown

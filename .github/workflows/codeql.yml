@@ -1,0 +1,54 @@
+name: CodeQL
+
+# CodeQL code scanning (advanced setup) for the library's TypeScript. Results
+# go to the repository's code scanning alerts and annotate pull requests.
+#
+# Scope is deliberate:
+# - javascript-typescript runs with build-mode none, so it needs no install or
+#   build and no secrets.
+# - Kotlin and Swift are not analysed here: CodeQL supports neither without a
+#   traced build (autobuild/manual), which would duplicate the Android and iOS
+#   compile jobs. Revisit by tracing those builds if native code grows.
+# - Workflow files are audited by zizmor in ci.yml rather than by CodeQL's
+#   `actions` language, to avoid two alert streams for the same YAML.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, so new queries and advisories reach main without a code change.
+    - cron: "27 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Required to upload results to code scanning. On pull requests from
+      # forks GitHub downgrades the token to read-only.
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          category: "/language:javascript-typescript"
